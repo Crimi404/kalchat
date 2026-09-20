@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: kalchat
+    runtime: node
+    plan: free
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: JWT_SECRET
+        generateValue: true
+      - key: STORY_LIFETIME_HOURS
+        value: 24
+      - key: DATABASE_URL
+        sync: false
+# Remarque : Kalchat utilise désormais Supabase (Postgres) comme base de données,
+# et non plus SQLite. La variable DATABASE_URL doit être ajoutée manuellement
+# dans le dashboard Render (Environment), avec la chaîne de connexion Supabase
+# (Project Settings > Database > Connection string > URI, mode "Session pooler"
+# recommandé pour le plan gratuit). Les données sont désormais persistantes et
+# survivent aux redéploiements, contrairement à l'ancienne base SQLite locale.
