@@ -183,6 +183,9 @@ async function initSchema() {
     ALTER TABLE users ADD COLUMN IF NOT EXISTS is_blocked INTEGER NOT NULL DEFAULT 0;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS first_name TEXT;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS last_name TEXT;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS cover_url TEXT;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS location TEXT;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS tags TEXT;
   `);
 
   console.log('✅ Schéma Postgres (Supabase) prêt.');

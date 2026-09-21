@@ -25,8 +25,24 @@ function initials(name) {
   return (name || '?').slice(0, 2).toUpperCase();
 }
 
+function avatarHtml(name, avatarUrl, extraClass = '') {
+  const cls = `avatar${extraClass ? ' ' + extraClass : ''}`;
+  if (avatarUrl) {
+    return `<div class="${cls}" style="background-image:url('${avatarUrl}')"></div>`;
+  }
+  return `<div class="${cls}">${initials(name)}</div>`;
+}
+
+function toDate(iso) {
+  // Postgres renvoie déjà des dates ISO complètes avec fuseau (ex: 2026-09-20T10:00:00.000Z).
+  // On ne rajoute 'Z' que si la chaîne n'a pas déjà d'indicateur de fuseau, pour rester
+  // compatible avec d'anciennes données au format sans fuseau.
+  const hasTimezone = /Z$|[+-]\d{2}:?\d{2}$/.test(iso);
+  return new Date(hasTimezone ? iso : iso + 'Z');
+}
+
 function fmtTime(iso) {
-  const d = new Date(iso + 'Z');
+  const d = toDate(iso);
   return d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
 }
 
@@ -137,7 +153,7 @@ async function loadConversations() {
     const row = document.createElement('div');
     row.className = 'conversation-row' + (c.id === activeConversationId ? ' active' : '');
     row.innerHTML = `
-      <div class="avatar">${initials(c.name)}</div>
+      ${avatarHtml(c.name, c.avatar_url)}
       <div class="conv-meta">
         <div class="conv-name">${c.name || 'Conversation'}${badgeHtml(c.badge)}${c.is_group ? ' 👥' : ''}</div>
         <div class="conv-last">${c.last_message || 'Aucun message pour le moment'}</div>
@@ -153,7 +169,14 @@ async function openConversation(conv) {
   document.getElementById('empty-state').classList.add('hidden');
   document.getElementById('chat-window').classList.remove('hidden');
   document.getElementById('chat-title').innerHTML = `${conv.name || 'Conversation'}${badgeHtml(conv.badge)}`;
-  document.getElementById('chat-avatar').textContent = initials(conv.name);
+  const chatAvatarEl = document.getElementById('chat-avatar');
+  if (conv.avatar_url) {
+    chatAvatarEl.style.backgroundImage = `url('${conv.avatar_url}')`;
+    chatAvatarEl.textContent = '';
+  } else {
+    chatAvatarEl.style.backgroundImage = '';
+    chatAvatarEl.textContent = initials(conv.name);
+  }
   document.getElementById('chat-typing').textContent = '';
 
   socket.emit('join', conv.id);
@@ -236,7 +259,7 @@ searchInput.addEventListener('input', async () => {
   users.forEach((u) => {
     const row = document.createElement('div');
     row.className = 'search-result-row';
-    row.innerHTML = `<div class="avatar small">${initials(u.username)}</div><span>${u.username}</span>`;
+    row.innerHTML = `${avatarHtml(u.username, u.avatar_url, "small")}<span>${u.username}</span>`;
     row.addEventListener('click', async () => {
       searchInput.value = '';
       searchResults.classList.add('hidden');
@@ -245,7 +268,7 @@ searchInput.addEventListener('input', async () => {
       if (profile.can_message) {
         const conv = await api('/chat/conversations', { method: 'POST', body: { member_ids: [u.id], is_group: false } });
         await loadConversations();
-        openConversation({ id: conv.id, name: u.username, badge: u.badge });
+        openConversation({ id: conv.id, name: u.username, badge: u.badge, avatar_url: u.avatar_url });
       } else if (profile.relationship === 'pending') {
         showToast(`Demande déjà envoyée à ${u.username}, en attente d'acceptation.`);
       } else {
@@ -279,7 +302,7 @@ document.getElementById('group-members-search').addEventListener('input', async 
   users.forEach((u) => {
     const row = document.createElement('div');
     row.className = 'search-result-row';
-    row.innerHTML = `<div class="avatar small">${initials(u.username)}</div><span>${u.username}</span>`;
+    row.innerHTML = `${avatarHtml(u.username, u.avatar_url, "small")}<span>${u.username}</span>`;
     row.addEventListener('click', () => {
       if (!groupSelectedMembers.find((m) => m.id === u.id)) {
         groupSelectedMembers.push(u);
@@ -406,10 +429,12 @@ document.querySelectorAll('.create-option').forEach((opt) => {
 });
 
 function timeAgo(iso) {
-  const diffMin = Math.max(1, Math.round((Date.now() - new Date(iso + 'Z').getTime()) / 60000));
+  const diffMin = Math.max(1, Math.round((Date.now() - toDate(iso).getTime()) / 60000));
   if (diffMin < 60) return `il y a ${diffMin} min`;
-  const h = Math.round(diffMin / 60);
-  return `il y a ${h} h`;
+  const diffH = Math.round(diffMin / 60);
+  if (diffH < 24) return `il y a ${diffH} h`;
+  const diffJ = Math.round(diffH / 24);
+  return `il y a ${diffJ} j`;
 }
 
 async function loadStoryFeed() {
@@ -437,7 +462,7 @@ function renderStoryCard(s) {
 
   card.innerHTML = `
     <div class="story-card-header">
-      <div class="avatar small">${initials(s.username)}</div>
+      ${avatarHtml(s.username, s.avatar_url, 'small')}
       <div>
         <div class="who">${s.username === me.username ? 'Vous' : s.username}</div>
         <div class="when">${timeAgo(s.created_at)} · disparaît dans 24h</div>
@@ -545,7 +570,7 @@ function renderAdminUserRow(u) {
   const isSelf = u.id === me.id;
 
   row.innerHTML = `
-    <div class="avatar small">${initials(u.username)}</div>
+    ${avatarHtml(u.username, u.avatar_url, 'small')}
     <div class="who">${u.username} ${badgeHtml(u.badge)} ${isSelf ? '<span class="admin-you-tag">(toi)</span>' : ''}</div>
     <select class="admin-badge-select" ${isSelf ? 'disabled' : ''}>
       <option value="" ${!u.badge ? 'selected' : ''}>Aucun badge</option>
@@ -623,7 +648,7 @@ function renderExplorerUserRow(u) {
   const row = document.createElement('div');
   row.className = 'explorer-user-row';
   row.innerHTML = `
-    <div class="avatar small">${initials(u.username)}</div>
+    ${avatarHtml(u.username, u.avatar_url, 'small')}
     <div class="who">${u.username}</div>
     <button>Voir le profil</button>
   `;
@@ -737,7 +762,7 @@ async function openFollowListModal(username, kind) {
     row.className = 'explorer-user-row';
     row.style.maxWidth = 'none';
     row.innerHTML = `
-      <div class="avatar small">${initials(u.username)}</div>
+      ${avatarHtml(u.username, u.avatar_url, 'small')}
       <div class="who">${u.username}</div>
     `;
     row.addEventListener('click', () => {
@@ -767,7 +792,7 @@ async function renderRequestsBox() {
     const row = document.createElement('div');
     row.className = 'request-row';
     row.innerHTML = `
-      <div class="avatar small">${initials(r.username)}</div>
+      ${avatarHtml(r.username, r.avatar_url, 'small')}
       <span>${r.username}</span>
       <button class="req-accept">Accepter</button>
       <button class="req-decline">Refuser</button>
@@ -877,7 +902,7 @@ function renderNotifPanel() {
     .map(
       (n) => `
     <div class="notif-row ${n.is_read ? '' : 'unread'}" data-id="${n.id}" data-type="${n.type}" data-conv="${n.conversation_id || ''}">
-      <div class="avatar small">${initials(n.actor_username)}</div>
+      ${avatarHtml(n.actor_username, n.actor_avatar_url, 'small')}
       <div>
         <div class="notif-text"><b>${n.actor_username}</b> ${notifLabels[n.type] || ''}</div>
         <div class="notif-time">${timeAgo(n.created_at)}</div>
@@ -900,7 +925,7 @@ function renderNotifPanel() {
       document.getElementById('notif-panel').classList.add('hidden');
       if (row.dataset.type === 'message' && row.dataset.conv) {
         showMainView('messages');
-        openConversation({ id: row.dataset.conv, name: n?.actor_username });
+        openConversation({ id: row.dataset.conv, name: n?.actor_username, avatar_url: n?.actor_avatar_url });
       } else if (['like', 'comment', 'share'].includes(row.dataset.type)) {
         showMainView('posts');
       } else if (['follow_request', 'follow_accept'].includes(row.dataset.type)) {
@@ -949,7 +974,7 @@ function renderPostCard(p) {
 
   card.innerHTML = `
     <div class="story-card-header">
-      <div class="avatar small">${initials(p.username)}</div>
+      ${avatarHtml(p.username, p.avatar_url, 'small')}
       <div>
         <div class="who" style="cursor:pointer;">${p.username === me.username ? 'Vous' : p.username} ${badgeHtml(p.badge)}</div>
         <div class="when">${timeAgo(p.created_at)}</div>
@@ -1094,7 +1119,7 @@ async function loadStories() {
     item.className = 'story-item';
     const allSeen = g.stories.every((s) => s.viewed_by_me);
     item.innerHTML = `
-      <div class="story-ring ${allSeen ? 'seen' : ''}"><div class="avatar">${initials(g.username)}</div></div>
+      <div class="story-ring ${allSeen ? 'seen' : ''}">${avatarHtml(g.username, g.avatar_url)}</div>
       <span class="story-label">${g.user_id === me.id ? 'Vous' : g.username}</span>`;
     item.addEventListener('click', () => openStoryViewer(g));
     bar.appendChild(item);
@@ -1123,7 +1148,14 @@ function openStoryViewer(group) {
   storyQueue = group.stories;
   storyIndex = 0;
   document.getElementById('story-username').textContent = group.username;
-  document.getElementById('story-avatar').textContent = initials(group.username);
+  const storyAvatarEl = document.getElementById('story-avatar');
+  if (group.avatar_url) {
+    storyAvatarEl.style.backgroundImage = `url('${group.avatar_url}')`;
+    storyAvatarEl.textContent = '';
+  } else {
+    storyAvatarEl.style.backgroundImage = '';
+    storyAvatarEl.textContent = initials(group.username);
+  }
   document.getElementById('story-viewer').classList.remove('hidden');
   showCurrentStory();
 }
