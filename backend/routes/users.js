@@ -50,6 +50,19 @@ router.get('/me/requests', async (req, res) => {
   res.json(rows);
 });
 
+// ---------- Demandes d'abonnement envoyées, en attente ----------
+router.get('/me/sent-requests', async (req, res) => {
+  const rows = await db
+    .prepare(
+      `SELECT f.followed_id, f.created_at, u.username, u.avatar_url
+       FROM follows f JOIN users u ON u.id = f.followed_id
+       WHERE f.follower_id = ? AND f.status = 'pending'
+       ORDER BY f.created_at DESC`
+    )
+    .all(req.user.id);
+  res.json(rows);
+});
+
 // ---------- Répondre à une demande d'abonnement ----------
 router.post('/requests/:followerId/respond', async (req, res) => {
   const { accept } = req.body;

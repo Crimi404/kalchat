@@ -26,9 +26,23 @@ app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 
 // ---------- Upload de médias (photos, vidéos, avatars) — stockés sur Supabase Storage ----------
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
+const MAX_UPLOAD_MB = 25;
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_UPLOAD_MB * 1024 * 1024 } });
 
-app.post('/api/upload', upload.single('file'), async (req, res) => {
+function handleUpload(req, res, next) {
+  upload.single('file')(req, res, (err) => {
+    if (err) {
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(413).json({ error: `Fichier trop volumineux (max ${MAX_UPLOAD_MB} Mo)` });
+      }
+      console.error('Erreur upload (multer):', err.message);
+      return res.status(400).json({ error: 'Fichier invalide ou upload échoué' });
+    }
+    next();
+  });
+}
+
+app.post('/api/upload', handleUpload, async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Aucun fichier reçu' });
   try {
     const ext = path.extname(req.file.originalname) || '';
@@ -36,8 +50,8 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
     const url = await storage.uploadFile(filename, req.file.buffer, req.file.mimetype);
     res.json({ url });
   } catch (err) {
-    console.error('Erreur upload Supabase Storage:', err.message);
-    res.status(500).json({ error: 'Échec de l\'upload du fichier' });
+    console.error('Erreur upload Supabase Storage:', err.message, err);
+    res.status(500).json({ error: `Échec de l'upload : ${err.message || 'erreur inconnue'}` });
   }
 });
 

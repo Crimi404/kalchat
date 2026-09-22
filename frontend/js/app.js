@@ -17,7 +17,7 @@ async function api(path, { method = 'GET', body, isForm = false } = {}) {
     body: body ? (isForm ? body : JSON.stringify(body)) : undefined,
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || 'Erreur serveur');
+  if (!res.ok) throw new Error(data.error || `Erreur serveur (${res.status})`);
   return data;
 }
 
@@ -558,10 +558,31 @@ async function loadAdminPanel() {
       <div class="admin-stat-card"><b>${stats.active_stories}</b><span>Stories actives</span></div>
       <div class="admin-stat-card"><b>${stats.blocked}</b><span>Bloqués</span></div>
     </div>
+    <input type="text" id="admin-search-input" class="explorer-search" placeholder="Rechercher un utilisateur..." />
     <div class="explorer-section-title">Utilisateurs</div>
+    <div id="admin-users-list"></div>
   `;
 
-  users.forEach((u) => panel.appendChild(renderAdminUserRow(u)));
+  const usersList = document.getElementById('admin-users-list');
+  const renderUsers = (list) => {
+    usersList.innerHTML = '';
+    if (list.length === 0) {
+      usersList.innerHTML = '<div class="feed-empty">Aucun utilisateur trouvé.</div>';
+      return;
+    }
+    list.forEach((u) => usersList.appendChild(renderAdminUserRow(u)));
+  };
+  renderUsers(users);
+
+  let searchTimeout;
+  document.getElementById('admin-search-input').addEventListener('input', (e) => {
+    clearTimeout(searchTimeout);
+    const q = e.target.value.trim();
+    searchTimeout = setTimeout(async () => {
+      const results = await api(`/admin/users${q ? `?q=${encodeURIComponent(q)}` : ''}`);
+      renderUsers(results);
+    }, 300);
+  });
 }
 
 function renderAdminUserRow(u) {
@@ -672,6 +693,8 @@ async function loadProfilePanel(username) {
   if (profile.relationship === 'me') {
     const reqBox = await renderRequestsBox();
     if (reqBox) panel.appendChild(reqBox);
+    const sentBox = await renderSentRequestsBox();
+    if (sentBox) panel.appendChild(sentBox);
   }
 
   const title = document.createElement('div');
@@ -811,6 +834,32 @@ async function renderRequestsBox() {
   return box;
 }
 
+async function renderSentRequestsBox() {
+  const requests = await api('/users/me/sent-requests');
+  if (requests.length === 0) return null;
+
+  const box = document.createElement('div');
+  box.className = 'profile-requests';
+  box.innerHTML = `<h4>Demandes envoyées (${requests.length})</h4>`;
+
+  requests.forEach((r) => {
+    const row = document.createElement('div');
+    row.className = 'request-row';
+    row.innerHTML = `
+      ${avatarHtml(r.username, r.avatar_url, 'small')}
+      <span>${r.username}</span>
+      <button class="req-decline">Annuler</button>
+    `;
+    row.querySelector('.req-decline').addEventListener('click', async () => {
+      await api(`/users/${encodeURIComponent(r.username)}/follow`, { method: 'DELETE' });
+      loadProfilePanel(me.username);
+    });
+    box.appendChild(row);
+  });
+
+  return box;
+}
+
 // ---------------- Édition de profil ----------------
 const editProfileModal = document.getElementById('edit-profile-modal');
 const editBioInput = document.getElementById('edit-bio-input');
@@ -907,9 +956,23 @@ function renderNotifPanel() {
         <div class="notif-text"><b>${n.actor_username}</b> ${notifLabels[n.type] || ''}</div>
         <div class="notif-time">${timeAgo(n.created_at)}</div>
       </div>
+      <button class="notif-delete-btn" data-del-id="${n.id}" title="Supprimer">✕</button>
     </div>`
     )
     .join('');
+
+  list.querySelectorAll('.notif-delete-btn').forEach((btn) => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const id = btn.dataset.delId;
+      await api(`/notifications/${id}`, { method: 'DELETE' }).catch(() => {});
+      const n = notifications.find((x) => x.id === id);
+      if (n && !n.is_read) unreadCount = Math.max(0, unreadCount - 1);
+      notifications = notifications.filter((x) => x.id !== id);
+      renderNotifPanel();
+      updateNotifBadge();
+    });
+  });
 
   list.querySelectorAll('.notif-row').forEach((row) => {
     row.addEventListener('click', async () => {
@@ -945,6 +1008,13 @@ document.addEventListener('click', (e) => {
 document.getElementById('notif-mark-all').addEventListener('click', async () => {
   await api('/notifications/read-all', { method: 'POST' });
   notifications.forEach((n) => (n.is_read = 1));
+  unreadCount = 0;
+  renderNotifPanel();
+  updateNotifBadge();
+});
+document.getElementById('notif-delete-all').addEventListener('click', async () => {
+  await api('/notifications', { method: 'DELETE' });
+  notifications = [];
   unreadCount = 0;
   renderNotifPanel();
   updateNotifBadge();

@@ -40,4 +40,16 @@ router.post('/read-all', async (req, res) => {
   res.json({ ok: true });
 });
 
+// ---------- Supprimer une notification ----------
+router.delete('/:id', async (req, res) => {
+  await db.prepare('DELETE FROM notifications WHERE id = ? AND user_id = ?').run(req.params.id, req.user.id);
+  res.json({ ok: true });
+});
+
+// ---------- Supprimer toutes les notifications ----------
+router.delete('/', async (req, res) => {
+  await db.prepare('DELETE FROM notifications WHERE user_id = ?').run(req.user.id);
+  res.json({ ok: true });
+});
+
 module.exports = router;

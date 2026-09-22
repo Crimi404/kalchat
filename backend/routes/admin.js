@@ -16,16 +16,19 @@ router.get('/stats', async (req, res) => {
   res.json({ users, posts, messages, active_stories: stories, blocked });
 });
 
-// ---------- Liste de tous les utilisateurs ----------
+// ---------- Liste de tous les utilisateurs (avec recherche optionnelle) ----------
 router.get('/users', async (req, res) => {
+  const { q } = req.query;
   const rows = await db
     .prepare(
       `SELECT u.id, u.username, u.avatar_url, u.badge, u.is_admin, u.is_blocked, u.created_at,
               (SELECT COUNT(*) FROM posts p WHERE p.user_id = u.id) AS post_count
        FROM users u
-       ORDER BY u.created_at DESC`
+       ${q ? 'WHERE u.username ILIKE ?' : ''}
+       ORDER BY u.created_at DESC
+       LIMIT 100`
     )
-    .all();
+    .all(...(q ? [`%${q}%`] : []));
   res.json(rows.map((u) => ({ ...u, is_admin: !!u.is_admin, is_blocked: !!u.is_blocked })));
 });
 
