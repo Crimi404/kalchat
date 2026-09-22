@@ -15,6 +15,7 @@ const notificationsRoutes = require('./routes/notifications');
 const usersRoutes = require('./routes/users');
 const adminRoutes = require('./routes/admin');
 const db = require('./db');
+const storage = require('./storage');
 
 const app = express();
 const server = http.createServer(app);
@@ -24,16 +25,21 @@ app.set('io', io);
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 
-// ---------- Upload de médias (photos, vidéos, avatars) ----------
-const uploadDir = path.join(__dirname, 'uploads');
-require('fs').mkdirSync(uploadDir, { recursive: true });
-const upload = multer({ dest: uploadDir, limits: { fileSize: 20 * 1024 * 1024 } });
+// ---------- Upload de médias (photos, vidéos, avatars) — stockés sur Supabase Storage ----------
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 
-app.post('/api/upload', upload.single('file'), (req, res) => {
+app.post('/api/upload', upload.single('file'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Aucun fichier reçu' });
-  res.json({ url: `/uploads/${req.file.filename}` });
+  try {
+    const ext = path.extname(req.file.originalname) || '';
+    const filename = `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`;
+    const url = await storage.uploadFile(filename, req.file.buffer, req.file.mimetype);
+    res.json({ url });
+  } catch (err) {
+    console.error('Erreur upload Supabase Storage:', err.message);
+    res.status(500).json({ error: 'Échec de l\'upload du fichier' });
+  }
 });
-app.use('/uploads', express.static(uploadDir));
 
 // ---------- Routes API ----------
 app.use('/api/auth', authRoutes);
@@ -85,12 +91,13 @@ io.on('connection', (socket) => {
 const PORT = process.env.PORT || 4000;
 
 db.initSchema()
+  .then(() => storage.initStorage())
   .then(() => {
     server.listen(PORT, () => {
       console.log(`Kalchat backend démarré sur http://localhost:${PORT}`);
     });
   })
   .catch((err) => {
-    console.error('❌ Impossible d\'initialiser la base Postgres (Supabase). Vérifie DATABASE_URL.', err);
+    console.error('❌ Impossible d\'initialiser Postgres ou Supabase Storage. Vérifie DATABASE_URL / SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY.', err);
     process.exit(1);
   });

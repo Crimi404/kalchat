@@ -115,14 +115,14 @@ router.get('/feed', async (req, res) => {
          AND (
            s.user_id = ?
            OR s.user_id IN (
-             SELECT cm2.user_id FROM conversation_members cm1
-             JOIN conversation_members cm2 ON cm2.conversation_id = cm1.conversation_id AND cm2.user_id != cm1.user_id
-             WHERE cm1.user_id = ?
+             SELECT followed_id FROM follows WHERE follower_id = ? AND status = 'accepted'
+             UNION
+             SELECT follower_id FROM follows WHERE followed_id = ? AND status = 'accepted'
            )
          )
        ORDER BY s.created_at DESC`
     )
-    .all(req.user.id, req.user.id, req.user.id, req.user.id);
+    .all(req.user.id, req.user.id, req.user.id, req.user.id, req.user.id);
 
   // Regroupe par auteur
   const grouped = {};
