@@ -15,9 +15,13 @@ services:
         value: 24
       - key: DATABASE_URL
         sync: false
-# Remarque : Kalchat utilise désormais Supabase (Postgres) comme base de données,
-# et non plus SQLite. La variable DATABASE_URL doit être ajoutée manuellement
-# dans le dashboard Render (Environment), avec la chaîne de connexion Supabase
-# (Project Settings > Database > Connection string > URI, mode "Session pooler"
-# recommandé pour le plan gratuit). Les données sont désormais persistantes et
-# survivent aux redéploiements, contrairement à l'ancienne base SQLite locale.
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+# Remarque : Kalchat utilise désormais Supabase (Postgres) comme base de données ET Supabase
+# Storage pour les fichiers uploadés (photos, vidéos), et non plus SQLite ou le disque local
+# de Render. Trois variables doivent être ajoutées manuellement dans le dashboard Render
+# (Environment) : DATABASE_URL, SUPABASE_URL et SUPABASE_SERVICE_ROLE_KEY (Project Settings
+# > API dans Supabase). Les données ET les fichiers sont désormais persistants et survivent
+# aux redéploiements.
