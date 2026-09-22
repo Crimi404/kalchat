@@ -65,7 +65,7 @@ router.post('/:id/like', async (req, res) => {
 router.get('/:id/comments', async (req, res) => {
   const comments = await db
     .prepare(
-      `SELECT c.id, c.content, c.created_at, u.id AS user_id, u.username, u.avatar_url
+      `SELECT c.id, c.content, c.created_at, u.id AS user_id, u.username, u.avatar_url, u.badge
        FROM story_comments c JOIN users u ON u.id = c.user_id
        WHERE c.story_id = ? ORDER BY c.created_at ASC`
     )
@@ -87,7 +87,7 @@ router.post('/:id/comments', async (req, res) => {
 
   const comment = await db
     .prepare(
-      `SELECT c.id, c.content, c.created_at, u.id AS user_id, u.username, u.avatar_url
+      `SELECT c.id, c.content, c.created_at, u.id AS user_id, u.username, u.avatar_url, u.badge
        FROM story_comments c JOIN users u ON u.id = c.user_id WHERE c.id = ?`
     )
     .get(id);
@@ -101,7 +101,7 @@ router.get('/feed', async (req, res) => {
 
   const rows = await db
     .prepare(
-      `SELECT s.id, s.user_id, u.username, u.avatar_url, s.media_url, s.caption, s.created_at, s.expires_at,
+      `SELECT s.id, s.user_id, u.username, u.avatar_url, u.badge, s.media_url, s.caption, s.created_at, s.expires_at,
               EXISTS(SELECT 1 FROM story_views v WHERE v.story_id = s.id AND v.viewer_id = ?) AS viewed_by_me,
               (SELECT COUNT(*) FROM story_likes l WHERE l.story_id = s.id) AS like_count,
               EXISTS(SELECT 1 FROM story_likes l WHERE l.story_id = s.id AND l.user_id = ?) AS liked_by_me,
@@ -128,7 +128,7 @@ router.get('/feed', async (req, res) => {
   const grouped = {};
   for (const r of rows) {
     if (!grouped[r.user_id]) {
-      grouped[r.user_id] = { user_id: r.user_id, username: r.username, avatar_url: r.avatar_url, stories: [] };
+      grouped[r.user_id] = { user_id: r.user_id, username: r.username, avatar_url: r.avatar_url, badge: r.badge, stories: [] };
     }
     grouped[r.user_id].stories.push(r);
   }

@@ -428,6 +428,15 @@ document.querySelectorAll('.create-option').forEach((opt) => {
   });
 });
 
+function timeRemaining(expiresAt) {
+  const diffMin = Math.round((toDate(expiresAt).getTime() - Date.now()) / 60000);
+  if (diffMin <= 0) return 'expire bientôt';
+  if (diffMin < 60) return `expire dans ${diffMin} min`;
+  const h = Math.floor(diffMin / 60);
+  const m = diffMin % 60;
+  return m > 0 ? `expire dans ${h} h ${m} min` : `expire dans ${h} h`;
+}
+
 function timeAgo(iso) {
   const diffMin = Math.max(1, Math.round((Date.now() - toDate(iso).getTime()) / 60000));
   if (diffMin < 60) return `il y a ${diffMin} min`;
@@ -464,8 +473,8 @@ function renderStoryCard(s) {
     <div class="story-card-header">
       ${avatarHtml(s.username, s.avatar_url, 'small')}
       <div>
-        <div class="who">${s.username === me.username ? 'Vous' : s.username}</div>
-        <div class="when">${timeAgo(s.created_at)} · disparaît dans 24h</div>
+        <div class="who">${s.username === me.username ? 'Vous' : s.username} ${badgeHtml(s.badge)}</div>
+        <div class="when">${timeAgo(s.created_at)} · ${timeRemaining(s.expires_at)}</div>
       </div>
     </div>
     ${sharedLine}
@@ -499,7 +508,7 @@ function renderStoryCard(s) {
     if (!commentsBox.classList.contains('hidden')) {
       const comments = await api(`/stories/${s.id}/comments`);
       commentsList.innerHTML = comments
-        .map((c) => `<div class="story-comment"><span class="c-author">${c.username}</span>${c.content}</div>`)
+        .map((c) => `<div class="story-comment"><span class="c-author">${c.username} ${badgeHtml(c.badge)}</span>${c.content}</div>`)
         .join('');
     }
   });
@@ -512,7 +521,7 @@ function renderStoryCard(s) {
     const comment = await api(`/stories/${s.id}/comments`, { method: 'POST', body: { content } });
     commentsList.insertAdjacentHTML(
       'beforeend',
-      `<div class="story-comment"><span class="c-author">${comment.username}</span>${comment.content}</div>`
+      `<div class="story-comment"><span class="c-author">${comment.username} ${badgeHtml(comment.badge)}</span>${comment.content}</div>`
     );
     card.querySelector('.comment-count').textContent = Number(card.querySelector('.comment-count').textContent) + 1;
     input.value = '';
@@ -670,7 +679,7 @@ function renderExplorerUserRow(u) {
   row.className = 'explorer-user-row';
   row.innerHTML = `
     ${avatarHtml(u.username, u.avatar_url, 'small')}
-    <div class="who">${u.username}</div>
+    <div class="who">${u.username} ${badgeHtml(u.badge)}</div>
     <button>Voir le profil</button>
   `;
   row.addEventListener('click', () => {
@@ -786,7 +795,7 @@ async function openFollowListModal(username, kind) {
     row.style.maxWidth = 'none';
     row.innerHTML = `
       ${avatarHtml(u.username, u.avatar_url, 'small')}
-      <div class="who">${u.username}</div>
+      <div class="who">${u.username} ${badgeHtml(u.badge)}</div>
     `;
     row.addEventListener('click', () => {
       modal.classList.add('hidden');
@@ -1092,7 +1101,7 @@ function renderPostCard(p) {
     if (!commentsBox.classList.contains('hidden')) {
       const comments = await api(`/posts/${p.id}/comments`);
       commentsList.innerHTML = comments
-        .map((c) => `<div class="story-comment"><span class="c-author">${c.username}</span>${escapeHtml(c.content)}</div>`)
+        .map((c) => `<div class="story-comment"><span class="c-author">${c.username} ${badgeHtml(c.badge)}</span>${escapeHtml(c.content)}</div>`)
         .join('');
     }
   });
@@ -1105,7 +1114,7 @@ function renderPostCard(p) {
     const comment = await api(`/posts/${p.id}/comments`, { method: 'POST', body: { content } });
     commentsList.insertAdjacentHTML(
       'beforeend',
-      `<div class="story-comment"><span class="c-author">${comment.username}</span>${escapeHtml(comment.content)}</div>`
+      `<div class="story-comment"><span class="c-author">${comment.username} ${badgeHtml(comment.badge)}</span>${escapeHtml(comment.content)}</div>`
     );
     card.querySelector('.comment-count').textContent = Number(card.querySelector('.comment-count').textContent) + 1;
     input.value = '';
@@ -1217,7 +1226,7 @@ let storyTimer = null;
 function openStoryViewer(group) {
   storyQueue = group.stories;
   storyIndex = 0;
-  document.getElementById('story-username').textContent = group.username;
+  document.getElementById('story-username').innerHTML = `${group.username} ${badgeHtml(group.badge)}`;
   const storyAvatarEl = document.getElementById('story-avatar');
   if (group.avatar_url) {
     storyAvatarEl.style.backgroundImage = `url('${group.avatar_url}')`;
@@ -1236,6 +1245,7 @@ function showCurrentStory() {
 
   document.getElementById('story-media').src = story.media_url;
   document.getElementById('story-caption').textContent = story.caption || '';
+  document.getElementById('story-countdown').textContent = timeRemaining(story.expires_at);
   api(`/stories/${story.id}/view`, { method: 'POST' }).catch(() => {});
 
   const bar = document.getElementById('story-progress');

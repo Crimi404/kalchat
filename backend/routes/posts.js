@@ -79,7 +79,7 @@ router.post('/:id/bookmark', async (req, res) => {
 router.get('/:id/comments', async (req, res) => {
   const comments = await db
     .prepare(
-      `SELECT c.id, c.content, c.created_at, u.id AS user_id, u.username, u.avatar_url
+      `SELECT c.id, c.content, c.created_at, u.id AS user_id, u.username, u.avatar_url, u.badge
        FROM post_comments c JOIN users u ON u.id = c.user_id
        WHERE c.post_id = ? ORDER BY c.created_at ASC`
     )
@@ -103,7 +103,7 @@ router.post('/:id/comments', async (req, res) => {
 
   const comment = await db
     .prepare(
-      `SELECT c.id, c.content, c.created_at, u.id AS user_id, u.username, u.avatar_url
+      `SELECT c.id, c.content, c.created_at, u.id AS user_id, u.username, u.avatar_url, u.badge
        FROM post_comments c JOIN users u ON u.id = c.user_id WHERE c.id = ?`
     )
     .get(id);
