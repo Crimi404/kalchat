@@ -303,7 +303,7 @@ input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 }
 .story-action:hover { color: var(--text); }
 .story-action.liked { color: var(--story-ring-end); }
-.story-card-caption { padding: 0 14px 10px; font-size: 13.5px; }
+.story-card-caption { padding: 0 14px 10px; font-size: 13.5px; overflow-wrap: break-word; word-break: break-word; white-space: pre-wrap; }
 .story-comments { border-top: 1px solid var(--border); padding: 10px 14px; }
 .story-comment { font-size: 13px; margin-bottom: 6px; }
 .story-comment .c-author { font-weight: 700; margin-right: 4px; }
@@ -358,7 +358,11 @@ input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .message-form button[type="submit"] {
   background: linear-gradient(100deg, var(--accent), var(--accent-2)); color: white; padding: 10px 18px; border-radius: 8px; font-weight: 600;
 }
-.file-btn { cursor: pointer; padding: 8px; font-size: 18px; }
+.file-btn { cursor: pointer; padding: 8px; font-size: 18px; background: transparent; color: var(--text); border-radius: 8px; }
+#voice-btn.recording { background: var(--danger); color: white; animation: pulseDot 1.2s ease-in-out infinite; }
+#voice-timer { font-size: 12px; color: var(--danger); font-variant-numeric: tabular-nums; }
+audio.msg-audio { width: 220px; height: 36px; margin-top: 4px; }
+#post-media-preview img, #post-media-preview video { max-height: 160px; border-radius: 8px; object-fit: cover; }
 
 /* ---- Indicateur de frappe : pulsation de transmission ---- */
 .typing-pulse { display: inline-flex; gap: 3px; align-items: center; }
@@ -392,7 +396,7 @@ input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .story-viewer-header { display: flex; align-items: center; gap: 8px; color: white; margin-bottom: 8px; }
 .story-viewer-header span { font-weight: 600; flex: 1; }
 .story-viewer-header .icon-btn { color: white; }
-#story-media { width: 100%; border-radius: 12px; max-height: 70vh; object-fit: cover; }
+#story-media-wrap img, #story-media-wrap video { width: 100%; border-radius: 12px; max-height: 70vh; object-fit: cover; }
 .story-caption { color: white; margin-top: 10px; text-align: center; }
 
 /* ============ NAV BASSE MOBILE ============ */
@@ -487,6 +491,18 @@ input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 }
 .admin-block-btn.is-blocked { background: var(--danger); color: white; }
 .admin-you-tag { font-size: 11px; color: var(--accent); font-weight: 700; }
+
+.post-detail-wrapper {
+  width: 92vw; max-width: 520px; max-height: 88vh; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 0; padding: 12px;
+}
+.post-detail-wrapper .story-card { border: none; animation: none; width: 100%; max-width: none; }
+.post-detail-wrapper .story-card img,
+.post-detail-wrapper .story-card video {
+  max-height: 65vh; width: 100%; object-fit: contain; background: #000;
+}
+.post-detail-wrapper .story-card-caption { white-space: pre-wrap; }
+.post-open-trigger { cursor: pointer; }
 
 /* ============ EXPLORER ============ */
 .explorer-search {

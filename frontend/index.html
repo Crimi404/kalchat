@@ -125,9 +125,11 @@
 
       <form id="message-form" class="message-form">
         <input type="text" id="message-input" placeholder="Écris un message..." autocomplete="off" />
-        <label class="file-btn" title="Envoyer une image">
+        <label class="file-btn" title="Envoyer une image ou vidéo">
           📎<input type="file" id="message-file" accept="image/*,video/*" hidden />
         </label>
+        <button type="button" id="voice-btn" class="file-btn" title="Message vocal">🎤</button>
+        <span id="voice-timer" class="hidden">00:00</span>
         <button type="submit">Envoyer</button>
       </form>
     </div>
@@ -144,7 +146,7 @@
       <span id="story-countdown" style="flex:0; font-size:11px; color:rgba(255,255,255,0.7); font-weight:400; white-space:nowrap;"></span>
       <button id="story-close" class="icon-btn">✕</button>
     </div>
-    <img id="story-media" src="" alt="" />
+    <div id="story-media-wrap"></div>
     <div id="story-caption" class="story-caption"></div>
   </div>
 </div>
@@ -202,6 +204,14 @@
   </button>
 </nav>
 
+<!-- ============ MODALE VUE DÉTAILLÉE D'UN POST ============ -->
+<div id="post-detail-modal" class="modal hidden">
+  <div class="modal-card post-detail-wrapper">
+    <button id="post-detail-close" class="icon-btn" style="align-self:flex-end;">✕</button>
+    <div id="post-detail-content"></div>
+  </div>
+</div>
+
 <!-- ============ MODALE LISTE ABONNÉS/ABONNEMENTS ============ -->
 <div id="follow-list-modal" class="modal hidden">
   <div class="modal-card">
@@ -233,7 +243,7 @@
     <h3 id="post-modal-title">Nouveau post</h3>
     <textarea id="post-content-input" rows="4" placeholder="Quoi de neuf ?" style="resize:none; width:100%; background:var(--bg-input); border:1px solid var(--border); color:var(--text); border-radius:8px; padding:10px 12px; font-family:inherit; font-size:14px;"></textarea>
     <input type="file" id="post-media-input" accept="image/*,video/*" style="color:var(--text-dim); font-size:12.5px;" />
-    <img id="post-media-preview" class="hidden" style="max-height:160px; border-radius:8px; object-fit:cover;" />
+    <div id="post-media-preview" class="hidden" style="max-height:160px;"></div>
     <p id="post-modal-error" class="auth-error"></p>
     <div class="modal-actions">
       <button id="post-modal-cancel" class="ghost-btn" style="margin:0;">Annuler</button>

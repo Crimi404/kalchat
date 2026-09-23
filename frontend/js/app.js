@@ -189,6 +189,13 @@ async function openConversation(conv) {
   scrollMessagesToBottom();
 }
 
+function mediaHtml(url, type, extraAttrs = '') {
+  if (!url) return '';
+  if (type === 'video') return `<video src="${url}" controls ${extraAttrs}></video>`;
+  if (type === 'audio') return `<audio src="${url}" controls class="msg-audio" ${extraAttrs}></audio>`;
+  return `<img src="${url}" alt="média" ${extraAttrs} />`;
+}
+
 function renderMessage(m) {
   const box = document.getElementById('messages');
   const div = document.createElement('div');
@@ -197,7 +204,7 @@ function renderMessage(m) {
   let html = '';
   if (!mine) html += `<span class="sender">${m.sender_username}</span>`;
   if (m.content) html += m.content.replace(/</g, '&lt;');
-  if (m.media_url) html += `<img src="${m.media_url}" alt="média" />`;
+  html += mediaHtml(m.media_url, m.media_type);
   html += `<time>${fmtTime(m.created_at)}</time>`;
   div.innerHTML = html;
   box.appendChild(div);
@@ -216,16 +223,19 @@ document.getElementById('message-form').addEventListener('submit', async (e) => 
   const fileInput = document.getElementById('message-file');
   const content = input.value.trim();
   let media_url = null;
+  let media_type = null;
 
   if (fileInput.files[0]) {
-    media_url = await uploadFile(fileInput.files[0]);
+    const uploaded = await uploadFile(fileInput.files[0]);
+    media_url = uploaded.url;
+    media_type = uploaded.type;
     fileInput.value = '';
   }
   if (!content && !media_url) return;
 
   await api(`/chat/conversations/${activeConversationId}/messages`, {
     method: 'POST',
-    body: { content, media_url },
+    body: { content, media_url, media_type },
   });
   input.value = '';
   socket.emit('typing', { conversation_id: activeConversationId, is_typing: false });
@@ -240,11 +250,74 @@ document.getElementById('message-input').addEventListener('input', () => {
   }, 1500);
 });
 
+// ---------------- Messages vocaux ----------------
+let mediaRecorder = null;
+let recordedChunks = [];
+let recordingStartedAt = null;
+let recordingTimerInterval = null;
+
+const voiceBtn = document.getElementById('voice-btn');
+const voiceTimer = document.getElementById('voice-timer');
+
+voiceBtn.addEventListener('click', async () => {
+  if (mediaRecorder && mediaRecorder.state === 'recording') {
+    mediaRecorder.stop();
+    return;
+  }
+  if (!activeConversationId) {
+    showToast('Ouvre une conversation avant d\'envoyer un vocal.');
+    return;
+  }
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    recordedChunks = [];
+    mediaRecorder = new MediaRecorder(stream);
+
+    mediaRecorder.ondataavailable = (e) => {
+      if (e.data.size > 0) recordedChunks.push(e.data);
+    };
+
+    mediaRecorder.onstop = async () => {
+      stream.getTracks().forEach((t) => t.stop());
+      clearInterval(recordingTimerInterval);
+      voiceBtn.classList.remove('recording');
+      voiceTimer.classList.add('hidden');
+
+      const blob = new Blob(recordedChunks, { type: 'audio/webm' });
+      if (blob.size === 0) return;
+
+      const file = new File([blob], `vocal-${Date.now()}.webm`, { type: 'audio/webm' });
+      try {
+        const uploaded = await uploadFile(file);
+        await api(`/chat/conversations/${activeConversationId}/messages`, {
+          method: 'POST',
+          body: { content: null, media_url: uploaded.url, media_type: uploaded.type },
+        });
+      } catch (err) {
+        showToast(`Échec de l'envoi du vocal : ${err.message}`);
+      }
+    };
+
+    mediaRecorder.start();
+    recordingStartedAt = Date.now();
+    voiceBtn.classList.add('recording');
+    voiceTimer.classList.remove('hidden');
+    recordingTimerInterval = setInterval(() => {
+      const elapsed = Math.floor((Date.now() - recordingStartedAt) / 1000);
+      const m = String(Math.floor(elapsed / 60)).padStart(2, '0');
+      const s = String(elapsed % 60).padStart(2, '0');
+      voiceTimer.textContent = `${m}:${s}`;
+    }, 500);
+  } catch (err) {
+    showToast('Impossible d\'accéder au micro (permission refusée ?)');
+  }
+});
+
 async function uploadFile(file) {
   const form = new FormData();
   form.append('file', file);
-  const data = await api('/upload', { method: 'POST', body: form, isForm: true });
-  return data.url;
+  return api('/upload', { method: 'POST', body: form, isForm: true }); // { url, type }
 }
 
 // ---------------- Recherche d'utilisateurs / démarrer une conv ----------------
@@ -473,12 +546,12 @@ function renderStoryCard(s) {
     <div class="story-card-header">
       ${avatarHtml(s.username, s.avatar_url, 'small')}
       <div>
-        <div class="who">${s.username === me.username ? 'Vous' : s.username} ${badgeHtml(s.badge)}</div>
+        <div class="who" style="cursor:pointer;">${s.username === me.username ? 'Vous' : s.username} ${badgeHtml(s.badge)}</div>
         <div class="when">${timeAgo(s.created_at)} · ${timeRemaining(s.expires_at)}</div>
       </div>
     </div>
     ${sharedLine}
-    <img src="${s.media_url}" alt="story" />
+    ${mediaHtml(s.media_url, s.media_type)}
     ${s.caption ? `<div class="story-card-caption">${s.caption}</div>` : ''}
     <div class="story-card-actions">
       <button class="story-action like-btn ${s.liked_by_me ? 'liked' : ''}">❤️ <span class="like-count">${s.like_count}</span></button>
@@ -493,6 +566,10 @@ function renderStoryCard(s) {
       </form>
     </div>
   `;
+
+  card.querySelector('.who').addEventListener('click', () => {
+    showMainView('profil', s.username);
+  });
 
   card.querySelector('.like-btn').addEventListener('click', async (e) => {
     const data = await api(`/stories/${s.id}/like`, { method: 'POST' });
@@ -1060,8 +1137,8 @@ function renderPostCard(p) {
       </div>
     </div>
     ${sharedLine}
-    ${p.content ? `<div class="story-card-caption" style="padding-top:10px;">${escapeHtml(p.content)}</div>` : ''}
-    ${p.media_url ? `<img src="${p.media_url}" alt="publication" />` : ''}
+    ${p.content ? `<div class="story-card-caption post-open-trigger" style="padding-top:10px;">${escapeHtml(p.content)}</div>` : ''}
+    ${p.media_url ? mediaHtml(p.media_url, p.media_type, 'class="post-open-trigger"') : ''}
     <div class="story-card-actions">
       <button class="story-action like-btn ${p.liked_by_me ? 'liked' : ''}">❤️ <span class="like-count">${p.like_count}</span></button>
       <button class="story-action comment-toggle">💬 <span class="comment-count">${p.comment_count}</span></button>
@@ -1079,6 +1156,10 @@ function renderPostCard(p) {
 
   card.querySelector('.who').addEventListener('click', () => {
     showMainView('profil', p.username);
+  });
+
+  card.querySelectorAll('.post-open-trigger').forEach((el) => {
+    el.addEventListener('click', () => openPostDetail(p));
   });
 
   card.querySelector('.like-btn').addEventListener('click', async (e) => {
@@ -1128,6 +1209,21 @@ function renderPostCard(p) {
   return card;
 }
 
+function openPostDetail(p) {
+  const modal = document.getElementById('post-detail-modal');
+  const content = document.getElementById('post-detail-content');
+  content.innerHTML = '';
+  content.appendChild(renderPostCard(p));
+  modal.classList.remove('hidden');
+}
+
+document.getElementById('post-detail-close').addEventListener('click', () => {
+  document.getElementById('post-detail-modal').classList.add('hidden');
+});
+document.getElementById('post-detail-modal').addEventListener('click', (e) => {
+  if (e.target.id === 'post-detail-modal') e.target.classList.add('hidden');
+});
+
 function escapeHtml(str) {
   const d = document.createElement('div');
   d.textContent = str;
@@ -1141,13 +1237,16 @@ const postMediaInput = document.getElementById('post-media-input');
 const postMediaPreview = document.getElementById('post-media-preview');
 const postModalError = document.getElementById('post-modal-error');
 let pendingPostMediaUrl = null;
+let pendingPostMediaType = null;
 
 function openPostModal() {
   postContentInput.value = '';
   postMediaInput.value = '';
   postMediaPreview.classList.add('hidden');
+  postMediaPreview.innerHTML = '';
   postModalError.textContent = '';
   pendingPostMediaUrl = null;
+  pendingPostMediaType = null;
   postModal.classList.remove('hidden');
   postContentInput.focus();
 }
@@ -1162,9 +1261,10 @@ postMediaInput.addEventListener('change', async () => {
   try {
     const form = new FormData();
     form.append('file', file);
-    const { url } = await api('/upload', { method: 'POST', body: form, isForm: true });
+    const { url, type } = await api('/upload', { method: 'POST', body: form, isForm: true });
     pendingPostMediaUrl = url;
-    postMediaPreview.src = url;
+    pendingPostMediaType = type;
+    postMediaPreview.innerHTML = mediaHtml(url, type);
     postMediaPreview.classList.remove('hidden');
   } catch (err) {
     postModalError.textContent = err.message;
@@ -1178,7 +1278,7 @@ document.getElementById('post-modal-submit').addEventListener('click', async () 
     return;
   }
   try {
-    await api('/posts', { method: 'POST', body: { content, media_url: pendingPostMediaUrl } });
+    await api('/posts', { method: 'POST', body: { content, media_url: pendingPostMediaUrl, media_type: pendingPostMediaType } });
     postModal.classList.add('hidden');
     showMainView('posts');
   } catch (err) {
@@ -1211,8 +1311,8 @@ document.getElementById('add-story-btn').addEventListener('click', () => {
   input.accept = 'image/*,video/*';
   input.onchange = async () => {
     if (!input.files[0]) return;
-    const media_url = await uploadFile(input.files[0]);
-    await api('/stories', { method: 'POST', body: { media_url } });
+    const uploaded = await uploadFile(input.files[0]);
+    await api('/stories', { method: 'POST', body: { media_url: uploaded.url, media_type: uploaded.type } });
     loadStories();
     if (!document.getElementById('stories-feed').classList.contains('hidden')) loadStoryFeed();
   };
@@ -1226,7 +1326,13 @@ let storyTimer = null;
 function openStoryViewer(group) {
   storyQueue = group.stories;
   storyIndex = 0;
-  document.getElementById('story-username').innerHTML = `${group.username} ${badgeHtml(group.badge)}`;
+  const storyUsernameEl = document.getElementById('story-username');
+  storyUsernameEl.innerHTML = `${group.username} ${badgeHtml(group.badge)}`;
+  storyUsernameEl.style.cursor = 'pointer';
+  storyUsernameEl.onclick = () => {
+    document.getElementById('story-viewer').classList.add('hidden');
+    showMainView('profil', group.username);
+  };
   const storyAvatarEl = document.getElementById('story-avatar');
   if (group.avatar_url) {
     storyAvatarEl.style.backgroundImage = `url('${group.avatar_url}')`;
@@ -1243,7 +1349,7 @@ function showCurrentStory() {
   const story = storyQueue[storyIndex];
   if (!story) return closeStoryViewer();
 
-  document.getElementById('story-media').src = story.media_url;
+  document.getElementById('story-media-wrap').innerHTML = mediaHtml(story.media_url, story.media_type, 'autoplay muted');
   document.getElementById('story-caption').textContent = story.caption || '';
   document.getElementById('story-countdown').textContent = timeRemaining(story.expires_at);
   api(`/stories/${story.id}/view`, { method: 'POST' }).catch(() => {});
