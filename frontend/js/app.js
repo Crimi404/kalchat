@@ -1123,6 +1123,7 @@ async function loadPostFeed() {
 function renderPostCard(p) {
   const card = document.createElement('div');
   card.className = 'story-card';
+  card.dataset.postId = p.id;
 
   const sharedLine = p.shared_from_username
     ? `<div class="story-card-shared">🔁 a repartagé la publication de ${p.shared_from_username}</div>`
@@ -1131,10 +1132,11 @@ function renderPostCard(p) {
   card.innerHTML = `
     <div class="story-card-header">
       ${avatarHtml(p.username, p.avatar_url, 'small')}
-      <div>
+      <div style="flex:1;">
         <div class="who" style="cursor:pointer;">${p.username === me.username ? 'Vous' : p.username} ${badgeHtml(p.badge)}</div>
         <div class="when">${timeAgo(p.created_at)}</div>
       </div>
+      ${p.user_id === me.id ? '<button class="icon-btn post-delete-btn" title="Supprimer">🗑️</button>' : ''}
     </div>
     ${sharedLine}
     ${p.content ? `<div class="story-card-caption post-open-trigger" style="padding-top:10px;">${escapeHtml(p.content)}</div>` : ''}
@@ -1157,6 +1159,22 @@ function renderPostCard(p) {
   card.querySelector('.who').addEventListener('click', () => {
     showMainView('profil', p.username);
   });
+
+  const deleteBtn = card.querySelector('.post-delete-btn');
+  if (deleteBtn) {
+    deleteBtn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      if (!confirm('Supprimer définitivement cette publication ?')) return;
+      try {
+        await api(`/posts/${p.id}`, { method: 'DELETE' });
+        document.querySelectorAll(`.story-card[data-post-id="${p.id}"]`).forEach((el) => el.remove());
+        document.getElementById('post-detail-modal').classList.add('hidden');
+        showToast('Publication supprimée');
+      } catch (err) {
+        showToast(err.message);
+      }
+    });
+  }
 
   card.querySelectorAll('.post-open-trigger').forEach((el) => {
     el.addEventListener('click', () => openPostDetail(p));
