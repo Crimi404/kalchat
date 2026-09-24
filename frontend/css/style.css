@@ -276,26 +276,31 @@ input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 /* ---- Fil de Stories ---- */
 .stories-feed {
-  flex: 1; overflow-y: auto; padding: 20px;
-  display: flex; flex-direction: column; align-items: center; gap: 18px;
+  flex: 1; overflow-y: auto; padding: 0;
+  display: flex; flex-direction: column; align-items: center; gap: 0;
 }
 .story-card {
-  width: 100%; max-width: 480px;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  overflow: hidden;
+  width: 100%; max-width: 600px;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  overflow: visible;
   animation: fadeInUp 0.35s var(--ease);
+  padding-bottom: 4px;
 }
 .story-action { transition: color 0.15s var(--ease), transform 0.12s var(--ease); }
 .story-action:active { transform: scale(0.92); }
 .like-btn.liked { animation: scaleIn 0.25s var(--ease); }
-.story-card-header { display: flex; align-items: center; gap: 10px; padding: 12px 14px; }
+.story-card-header { display: flex; align-items: center; gap: 10px; padding: 14px 16px 0; }
 .story-card-header .who { font-weight: 700; font-size: 14px; }
 .story-card-header .when { font-size: 11.5px; color: var(--text-dim); }
-.story-card-shared { padding: 0 14px 8px; font-size: 12px; color: var(--text-dim); }
-.story-card img { width: 100%; max-height: 480px; object-fit: cover; display: block; }
-.story-card-actions { display: flex; gap: 18px; padding: 10px 14px; }
+.story-card-shared { padding: 8px 16px 0; font-size: 12px; color: var(--text-dim); }
+.story-card img, .story-card video {
+  width: calc(100% - 32px); margin: 10px 16px 0; max-height: 460px; object-fit: cover;
+  display: block; border-radius: 14px; border: 1px solid var(--border);
+}
+.story-card-actions { display: flex; justify-content: space-between; padding: 10px 16px 12px; max-width: 380px; }
 .story-action {
   display: flex; align-items: center; gap: 6px;
   background: transparent; color: var(--text-dim);
@@ -303,8 +308,8 @@ input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 }
 .story-action:hover { color: var(--text); }
 .story-action.liked { color: var(--story-ring-end); }
-.story-card-caption { padding: 0 14px 10px; font-size: 13.5px; overflow-wrap: break-word; word-break: break-word; white-space: pre-wrap; }
-.story-comments { border-top: 1px solid var(--border); padding: 10px 14px; }
+.story-card-caption { padding: 8px 16px 0; font-size: 14px; line-height: 1.4; overflow-wrap: break-word; word-break: break-word; white-space: pre-wrap; }
+.story-comments { border-top: 1px solid var(--border); padding: 10px 16px; margin-top: 4px; }
 .story-comment { font-size: 13px; margin-bottom: 6px; }
 .story-comment .c-author { font-weight: 700; margin-right: 4px; }
 .story-comment-form { display: flex; gap: 8px; margin-top: 8px; }
@@ -496,10 +501,14 @@ audio.msg-audio { width: 220px; height: 36px; margin-top: 4px; }
   width: 92vw; max-width: 520px; max-height: 88vh; overflow-y: auto;
   display: flex; flex-direction: column; gap: 0; padding: 12px;
 }
-.post-detail-wrapper .story-card { border: none; animation: none; width: 100%; max-width: none; }
+.post-detail-wrapper .story-card {
+  border: 1px solid var(--border); border-radius: 14px; background: var(--bg-elevated);
+  animation: none; width: 100%; max-width: none; padding-bottom: 8px;
+}
 .post-detail-wrapper .story-card img,
 .post-detail-wrapper .story-card video {
-  max-height: 65vh; width: 100%; object-fit: contain; background: #000;
+  max-height: 65vh; width: calc(100% - 32px); margin: 10px 16px 0; object-fit: contain; background: #000;
+  border-radius: 12px;
 }
 .post-detail-wrapper .story-card-caption { white-space: pre-wrap; }
 .post-open-trigger { cursor: pointer; }
