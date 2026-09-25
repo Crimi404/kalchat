@@ -512,6 +512,8 @@ audio.msg-audio { width: 220px; height: 36px; margin-top: 4px; }
 }
 .post-detail-wrapper .story-card-caption { white-space: pre-wrap; }
 .post-open-trigger { cursor: pointer; }
+.hashtag { color: var(--accent); font-weight: 600; cursor: pointer; }
+.hashtag:hover { text-decoration: underline; }
 
 /* ============ EXPLORER ============ */
 .explorer-search {

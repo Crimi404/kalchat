@@ -16,6 +16,7 @@ const usersRoutes = require('./routes/users');
 const adminRoutes = require('./routes/admin');
 const db = require('./db');
 const storage = require('./storage');
+const { cleanupOldMedia } = require('./cleanup');
 
 const app = express();
 const server = http.createServer(app);
@@ -48,7 +49,7 @@ app.post('/api/upload', handleUpload, async (req, res) => {
     const ext = path.extname(req.file.originalname) || '';
     const filename = `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`;
     const url = await storage.uploadFile(filename, req.file.buffer, req.file.mimetype);
-    res.json({ url });
+    res.json({ url, type: storage.mediaTypeFromMimetype(req.file.mimetype) });
   } catch (err) {
     console.error('Erreur upload Supabase Storage:', err.message, err);
     res.status(500).json({ error: `Échec de l'upload : ${err.message || 'erreur inconnue'}` });
@@ -110,6 +111,14 @@ db.initSchema()
     server.listen(PORT, () => {
       console.log(`Kalchat backend démarré sur http://localhost:${PORT}`);
     });
+    // Nettoyage des vieux médias (vidéos/vocaux > 90 jours) : au démarrage, puis 1x/jour.
+    // Ne fonctionne que tant que le service tourne (il se rendort après inactivité sur le
+    // plan gratuit Render) — pas une garantie absolue de ponctualité, mais s'exécute dès
+    // que le service se réveille.
+    cleanupOldMedia().catch((err) => console.error('Erreur nettoyage médias:', err.message));
+    setInterval(() => {
+      cleanupOldMedia().catch((err) => console.error('Erreur nettoyage médias:', err.message));
+    }, 24 * 60 * 60 * 1000);
   })
   .catch((err) => {
     console.error('❌ Impossible d\'initialiser Postgres ou Supabase Storage. Vérifie DATABASE_URL / SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY.', err);

@@ -418,7 +418,7 @@ document.getElementById('mobile-menu-btn').addEventListener('click', () => {
 });
 
 // ---------------- Onglets Messages / Fil de Stories / nav basse ----------------
-function showMainView(view, profileUsername) {
+function showMainView(view, extra) {
   document.querySelectorAll('.main-tab').forEach((t) => t.classList.toggle('active', t.dataset.view === view));
   document.getElementById('stories-feed').classList.toggle('hidden', view !== 'stories');
   document.getElementById('posts-feed').classList.toggle('hidden', view !== 'posts');
@@ -430,8 +430,8 @@ function showMainView(view, profileUsername) {
   document.getElementById('chat-window').classList.toggle('hidden', view !== 'messages' || !activeConversationId);
   if (view === 'stories') loadStoryFeed();
   if (view === 'posts') loadPostFeed();
-  if (view === 'explorer') loadExplorerPanel();
-  if (view === 'profil') loadProfilePanel(profileUsername || me.username);
+  if (view === 'explorer') loadExplorerPanel(extra);
+  if (view === 'profil') loadProfilePanel(extra || me.username);
   if (view === 'admin') loadAdminPanel();
 
   // Nav basse mobile : "messages" ouvre la liste des conversations
@@ -708,10 +708,10 @@ function renderAdminUserRow(u) {
 }
 
 // ---------------- Explorer (recherche + découverte) ----------------
-async function loadExplorerPanel() {
+async function loadExplorerPanel(prefillTag) {
   const panel = document.getElementById('explorer-panel');
   panel.innerHTML = `
-    <input type="text" id="explorer-search-input" class="explorer-search" placeholder="Rechercher un utilisateur..." />
+    <input type="text" id="explorer-search-input" class="explorer-search" placeholder="Rechercher un utilisateur ou #hashtag..." />
     <div id="explorer-search-results"></div>
     <div class="explorer-section-title" id="explorer-discover-title">Découvrir</div>
     <div id="explorer-discover"></div>
@@ -720,9 +720,9 @@ async function loadExplorerPanel() {
   const searchBox = document.getElementById('explorer-search-results');
   const discoverBox = document.getElementById('explorer-discover');
   const discoverTitle = document.getElementById('explorer-discover-title');
+  const searchInput = document.getElementById('explorer-search-input');
 
-  document.getElementById('explorer-search-input').addEventListener('input', async (e) => {
-    const q = e.target.value.trim();
+  const runSearch = async (q) => {
     if (!q) {
       searchBox.innerHTML = '';
       discoverTitle.classList.remove('hidden');
@@ -732,6 +732,19 @@ async function loadExplorerPanel() {
     discoverTitle.classList.add('hidden');
     discoverBox.classList.add('hidden');
 
+    if (q.startsWith('#')) {
+      const tag = q.slice(1).trim();
+      searchBox.innerHTML = '<div class="explorer-section-title">Publications avec ce hashtag</div>';
+      if (!tag) return;
+      const posts = await api(`/posts?hashtag=${encodeURIComponent(tag)}`);
+      if (posts.length === 0) {
+        searchBox.innerHTML += '<div class="feed-empty">Aucune publication avec ce hashtag.</div>';
+        return;
+      }
+      posts.forEach((p) => searchBox.appendChild(renderPostCard(p)));
+      return;
+    }
+
     const users = await api(`/auth/search?q=${encodeURIComponent(q)}`);
     searchBox.innerHTML = '';
     if (users.length === 0) {
@@ -739,7 +752,14 @@ async function loadExplorerPanel() {
       return;
     }
     users.forEach((u) => searchBox.appendChild(renderExplorerUserRow(u)));
-  });
+  };
+
+  searchInput.addEventListener('input', (e) => runSearch(e.target.value.trim()));
+
+  if (prefillTag) {
+    searchInput.value = `#${prefillTag}`;
+    runSearch(`#${prefillTag}`);
+  }
 
   // Fil de découverte : les publications récentes de tout le monde
   const posts = await api('/posts');
@@ -1106,6 +1126,15 @@ document.getElementById('notif-delete-all').addEventListener('click', async () =
   updateNotifBadge();
 });
 
+function openHashtagSearch(tag) {
+  document.getElementById('post-detail-modal').classList.add('hidden');
+  showMainView('explorer', tag);
+}
+
+function linkifyHashtags(escapedText) {
+  return escapedText.replace(/#([\p{L}\p{N}_]+)/gu, (match, tag) => `<span class="hashtag" data-tag="${tag}">#${tag}</span>`);
+}
+
 // ---------------- Fil de publications (Accueil) ----------------
 async function loadPostFeed() {
   const posts = await api('/posts');
@@ -1139,7 +1168,7 @@ function renderPostCard(p) {
       ${p.user_id === me.id ? '<button class="icon-btn post-delete-btn" title="Supprimer">🗑️</button>' : ''}
     </div>
     ${sharedLine}
-    ${p.content ? `<div class="story-card-caption post-open-trigger" style="padding-top:10px;">${escapeHtml(p.content)}</div>` : ''}
+    ${p.content ? `<div class="story-card-caption post-open-trigger">${linkifyHashtags(escapeHtml(p.content))}</div>` : ''}
     ${p.media_url ? mediaHtml(p.media_url, p.media_type, 'class="post-open-trigger"') : ''}
     <div class="story-card-actions">
       <button class="story-action like-btn ${p.liked_by_me ? 'liked' : ''}">❤️ <span class="like-count">${p.like_count}</span></button>
@@ -1175,6 +1204,13 @@ function renderPostCard(p) {
       }
     });
   }
+
+  card.querySelectorAll('.hashtag').forEach((el) => {
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openHashtagSearch(el.dataset.tag);
+    });
+  });
 
   card.querySelectorAll('.post-open-trigger').forEach((el) => {
     el.addEventListener('click', () => openPostDetail(p));

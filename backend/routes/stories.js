@@ -2,6 +2,7 @@ const express = require('express');
 const { v4: uuid } = require('uuid');
 const db = require('../db');
 const authMiddleware = require('../middleware/auth');
+const { deleteFileByUrl } = require('../storage');
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -10,16 +11,16 @@ const LIFETIME_HOURS = Number(process.env.STORY_LIFETIME_HOURS || 24);
 
 // ---------- Publier une story (ou repartager une story existante) ----------
 router.post('/', async (req, res) => {
-  const { media_url, caption, shared_from_id } = req.body;
+  const { media_url, media_type, caption, shared_from_id } = req.body;
   if (!media_url) return res.status(400).json({ error: 'media_url requis (image ou vidéo)' });
 
   const id = uuid();
   await db
     .prepare(
-      `INSERT INTO stories (id, user_id, media_url, caption, shared_from_id, expires_at)
-       VALUES (?, ?, ?, ?, ?, NOW() + INTERVAL '${LIFETIME_HOURS} hours')`
+      `INSERT INTO stories (id, user_id, media_url, media_type, caption, shared_from_id, expires_at)
+       VALUES (?, ?, ?, ?, ?, ?, NOW() + INTERVAL '${LIFETIME_HOURS} hours')`
     )
-    .run(id, req.user.id, media_url, caption || null, shared_from_id || null);
+    .run(id, req.user.id, media_url, media_type || null, caption || null, shared_from_id || null);
 
   const story = await db.prepare('SELECT * FROM stories WHERE id = ?').get(id);
   res.status(201).json(story);
@@ -33,10 +34,10 @@ router.post('/:id/share', async (req, res) => {
   const id = uuid();
   await db
     .prepare(
-      `INSERT INTO stories (id, user_id, media_url, caption, shared_from_id, expires_at)
-       VALUES (?, ?, ?, ?, ?, NOW() + INTERVAL '${LIFETIME_HOURS} hours')`
+      `INSERT INTO stories (id, user_id, media_url, media_type, caption, shared_from_id, expires_at)
+       VALUES (?, ?, ?, ?, ?, ?, NOW() + INTERVAL '${LIFETIME_HOURS} hours')`
     )
-    .run(id, req.user.id, original.media_url, original.caption, original.id);
+    .run(id, req.user.id, original.media_url, original.media_type, original.caption, original.id);
 
   const story = await db.prepare('SELECT * FROM stories WHERE id = ?').get(id);
   res.status(201).json(story);
@@ -97,11 +98,15 @@ router.post('/:id/comments', async (req, res) => {
 // ---------- Fil des stories actives, groupées par utilisateur ----------
 // (contacts = personnes avec qui on a déjà une conversation, + soi-même)
 router.get('/feed', async (req, res) => {
+  const expired = await db.prepare('SELECT media_url FROM stories WHERE expires_at <= NOW()').all();
+  for (const s of expired) {
+    deleteFileByUrl(s.media_url).catch(() => {});
+  }
   await db.prepare('DELETE FROM stories WHERE expires_at <= NOW()').run();
 
   const rows = await db
     .prepare(
-      `SELECT s.id, s.user_id, u.username, u.avatar_url, u.badge, s.media_url, s.caption, s.created_at, s.expires_at,
+      `SELECT s.id, s.user_id, u.username, u.avatar_url, u.badge, s.media_url, s.media_type, s.caption, s.created_at, s.expires_at,
               EXISTS(SELECT 1 FROM story_views v WHERE v.story_id = s.id AND v.viewer_id = ?) AS viewed_by_me,
               (SELECT COUNT(*) FROM story_likes l WHERE l.story_id = s.id) AS like_count,
               EXISTS(SELECT 1 FROM story_likes l WHERE l.story_id = s.id AND l.user_id = ?) AS liked_by_me,

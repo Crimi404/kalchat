@@ -9,15 +9,15 @@ router.use(authMiddleware);
 
 // ---------- Publier un post (texte et/ou média) ----------
 router.post('/', async (req, res) => {
-  const { content, media_url } = req.body;
+  const { content, media_url, media_type } = req.body;
   if (!content?.trim() && !media_url) {
     return res.status(400).json({ error: 'Le post doit contenir du texte ou un média' });
   }
 
   const id = uuid();
   await db
-    .prepare('INSERT INTO posts (id, user_id, content, media_url) VALUES (?, ?, ?, ?)')
-    .run(id, req.user.id, content?.trim() || null, media_url || null);
+    .prepare('INSERT INTO posts (id, user_id, content, media_url, media_type) VALUES (?, ?, ?, ?, ?)')
+    .run(id, req.user.id, content?.trim() || null, media_url || null, media_type || null);
 
   res.status(201).json(await getPostById(id));
 });
@@ -29,8 +29,8 @@ router.post('/:id/share', async (req, res) => {
 
   const id = uuid();
   await db
-    .prepare('INSERT INTO posts (id, user_id, content, media_url, shared_from_id) VALUES (?, ?, ?, ?, ?)')
-    .run(id, req.user.id, original.content, original.media_url, original.id);
+    .prepare('INSERT INTO posts (id, user_id, content, media_url, media_type, shared_from_id) VALUES (?, ?, ?, ?, ?, ?)')
+    .run(id, req.user.id, original.content, original.media_url, original.media_type, original.id);
 
   await notify(req.app.get('io'), { user_id: original.user_id, actor_id: req.user.id, type: 'share', post_id: original.id });
 
@@ -112,10 +112,22 @@ router.post('/:id/comments', async (req, res) => {
 
 // ---------- Fil de publications (le plus récent en premier) ----------
 router.get('/', async (req, res) => {
-  const { user_id } = req.query;
+  const { user_id, hashtag } = req.query;
+
+  let whereClause = '';
+  const extraParams = [];
+  if (user_id) {
+    whereClause = 'WHERE p.user_id = ?';
+    extraParams.push(user_id);
+  } else if (hashtag) {
+    // Recherche insensible à la casse, délimitée par un mot pour éviter les faux positifs (#kalchat vs #kalchatting)
+    whereClause = "WHERE p.content ~* ?";
+    extraParams.push(`(^|[^\\w#])#${hashtag}([^\\w]|$)`);
+  }
+
   const rows = await db
     .prepare(
-      `SELECT p.id, p.user_id, u.username, u.avatar_url, u.badge, p.content, p.media_url, p.created_at,
+      `SELECT p.id, p.user_id, u.username, u.avatar_url, u.badge, p.content, p.media_url, p.media_type, p.created_at,
               (SELECT COUNT(*) FROM post_likes l WHERE l.post_id = p.id) AS like_count,
               EXISTS(SELECT 1 FROM post_likes l WHERE l.post_id = p.id AND l.user_id = ?) AS liked_by_me,
               (SELECT COUNT(*) FROM post_comments c WHERE c.post_id = p.id) AS comment_count,
@@ -126,11 +138,11 @@ router.get('/', async (req, res) => {
        JOIN users u ON u.id = p.user_id
        LEFT JOIN posts so ON so.id = p.shared_from_id
        LEFT JOIN users su ON su.id = so.user_id
-       ${user_id ? 'WHERE p.user_id = ?' : ''}
+       ${whereClause}
        ORDER BY p.created_at DESC
        LIMIT 100`
     )
-    .all(...(user_id ? [req.user.id, req.user.id, user_id] : [req.user.id, req.user.id]));
+    .all(req.user.id, req.user.id, ...extraParams);
   res.json(rows);
 });
 
@@ -147,7 +159,7 @@ router.delete('/:id', async (req, res) => {
 async function getPostById(id) {
   return db
     .prepare(
-      `SELECT p.id, p.user_id, u.username, u.avatar_url, u.badge, p.content, p.media_url, p.created_at,
+      `SELECT p.id, p.user_id, u.username, u.avatar_url, u.badge, p.content, p.media_url, p.media_type, p.created_at,
               0 AS like_count, false AS liked_by_me, 0 AS comment_count, 0 AS share_count,
               false AS bookmarked_by_me, su.username AS shared_from_username
        FROM posts p

@@ -121,7 +121,7 @@ router.get('/conversations/:id/messages', async (req, res) => {
 
   const messages = await db
     .prepare(
-      `SELECT m.id, m.sender_id, u.username AS sender_username, m.content, m.media_url, m.created_at
+      `SELECT m.id, m.sender_id, u.username AS sender_username, m.content, m.media_url, m.media_type, m.created_at
        FROM messages m JOIN users u ON u.id = m.sender_id
        WHERE m.conversation_id = ? ORDER BY m.created_at ASC LIMIT 200`
     )
@@ -132,7 +132,7 @@ router.get('/conversations/:id/messages', async (req, res) => {
 
 // ---------- Envoyer un message (aussi disponible via Socket.io) ----------
 router.post('/conversations/:id/messages', async (req, res) => {
-  const { content, media_url } = req.body;
+  const { content, media_url, media_type } = req.body;
   const isMember = await db
     .prepare('SELECT 1 FROM conversation_members WHERE conversation_id = ? AND user_id = ?')
     .get(req.params.id, req.user.id);
@@ -140,12 +140,12 @@ router.post('/conversations/:id/messages', async (req, res) => {
 
   const id = uuid();
   await db
-    .prepare('INSERT INTO messages (id, conversation_id, sender_id, content, media_url) VALUES (?, ?, ?, ?, ?)')
-    .run(id, req.params.id, req.user.id, content || null, media_url || null);
+    .prepare('INSERT INTO messages (id, conversation_id, sender_id, content, media_url, media_type) VALUES (?, ?, ?, ?, ?, ?)')
+    .run(id, req.params.id, req.user.id, content || null, media_url || null, media_type || null);
 
   const message = await db
     .prepare(
-      `SELECT m.id, m.sender_id, u.username AS sender_username, m.content, m.media_url, m.created_at
+      `SELECT m.id, m.sender_id, u.username AS sender_username, m.content, m.media_url, m.media_type, m.created_at
        FROM messages m JOIN users u ON u.id = m.sender_id WHERE m.id = ?`
     )
     .get(id);

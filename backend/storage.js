@@ -40,4 +40,27 @@ async function uploadFile(filename, buffer, mimetype) {
   return data.publicUrl;
 }
 
-module.exports = { initStorage, uploadFile };
+// ---------- Déduit le type de média à partir du mimetype ----------
+function mediaTypeFromMimetype(mimetype = '') {
+  if (mimetype.startsWith('image/')) return 'image';
+  if (mimetype.startsWith('video/')) return 'video';
+  if (mimetype.startsWith('audio/')) return 'audio';
+  return 'file';
+}
+
+// ---------- Supprime un fichier à partir de son URL publique Supabase ----------
+function extractFilenameFromUrl(url) {
+  const marker = `/${BUCKET}/`;
+  const idx = url?.indexOf(marker);
+  if (idx == null || idx === -1) return null;
+  return decodeURIComponent(url.slice(idx + marker.length));
+}
+
+async function deleteFileByUrl(url) {
+  const filename = extractFilenameFromUrl(url);
+  if (!filename) return;
+  const { error } = await supabase.storage.from(BUCKET).remove([filename]);
+  if (error) console.error('Erreur suppression fichier Supabase Storage:', error.message);
+}
+
+module.exports = { initStorage, uploadFile, mediaTypeFromMimetype, deleteFileByUrl };

@@ -186,6 +186,9 @@ async function initSchema() {
     ALTER TABLE users ADD COLUMN IF NOT EXISTS cover_url TEXT;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS location TEXT;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS tags TEXT;
+    ALTER TABLE messages ADD COLUMN IF NOT EXISTS media_type TEXT;
+    ALTER TABLE posts ADD COLUMN IF NOT EXISTS media_type TEXT;
+    ALTER TABLE stories ADD COLUMN IF NOT EXISTS media_type TEXT;
   `);
 
   console.log('✅ Schéma Postgres (Supabase) prêt.');
