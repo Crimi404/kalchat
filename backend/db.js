@@ -189,6 +189,16 @@ async function initSchema() {
     ALTER TABLE messages ADD COLUMN IF NOT EXISTS media_type TEXT;
     ALTER TABLE posts ADD COLUMN IF NOT EXISTS media_type TEXT;
     ALTER TABLE stories ADD COLUMN IF NOT EXISTS media_type TEXT;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'user';
+    ALTER TABLE notifications ADD COLUMN IF NOT EXISTS body TEXT;
+  `);
+
+  // ---------- Badges à rangs : plus (bleu) < vip (rouge) < vip_plus (violet) < legend (doré) ----------
+  // Conversion des anciens badges (gold / diamond / blue) vers les nouveaux rangs. Idempotent.
+  await exec(`
+    UPDATE users SET badge = 'legend' WHERE badge = 'gold';
+    UPDATE users SET badge = 'vip_plus' WHERE badge = 'diamond';
+    UPDATE users SET badge = 'plus' WHERE badge = 'blue';
   `);
 
   console.log('✅ Schéma Postgres (Supabase) prêt.');

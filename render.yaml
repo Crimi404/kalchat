@@ -3,10 +3,12 @@ services:
     name: kalchat
     runtime: node
     plan: free
-    rootDir: backend
-    buildCommand: npm install
-    startCommand: npm start
+    # Le site React est construit (frontend/dist) puis servi par le backend Express.
+    buildCommand: cd frontend && npm install --include=dev && npm run build && cd ../backend && npm install
+    startCommand: cd backend && npm start
     envVars:
+      - key: NODE_VERSION
+        value: 22
       - key: PORT
         value: 10000
       - key: JWT_SECRET
@@ -19,9 +21,7 @@ services:
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
-# Remarque : Kalchat utilise désormais Supabase (Postgres) comme base de données ET Supabase
-# Storage pour les fichiers uploadés (photos, vidéos), et non plus SQLite ou le disque local
-# de Render. Trois variables doivent être ajoutées manuellement dans le dashboard Render
-# (Environment) : DATABASE_URL, SUPABASE_URL et SUPABASE_SERVICE_ROLE_KEY (Project Settings
-# > API dans Supabase). Les données ET les fichiers sont désormais persistants et survivent
-# aux redéploiements.
+# Supabase sert uniquement de base de données (Postgres) et de stockage de fichiers.
+# Les 3 variables DATABASE_URL, SUPABASE_URL et SUPABASE_SERVICE_ROLE_KEY restent à renseigner
+# dans Render (Environment), comme pour la version actuelle. Aucune migration SQL à lancer :
+# le backend crée et met à jour ses tables tout seul au démarrage.

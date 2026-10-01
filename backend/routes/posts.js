@@ -79,7 +79,7 @@ router.post('/:id/bookmark', async (req, res) => {
 router.get('/:id/comments', async (req, res) => {
   const comments = await db
     .prepare(
-      `SELECT c.id, c.content, c.created_at, u.id AS user_id, u.username, u.avatar_url, u.badge
+      `SELECT c.id, c.content, c.created_at, u.id AS user_id, u.username, u.avatar_url, u.badge, u.role, u.first_name, u.last_name
        FROM post_comments c JOIN users u ON u.id = c.user_id
        WHERE c.post_id = ? ORDER BY c.created_at ASC`
     )
@@ -103,7 +103,7 @@ router.post('/:id/comments', async (req, res) => {
 
   const comment = await db
     .prepare(
-      `SELECT c.id, c.content, c.created_at, u.id AS user_id, u.username, u.avatar_url, u.badge
+      `SELECT c.id, c.content, c.created_at, u.id AS user_id, u.username, u.avatar_url, u.badge, u.role, u.first_name, u.last_name
        FROM post_comments c JOIN users u ON u.id = c.user_id WHERE c.id = ?`
     )
     .get(id);
@@ -127,7 +127,7 @@ router.get('/', async (req, res) => {
 
   const rows = await db
     .prepare(
-      `SELECT p.id, p.user_id, u.username, u.avatar_url, u.badge, p.content, p.media_url, p.media_type, p.created_at,
+      `SELECT p.id, p.user_id, u.username, u.avatar_url, u.badge, u.role, u.first_name, u.last_name, p.content, p.media_url, p.media_type, p.created_at,
               (SELECT COUNT(*) FROM post_likes l WHERE l.post_id = p.id) AS like_count,
               EXISTS(SELECT 1 FROM post_likes l WHERE l.post_id = p.id AND l.user_id = ?) AS liked_by_me,
               (SELECT COUNT(*) FROM post_comments c WHERE c.post_id = p.id) AS comment_count,
@@ -146,11 +146,38 @@ router.get('/', async (req, res) => {
   res.json(rows);
 });
 
+// ---------- Modifier son propre post ----------
+router.patch('/:id', async (req, res) => {
+  const post = await db.prepare('SELECT * FROM posts WHERE id = ?').get(req.params.id);
+  if (!post) return res.status(404).json({ error: 'Publication introuvable' });
+  if (post.user_id !== req.user.id) return res.status(403).json({ error: 'Non autorisé' });
+  const content = (req.body.content || '').trim();
+  if (!content && !post.media_url) return res.status(400).json({ error: 'Le post ne peut pas être vide' });
+  await db.prepare('UPDATE posts SET content = ? WHERE id = ?').run(content || null, req.params.id);
+  res.json({ ok: true });
+});
+
+// ---------- Supprimer un commentaire (auteur du commentaire, auteur du post ou équipe) ----------
+router.delete('/comments/:commentId', async (req, res) => {
+  const c = await db
+    .prepare('SELECT c.id, c.user_id, p.user_id AS post_owner FROM post_comments c JOIN posts p ON p.id = c.post_id WHERE c.id = ?')
+    .get(req.params.commentId);
+  if (!c) return res.status(404).json({ error: 'Commentaire introuvable' });
+  const me = await db.prepare('SELECT is_admin, role FROM users WHERE id = ?').get(req.user.id);
+  const staff = !!me?.is_admin || me?.role === 'moderator';
+  if (c.user_id !== req.user.id && c.post_owner !== req.user.id && !staff) return res.status(403).json({ error: 'Non autorisé' });
+  await db.prepare('DELETE FROM post_comments WHERE id = ?').run(req.params.commentId);
+  res.json({ ok: true });
+});
+
 // ---------- Supprimer son propre post ----------
 router.delete('/:id', async (req, res) => {
   const post = await db.prepare('SELECT * FROM posts WHERE id = ?').get(req.params.id);
   if (!post) return res.status(404).json({ error: 'Publication introuvable' });
-  if (post.user_id !== req.user.id) return res.status(403).json({ error: 'Non autorisé' });
+  if (post.user_id !== req.user.id) {
+    const me = await db.prepare('SELECT is_admin, role FROM users WHERE id = ?').get(req.user.id);
+    if (!me?.is_admin && me?.role !== 'moderator') return res.status(403).json({ error: 'Non autorisé' });
+  }
 
   await db.prepare('DELETE FROM posts WHERE id = ?').run(req.params.id);
   res.json({ ok: true });
@@ -159,7 +186,7 @@ router.delete('/:id', async (req, res) => {
 async function getPostById(id) {
   return db
     .prepare(
-      `SELECT p.id, p.user_id, u.username, u.avatar_url, u.badge, p.content, p.media_url, p.media_type, p.created_at,
+      `SELECT p.id, p.user_id, u.username, u.avatar_url, u.badge, u.role, u.first_name, u.last_name, p.content, p.media_url, p.media_type, p.created_at,
               0 AS like_count, false AS liked_by_me, 0 AS comment_count, 0 AS share_count,
               false AS bookmarked_by_me, su.username AS shared_from_username
        FROM posts p

@@ -13,13 +13,16 @@ router.get('/conversations', async (req, res) => {
     .prepare(
       `SELECT c.id, c.is_group, c.name, c.avatar_url,
               (SELECT content FROM messages m WHERE m.conversation_id = c.id ORDER BY m.created_at DESC LIMIT 1) AS last_message,
-              (SELECT created_at FROM messages m WHERE m.conversation_id = c.id ORDER BY m.created_at DESC LIMIT 1) AS last_message_at
+              (SELECT created_at FROM messages m WHERE m.conversation_id = c.id ORDER BY m.created_at DESC LIMIT 1) AS last_message_at,
+              (SELECT COUNT(*) FROM messages m
+                 WHERE m.conversation_id = c.id AND m.sender_id != ?
+                   AND NOT EXISTS (SELECT 1 FROM message_reads r WHERE r.message_id = m.id AND r.user_id = ?)) AS unread
        FROM conversations c
        JOIN conversation_members cm ON cm.conversation_id = c.id
        WHERE cm.user_id = ?
        ORDER BY last_message_at DESC NULLS LAST`
     )
-    .all(req.user.id);
+    .all(req.user.id, req.user.id, req.user.id);
 
   // Pour les discussions 1:1, on ajoute le nom/avatar de l'autre personne
   const enriched = await Promise.all(
@@ -27,12 +30,12 @@ router.get('/conversations', async (req, res) => {
       if (!c.is_group) {
         const other = await db
           .prepare(
-            `SELECT u.id, u.username, u.avatar_url, u.badge FROM users u
+            `SELECT u.id, u.username, u.avatar_url, u.badge, u.role, u.first_name, u.last_name FROM users u
              JOIN conversation_members cm ON cm.user_id = u.id
              WHERE cm.conversation_id = ? AND u.id != ?`
           )
           .get(c.id, req.user.id);
-        return { ...c, name: other?.username, avatar_url: other?.avatar_url, other_user_id: other?.id, badge: other?.badge };
+        return { ...c, name: other?.username, avatar_url: other?.avatar_url, other_user_id: other?.id, badge: other?.badge, role: other?.role, first_name: other?.first_name, last_name: other?.last_name };
       }
       return c;
     })
@@ -121,7 +124,8 @@ router.get('/conversations/:id/messages', async (req, res) => {
 
   const messages = await db
     .prepare(
-      `SELECT m.id, m.sender_id, u.username AS sender_username, m.content, m.media_url, m.media_type, m.created_at
+      `SELECT m.id, m.sender_id, u.username AS sender_username, m.content, m.media_url, m.media_type, m.created_at,
+              EXISTS(SELECT 1 FROM message_reads r WHERE r.message_id = m.id AND r.user_id != m.sender_id) AS seen
        FROM messages m JOIN users u ON u.id = m.sender_id
        WHERE m.conversation_id = ? ORDER BY m.created_at ASC LIMIT 200`
     )
@@ -162,6 +166,38 @@ router.post('/conversations/:id/messages', async (req, res) => {
   }
 
   res.status(201).json(message);
+});
+
+// ---------- Marquer les messages reçus comme lus ----------
+router.post('/conversations/:id/read', async (req, res) => {
+  const isMember = await db
+    .prepare('SELECT 1 FROM conversation_members WHERE conversation_id = ? AND user_id = ?')
+    .get(req.params.id, req.user.id);
+  if (!isMember) return res.status(403).json({ error: 'Accès refusé' });
+
+  await db
+    .prepare(
+      `INSERT INTO message_reads (message_id, user_id)
+       SELECT m.id, ? FROM messages m WHERE m.conversation_id = ? AND m.sender_id != ?
+       ON CONFLICT DO NOTHING`
+    )
+    .run(req.user.id, req.params.id, req.user.id);
+  await db
+    .prepare("UPDATE notifications SET is_read = 1 WHERE user_id = ? AND type = 'message' AND conversation_id = ?")
+    .run(req.user.id, req.params.id);
+
+  req.app.get('io')?.to(req.params.id).emit('messages_read', { conversation_id: req.params.id, reader_id: req.user.id });
+  res.json({ ok: true });
+});
+
+// ---------- Supprimer son propre message ----------
+router.delete('/messages/:id', async (req, res) => {
+  const m = await db.prepare('SELECT id, sender_id, conversation_id FROM messages WHERE id = ?').get(req.params.id);
+  if (!m) return res.status(404).json({ error: 'Message introuvable' });
+  if (m.sender_id !== req.user.id) return res.status(403).json({ error: 'Non autorisé' });
+  await db.prepare('DELETE FROM messages WHERE id = ?').run(req.params.id);
+  req.app.get('io')?.to(m.conversation_id).emit('message_deleted', { conversation_id: m.conversation_id, message_id: m.id });
+  res.json({ ok: true });
 });
 
 module.exports = router;

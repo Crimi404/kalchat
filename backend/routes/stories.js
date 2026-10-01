@@ -12,7 +12,7 @@ const LIFETIME_HOURS = Number(process.env.STORY_LIFETIME_HOURS || 24);
 // ---------- Publier une story (ou repartager une story existante) ----------
 router.post('/', async (req, res) => {
   const { media_url, media_type, caption, shared_from_id } = req.body;
-  if (!media_url) return res.status(400).json({ error: 'media_url requis (image ou vidéo)' });
+  if (!media_url && !caption?.trim()) return res.status(400).json({ error: 'Une story doit contenir une photo, une vidéo ou du texte' });
 
   const id = uuid();
   await db
@@ -20,7 +20,7 @@ router.post('/', async (req, res) => {
       `INSERT INTO stories (id, user_id, media_url, media_type, caption, shared_from_id, expires_at)
        VALUES (?, ?, ?, ?, ?, ?, NOW() + INTERVAL '${LIFETIME_HOURS} hours')`
     )
-    .run(id, req.user.id, media_url, media_type || null, caption || null, shared_from_id || null);
+    .run(id, req.user.id, media_url || '', media_type || null, caption?.trim() || null, shared_from_id || null);
 
   const story = await db.prepare('SELECT * FROM stories WHERE id = ?').get(id);
   res.status(201).json(story);
@@ -66,7 +66,7 @@ router.post('/:id/like', async (req, res) => {
 router.get('/:id/comments', async (req, res) => {
   const comments = await db
     .prepare(
-      `SELECT c.id, c.content, c.created_at, u.id AS user_id, u.username, u.avatar_url, u.badge
+      `SELECT c.id, c.content, c.created_at, u.id AS user_id, u.username, u.avatar_url, u.badge, u.role, u.first_name, u.last_name
        FROM story_comments c JOIN users u ON u.id = c.user_id
        WHERE c.story_id = ? ORDER BY c.created_at ASC`
     )
@@ -88,7 +88,7 @@ router.post('/:id/comments', async (req, res) => {
 
   const comment = await db
     .prepare(
-      `SELECT c.id, c.content, c.created_at, u.id AS user_id, u.username, u.avatar_url, u.badge
+      `SELECT c.id, c.content, c.created_at, u.id AS user_id, u.username, u.avatar_url, u.badge, u.role, u.first_name, u.last_name
        FROM story_comments c JOIN users u ON u.id = c.user_id WHERE c.id = ?`
     )
     .get(id);
@@ -100,13 +100,13 @@ router.post('/:id/comments', async (req, res) => {
 router.get('/feed', async (req, res) => {
   const expired = await db.prepare('SELECT media_url FROM stories WHERE expires_at <= NOW()').all();
   for (const s of expired) {
-    deleteFileByUrl(s.media_url).catch(() => {});
+    if (s.media_url) deleteFileByUrl(s.media_url).catch(() => {});
   }
   await db.prepare('DELETE FROM stories WHERE expires_at <= NOW()').run();
 
   const rows = await db
     .prepare(
-      `SELECT s.id, s.user_id, u.username, u.avatar_url, u.badge, s.media_url, s.media_type, s.caption, s.created_at, s.expires_at,
+      `SELECT s.id, s.user_id, u.username, u.avatar_url, u.badge, u.role, u.first_name, u.last_name, s.media_url, s.media_type, s.caption, s.created_at, s.expires_at,
               EXISTS(SELECT 1 FROM story_views v WHERE v.story_id = s.id AND v.viewer_id = ?) AS viewed_by_me,
               (SELECT COUNT(*) FROM story_likes l WHERE l.story_id = s.id) AS like_count,
               EXISTS(SELECT 1 FROM story_likes l WHERE l.story_id = s.id AND l.user_id = ?) AS liked_by_me,
@@ -133,7 +133,7 @@ router.get('/feed', async (req, res) => {
   const grouped = {};
   for (const r of rows) {
     if (!grouped[r.user_id]) {
-      grouped[r.user_id] = { user_id: r.user_id, username: r.username, avatar_url: r.avatar_url, badge: r.badge, stories: [] };
+      grouped[r.user_id] = { user_id: r.user_id, username: r.username, avatar_url: r.avatar_url, badge: r.badge, role: r.role, first_name: r.first_name, last_name: r.last_name, stories: [] };
     }
     grouped[r.user_id].stories.push(r);
   }

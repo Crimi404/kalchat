@@ -26,13 +26,19 @@ async function canMessage(aId, bId) {
 
 // ---------- Mon propre profil (édition) ----------
 router.patch('/me', async (req, res) => {
-  const { bio, avatar_url, status_text } = req.body;
+  const { bio, avatar_url, cover_url, location, status_text, first_name, last_name } = req.body;
   await db
-    .prepare('UPDATE users SET bio = COALESCE(?, bio), avatar_url = COALESCE(?, avatar_url), status_text = COALESCE(?, status_text) WHERE id = ?')
-    .run(bio ?? null, avatar_url ?? null, status_text ?? null, req.user.id);
+    .prepare(
+      `UPDATE users SET
+         bio = COALESCE(?, bio), avatar_url = COALESCE(?, avatar_url), cover_url = COALESCE(?, cover_url),
+         location = COALESCE(?, location), status_text = COALESCE(?, status_text),
+         first_name = COALESCE(?, first_name), last_name = COALESCE(?, last_name)
+       WHERE id = ?`
+    )
+    .run(bio ?? null, avatar_url ?? null, cover_url ?? null, location ?? null, status_text ?? null, first_name ?? null, last_name ?? null, req.user.id);
 
   const user = await db
-    .prepare('SELECT id, username, avatar_url, bio, status_text, badge, created_at FROM users WHERE id = ?')
+    .prepare('SELECT id, username, avatar_url, cover_url, location, bio, status_text, badge, role, first_name, last_name, created_at FROM users WHERE id = ?')
     .get(req.user.id);
   res.json(user);
 });
@@ -85,7 +91,7 @@ router.post('/requests/:followerId/respond', async (req, res) => {
 // ---------- Profil public d'un utilisateur ----------
 router.get('/:username', async (req, res) => {
   const user = await db
-    .prepare('SELECT id, username, avatar_url, bio, status_text, badge, first_name, last_name, created_at FROM users WHERE username = ?')
+    .prepare('SELECT id, username, avatar_url, cover_url, location, bio, status_text, badge, role, first_name, last_name, is_blocked, created_at FROM users WHERE username = ?')
     .get(req.params.username);
   if (!user) return res.status(404).json({ error: 'Utilisateur introuvable' });
 
@@ -113,7 +119,7 @@ router.get('/:username/followers', async (req, res) => {
 
   const rows = await db
     .prepare(
-      `SELECT u.username, u.avatar_url, u.badge
+      `SELECT u.id, u.username, u.avatar_url, u.badge, u.role, u.first_name, u.last_name
        FROM follows f JOIN users u ON u.id = f.follower_id
        WHERE f.followed_id = ? AND f.status = 'accepted'
        ORDER BY f.responded_at DESC`
@@ -128,7 +134,7 @@ router.get('/:username/following', async (req, res) => {
 
   const rows = await db
     .prepare(
-      `SELECT u.username, u.avatar_url, u.badge
+      `SELECT u.id, u.username, u.avatar_url, u.badge, u.role, u.first_name, u.last_name
        FROM follows f JOIN users u ON u.id = f.followed_id
        WHERE f.follower_id = ? AND f.status = 'accepted'
        ORDER BY f.responded_at DESC`

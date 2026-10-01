@@ -9,7 +9,7 @@ router.use(authMiddleware);
 router.get('/', async (req, res) => {
   const rows = await db
     .prepare(
-      `SELECT n.id, n.type, n.post_id, n.conversation_id, n.message_id, n.is_read, n.created_at,
+      `SELECT n.id, n.type, n.body, n.post_id, n.conversation_id, n.message_id, n.is_read, n.created_at,
               a.id AS actor_id, a.username AS actor_username, a.avatar_url AS actor_avatar_url
        FROM notifications n JOIN users a ON a.id = n.actor_id
        WHERE n.user_id = ?

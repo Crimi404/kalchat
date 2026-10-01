@@ -71,7 +71,7 @@ router.post('/login', async (req, res) => {
 
     res.json({
       token,
-      user: { id: user.id, username: user.username, avatar_url: user.avatar_url, status_text: user.status_text, is_admin: !!user.is_admin },
+      user: { id: user.id, username: user.username, avatar_url: user.avatar_url, status_text: user.status_text, badge: user.badge, role: user.role, is_admin: !!user.is_admin },
     });
   } catch (err) {
     console.error(err);
@@ -82,9 +82,9 @@ router.post('/login', async (req, res) => {
 // ---------- Profil courant ----------
 router.get('/me', authMiddleware, async (req, res) => {
   const user = await db
-    .prepare('SELECT id, username, avatar_url, status_text, bio, badge, is_admin, first_name, last_name, created_at FROM users WHERE id = ?')
+    .prepare('SELECT id, username, avatar_url, cover_url, location, status_text, bio, badge, role, is_admin, is_blocked, first_name, last_name, created_at FROM users WHERE id = ?')
     .get(req.user.id);
-  res.json({ ...user, is_admin: !!user.is_admin });
+  res.json({ ...user, is_admin: !!user.is_admin, is_staff: !!user.is_admin || user.role === 'moderator' });
 });
 
 // ---------- Recherche d'utilisateurs (pour démarrer une conversation) ----------
@@ -92,9 +92,9 @@ router.get('/search', authMiddleware, async (req, res) => {
   const q = `%${req.query.q || ''}%`;
   const users = await db
     .prepare(
-      'SELECT id, username, avatar_url, badge FROM users WHERE username ILIKE ? AND id != ? LIMIT 20'
+      "SELECT id, username, avatar_url, badge, role, first_name, last_name FROM users WHERE (username ILIKE ? OR (COALESCE(first_name, '') || ' ' || COALESCE(last_name, '')) ILIKE ?) AND id != ? LIMIT 20"
     )
-    .all(q, req.user.id);
+    .all(q, q, req.user.id);
   res.json(users);
 });
 

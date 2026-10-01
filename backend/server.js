@@ -67,8 +67,15 @@ app.use('/api/admin', adminRoutes);
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
-// ---------- Frontend statique (front simple servi par le même serveur) ----------
-app.use(express.static(path.join(__dirname, '..', 'frontend')));
+// ---------- Frontend React (construit dans frontend/dist) servi par le même serveur ----------
+const FRONT_DIST = path.join(__dirname, '..', 'frontend', 'dist');
+app.use(express.static(FRONT_DIST));
+// Application monopage : toute adresse qui n'est pas /api ni /socket.io renvoie index.html
+app.get(/^\/(?!api\/|socket\.io\/).*/, (req, res, next) => {
+  res.sendFile(path.join(FRONT_DIST, 'index.html'), (err) => {
+    if (err) next();
+  });
+});
 
 // ---------- Socket.io : chat en temps réel ----------
 io.use((socket, next) => {
@@ -82,8 +89,19 @@ io.use((socket, next) => {
   }
 });
 
+// Liste des membres actuellement connectés (au moins un socket ouvert), sans doublons
+function onlineIds() {
+  const ids = new Set();
+  for (const s of io.sockets.sockets.values()) {
+    if (s.user?.id) ids.add(s.user.id);
+  }
+  return [...ids];
+}
+
 io.on('connection', (socket) => {
   socket.join(`user:${socket.user.id}`);
+  io.emit('presence', onlineIds());
+  socket.on('disconnect', () => io.emit('presence', onlineIds()));
 
   socket.on('join', (conversationId) => {
     socket.join(conversationId);
