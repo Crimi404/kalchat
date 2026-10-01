@@ -244,13 +244,22 @@ export async function searchUsers(q: string): Promise<MiniProfile[]> {
 export interface FollowRequest {
   userId: string;
   username: string;
+  display_name: string;
   avatar_url: string | null;
+  badges: BadgeRow[];
   created_at: string;
 }
 
 export async function fetchRequests(): Promise<FollowRequest[]> {
-  const rows = await api<{ follower_id: string; username: string; avatar_url: string | null; created_at: string }[]>("/users/me/requests");
-  return rows.map((r) => ({ userId: r.follower_id, username: r.username, avatar_url: r.avatar_url, created_at: r.created_at }));
+  const rows = await api<(RawAuthor & { follower_id: string; created_at: string })[]>("/users/me/requests");
+  return rows.map((r) => ({
+    userId: r.follower_id,
+    username: r.username,
+    display_name: displayName(r),
+    avatar_url: r.avatar_url,
+    badges: toBadges(r.follower_id, r.badge, r.role),
+    created_at: r.created_at,
+  }));
 }
 
 export async function respondRequest(followerId: string, accept: boolean) {

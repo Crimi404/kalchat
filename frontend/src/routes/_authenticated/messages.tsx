@@ -6,6 +6,7 @@ import { TopBar } from "@/components/TopBar";
 import { BottomNav } from "@/components/BottomNav";
 import { useAuth } from "@/lib/auth";
 import { useOnline } from "@/lib/presence";
+import { BadgeList } from "@/components/KalBadge";
 import { fetchConversations } from "@/lib/chat";
 import { fetchRequests, respondRequest, timeAgo } from "@/lib/social";
 
@@ -51,7 +52,7 @@ function RequestsPanel() {
               ) : (
                 <span className="brand-gradient flex h-10 w-10 items-center justify-center rounded-full font-bold text-primary-foreground">{r.username.slice(0, 1).toUpperCase()}</span>
               )}
-              <span className="truncate text-sm font-semibold text-foreground">@{r.username}</span>
+              <span className="flex min-w-0 items-center gap-1 text-sm font-semibold text-foreground"><span className="truncate">{r.display_name}</span><BadgeList badges={r.badges} size={14} /></span>
             </Link>
             <button disabled={answer.isPending} onClick={() => answer.mutate({ id: r.userId, accept: true })} className="brand-gradient rounded-full px-3 py-1.5 text-xs font-bold text-primary-foreground disabled:opacity-60">Accepter</button>
             <button disabled={answer.isPending} onClick={() => answer.mutate({ id: r.userId, accept: false })} className="rounded-full border border-border px-3 py-1.5 text-xs font-semibold text-muted-foreground disabled:opacity-60">Refuser</button>
@@ -93,7 +94,7 @@ function MessagesPage() {
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="flex items-baseline justify-between gap-2">
-                    <span className="truncate text-sm font-bold text-foreground">{c.other.display_name}</span>
+                    <span className="flex min-w-0 items-center gap-1 text-sm font-bold text-foreground"><span className="truncate">{c.other.display_name}</span><BadgeList badges={c.other.badges} size={14} /></span>
                     <span className={`shrink-0 text-[11px] ${c.unread ? "font-semibold text-primary" : "text-muted-foreground"}`}>{c.last_message_at ? timeAgo(c.last_message_at) : ""}</span>
                   </span>
                   <span className="mt-0.5 flex items-center justify-between gap-2">

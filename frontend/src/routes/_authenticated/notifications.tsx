@@ -4,7 +4,8 @@ import { useEffect } from "react";
 import { ShieldAlert } from "lucide-react";
 import { TopBar } from "@/components/TopBar";
 import { BottomNav } from "@/components/BottomNav";
-import { api } from "@/lib/api";
+import { api, toBadges } from "@/lib/api";
+import { BadgeList } from "@/components/KalBadge";
 import { useAuth } from "@/lib/auth";
 import { timeAgo } from "@/lib/social";
 
@@ -31,6 +32,8 @@ interface RawNotif {
   created_at: string;
   actor_id: string;
   actor_username: string;
+  actor_badge: string | null;
+  actor_role: string | null;
 }
 
 const TEXTS: Record<string, string> = {
@@ -70,7 +73,8 @@ function NotificationsPage() {
             </div>
           ) : (
             <div key={n.id} className={`border-b border-border px-4 py-3 text-sm ${n.is_read ? "" : "bg-primary/5"}`}>
-              <Link to="/u/$username" params={{ username: n.actor_username }} className="font-semibold text-foreground hover:underline">@{n.actor_username}</Link>{" "}
+              <Link to="/u/$username" params={{ username: n.actor_username }} className="font-semibold text-foreground hover:underline">@{n.actor_username}</Link>
+              <span className="mx-1 inline-flex align-middle"><BadgeList badges={toBadges(n.actor_id, n.actor_badge, n.actor_role)} size={14} /></span>
               {n.type === "message" && n.conversation_id ? (
                 <Link to="/messages/$id" params={{ id: n.conversation_id }} className="text-muted-foreground hover:underline">{TEXTS[n.type]}</Link>
               ) : n.type === "follow_request" ? (

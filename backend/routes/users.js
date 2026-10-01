@@ -47,7 +47,7 @@ router.patch('/me', async (req, res) => {
 router.get('/me/requests', async (req, res) => {
   const rows = await db
     .prepare(
-      `SELECT f.follower_id, f.created_at, u.username, u.avatar_url
+      `SELECT f.follower_id, f.created_at, u.username, u.avatar_url, u.badge, u.role, u.first_name, u.last_name
        FROM follows f JOIN users u ON u.id = f.follower_id
        WHERE f.followed_id = ? AND f.status = 'pending'
        ORDER BY f.created_at DESC`

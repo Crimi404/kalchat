@@ -35,7 +35,7 @@ router.get('/conversations', async (req, res) => {
              WHERE cm.conversation_id = ? AND u.id != ?`
           )
           .get(c.id, req.user.id);
-        return { ...c, name: other?.username, avatar_url: other?.avatar_url, other_user_id: other?.id, badge: other?.badge, role: other?.role, first_name: other?.first_name, last_name: other?.last_name };
+        return { ...c, name: other?.username, username: other?.username, avatar_url: other?.avatar_url, other_user_id: other?.id, badge: other?.badge, role: other?.role, first_name: other?.first_name, last_name: other?.last_name };
       }
       return c;
     })

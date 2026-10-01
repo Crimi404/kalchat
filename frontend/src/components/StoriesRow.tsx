@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
 import { deleteStory, fetchStoryGroups, markStoryViewed, storyViewCount, type StoryGroup } from "@/lib/stories";
 import { timeAgo } from "@/lib/social";
+import { BadgeList } from "@/components/KalBadge";
 
 function Avatar({ url, name, size = 56 }: { url: string | null; name: string; size?: number }) {
   return url ? (
@@ -52,6 +53,7 @@ function StoryViewer({ group, onClose }: { group: StoryGroup; onClose: () => voi
         <div className="absolute inset-x-3 top-6 z-10 flex items-center gap-2">
           <Avatar url={group.author.avatar_url} name={group.author.display_name} size={34} />
           <span className="text-sm font-bold text-foreground">{group.author.display_name}</span>
+          <BadgeList badges={group.author.badges} size={14} />
           <span className="text-xs text-muted-foreground">{timeAgo(s.created_at)}</span>
           <span className="flex-1" />
           {mine && (

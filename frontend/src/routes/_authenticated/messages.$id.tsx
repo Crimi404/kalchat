@@ -1,10 +1,12 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Check, CheckCheck, Loader2, Send, Trash2 } from "lucide-react";
+import { ArrowLeft, Check, CheckCheck, ImagePlus, Loader2, Send, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
 import { useOnline } from "@/lib/presence";
+import { BadgeList } from "@/components/KalBadge";
+import { MAX_UPLOAD_MB, uploadMedia } from "@/lib/media";
 import { deleteMessage, fetchConversation, fetchMessages, joinConversation, markRead, sendMessage } from "@/lib/chat";
 
 export const Route = createFileRoute("/_authenticated/messages/$id")({
@@ -45,6 +47,28 @@ function ChatPage() {
     }
   }, [msgs.data, id, uid, qc]);
 
+  const [sendingFile, setSendingFile] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  async function sendFile(f: File | undefined) {
+    if (!f) return;
+    if (!f.type.startsWith("image/") && !f.type.startsWith("video/")) { toast.error("Choisis une photo ou une vidéo"); return; }
+    if (f.size > MAX_UPLOAD_MB * 1024 * 1024) { toast.error(`Fichier trop lourd (${MAX_UPLOAD_MB} Mo max)`); return; }
+    setSendingFile(true);
+    try {
+      const media = await uploadMedia(f);
+      await sendMessage(id, text, media);
+      setText("");
+      await qc.invalidateQueries({ queryKey: ["messages", id] });
+      void qc.invalidateQueries({ queryKey: ["conversations"] });
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setSendingFile(false);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  }
+
   const send = useMutation({
     mutationFn: (body: string) => sendMessage(id, body),
     onSuccess: () => { setText(""); qc.invalidateQueries({ queryKey: ["messages", id] }); },
@@ -66,7 +90,7 @@ function ChatPage() {
         <Link to="/u/$username" params={{ username: other.username }} className="flex min-w-0 flex-1 items-center gap-2.5">
           {other.avatar_url ? <img src={other.avatar_url} alt={other.display_name} className="h-9 w-9 rounded-full object-cover" /> : <span className="brand-gradient flex h-9 w-9 items-center justify-center rounded-full font-bold text-primary-foreground">{other.display_name.slice(0, 1).toUpperCase()}</span>}
           <span className="min-w-0">
-            <span className="block truncate text-sm font-bold text-foreground">{other.display_name}</span>
+            <span className="flex items-center gap-1 text-sm font-bold text-foreground"><span className="truncate">{other.display_name}</span><BadgeList badges={other.badges} size={14} /></span>
             <span className="block text-[11px] text-muted-foreground">{online.has(other.id) ? "En ligne" : `@${other.username}`}</span>
           </span>
         </Link>
@@ -100,6 +124,10 @@ function ChatPage() {
       </main>
 
       <form onSubmit={(e) => { e.preventDefault(); if (text.trim()) send.mutate(text); }} className="flex items-center gap-2 border-t border-border p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+        <input ref={fileRef} type="file" accept="image/*,video/*" hidden onChange={(e) => void sendFile(e.target.files?.[0])} />
+        <button type="button" disabled={sendingFile} onClick={() => fileRef.current?.click()} aria-label="Envoyer une photo ou une vidéo" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-border bg-card text-muted-foreground hover:bg-secondary disabled:opacity-60">
+          {sendingFile ? <Loader2 className="h-5 w-5 animate-spin" /> : <ImagePlus className="h-5 w-5" />}
+        </button>
         <input value={text} onChange={(e) => setText(e.target.value)} maxLength={2000} placeholder="Écris un message…" className="flex-1 rounded-full border border-border bg-card px-4 py-2.5 text-sm text-foreground outline-none focus:border-primary" />
         <button disabled={send.isPending || !text.trim()} aria-label="Envoyer" className="brand-gradient flex h-10 w-10 items-center justify-center rounded-full text-primary-foreground disabled:opacity-50"><Send className="h-4 w-4" /></button>
       </form>

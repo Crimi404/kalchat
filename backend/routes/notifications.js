@@ -10,7 +10,7 @@ router.get('/', async (req, res) => {
   const rows = await db
     .prepare(
       `SELECT n.id, n.type, n.body, n.post_id, n.conversation_id, n.message_id, n.is_read, n.created_at,
-              a.id AS actor_id, a.username AS actor_username, a.avatar_url AS actor_avatar_url
+              a.id AS actor_id, a.username AS actor_username, a.avatar_url AS actor_avatar_url, a.badge AS actor_badge, a.role AS actor_role
        FROM notifications n JOIN users a ON a.id = n.actor_id
        WHERE n.user_id = ?
        ORDER BY n.created_at DESC
