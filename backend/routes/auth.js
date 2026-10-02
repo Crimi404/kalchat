@@ -4,6 +4,7 @@ const jwt = require('jsonwebtoken');
 const { v4: uuid } = require('uuid');
 const db = require('../db');
 const authMiddleware = require('../middleware/auth');
+const { nextUsernameChangeAt } = require('../usernamePolicy');
 
 const router = express.Router();
 
@@ -82,9 +83,14 @@ router.post('/login', async (req, res) => {
 // ---------- Profil courant ----------
 router.get('/me', authMiddleware, async (req, res) => {
   const user = await db
-    .prepare('SELECT id, username, avatar_url, cover_url, location, status_text, bio, badge, role, is_admin, is_blocked, first_name, last_name, created_at FROM users WHERE id = ?')
+    .prepare('SELECT id, username, avatar_url, cover_url, location, status_text, bio, badge, role, is_admin, is_blocked, first_name, last_name, created_at, theme, username_changed_at FROM users WHERE id = ?')
     .get(req.user.id);
-  res.json({ ...user, is_admin: !!user.is_admin, is_staff: !!user.is_admin || user.role === 'moderator' });
+  res.json({
+    ...user,
+    is_admin: !!user.is_admin,
+    is_staff: !!user.is_admin || user.role === 'moderator',
+    username_next_change_at: nextUsernameChangeAt(user.username_changed_at),
+  });
 });
 
 // ---------- Recherche d'utilisateurs (pour démarrer une conversation) ----------

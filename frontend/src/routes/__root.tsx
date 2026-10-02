@@ -4,6 +4,7 @@ import { Outlet, Link, createRootRouteWithContext, useRouter } from "@tanstack/r
 import { AuthProvider } from "@/lib/auth";
 import { Toaster } from "@/components/ui/sonner";
 import { PresenceProvider } from "@/lib/presence";
+import { ThemeProvider } from "@/lib/theme";
 
 function NotFoundComponent() {
   return (
@@ -74,11 +75,13 @@ function RootComponent() {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
-        <PresenceProvider>
-          {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
-          <Outlet />
-          <Toaster position="top-center" richColors />
-        </PresenceProvider>
+        <ThemeProvider>
+          <PresenceProvider>
+            {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
+            <Outlet />
+            <Toaster position="top-center" richColors />
+          </PresenceProvider>
+        </ThemeProvider>
       </AuthProvider>
     </QueryClientProvider>
   );

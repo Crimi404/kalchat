@@ -6,6 +6,16 @@
     <title>Kalchat — Ta vibe, ta communauté</title>
     <meta name="description" content="Kalchat, l'application de messagerie sociale : communication, liberté, confidentialité et innovation." />
     <meta name="theme-color" content="#17112a" />
+    <script>
+      // Thème choisi (sombre par défaut), appliqué avant le premier affichage.
+      (function () {
+        var t = "dark";
+        try { if (localStorage.getItem("kalchat_theme") === "light") t = "light"; } catch (e) {}
+        document.documentElement.setAttribute("data-theme", t);
+        var m = document.querySelector('meta[name="theme-color"]');
+        if (m) m.setAttribute("content", t === "light" ? "#fbfaff" : "#17112a");
+      })();
+    </script>
     <link rel="icon" type="image/png" href="/favicon.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />

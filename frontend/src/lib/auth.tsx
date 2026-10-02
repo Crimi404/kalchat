@@ -19,6 +19,9 @@ export interface Profile {
   is_suspended: boolean;
   created_at: string;
   badges: BadgeRow[];
+  theme: "dark" | "light";
+  /** Date (ISO) à partir de laquelle le nom d'utilisateur pourra de nouveau être changé ; null = possible maintenant. */
+  username_next_change_at: string | null;
 }
 
 interface RawMe {
@@ -36,6 +39,8 @@ interface RawMe {
   first_name: string | null;
   last_name: string | null;
   created_at: string;
+  theme?: string | null;
+  username_next_change_at?: string | null;
 }
 
 export interface SignUpInput {
@@ -76,6 +81,8 @@ function toProfile(m: RawMe): Profile {
     is_suspended: !!m.is_blocked,
     created_at: m.created_at,
     badges: toBadges(m.id, m.badge, m.role),
+    theme: m.theme === "light" ? "light" : "dark",
+    username_next_change_at: m.username_next_change_at ?? null,
   };
 }
 

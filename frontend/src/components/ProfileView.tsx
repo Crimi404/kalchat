@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CalendarDays, Loader2, MapPin, Pencil } from "lucide-react";
+import { CalendarDays, Loader2, MapPin, Pencil, Settings } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { BadgeList } from "@/components/KalBadge";
@@ -97,9 +97,14 @@ export function ProfileView({ username }: { username: string }) {
           </span>
           <div className="pb-2">
             {isMe ? (
-              <button onClick={() => setEditing((v) => !v)} className="flex items-center gap-1.5 rounded-full border border-border bg-card px-4 py-2 text-sm font-semibold hover:bg-secondary">
-                <Pencil className="h-4 w-4" /> Modifier
-              </button>
+              <div className="flex items-center gap-2">
+                <Link to="/parametres" aria-label="Paramètres" className="rounded-full border border-border bg-card p-2 hover:bg-secondary">
+                  <Settings className="h-4 w-4" />
+                </Link>
+                <button onClick={() => setEditing((v) => !v)} className="flex items-center gap-1.5 rounded-full border border-border bg-card px-4 py-2 text-sm font-semibold hover:bg-secondary">
+                  <Pencil className="h-4 w-4" /> Modifier
+                </button>
+              </div>
             ) : user ? (
               <div className="flex items-center gap-2">
                 {p.canMessage && (

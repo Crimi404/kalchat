@@ -1,4 +1,4 @@
-import { Search, Bell, LogOut, Shield, User as UserIcon, X } from "lucide-react";
+import { Search, Bell, LogOut, Settings, Shield, User as UserIcon, X } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
@@ -77,6 +77,13 @@ function AccountMenu() {
               className="flex items-center gap-2 px-4 py-3 text-sm text-foreground transition-colors hover:bg-secondary"
             >
               <UserIcon className="h-4 w-4" /> Mon profil
+            </Link>
+            <Link
+              to="/parametres"
+              onClick={() => setOpen(false)}
+              className="flex items-center gap-2 px-4 py-3 text-sm text-foreground transition-colors hover:bg-secondary"
+            >
+              <Settings className="h-4 w-4" /> Paramètres
             </Link>
             {isStaff && (
               <Link to="/admin" onClick={() => setOpen(false)} className="flex items-center gap-2 px-4 py-3 text-sm text-foreground transition-colors hover:bg-secondary">
