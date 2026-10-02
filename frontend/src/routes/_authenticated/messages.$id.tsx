@@ -1,13 +1,15 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Check, CheckCheck, ImagePlus, Loader2, MoreVertical, Send, Star, Trash2, Users } from "lucide-react";
+import { ArrowLeft, Check, CheckCheck, ImagePlus, Loader2, Mic, MoreVertical, Send, Star, Trash2, Users } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
 import { useOnline } from "@/lib/presence";
 import { BadgeList } from "@/components/KalBadge";
 import { GroupInfoSheet } from "@/components/GroupInfoSheet";
 import { MiniAvatar } from "@/components/MiniAvatar";
+import { VoiceBubble } from "@/components/VoiceBubble";
+import { MAX_VOICE_SECONDS, formatDuration, useVoiceRecorder } from "@/lib/voice";
 import { MAX_UPLOAD_MB, uploadMedia } from "@/lib/media";
 import { deleteMessage, fetchConversationDetail, fetchMessages, joinConversation, markRead, sendMessage, toggleFavoriteConversation } from "@/lib/chat";
 
@@ -86,6 +88,30 @@ function ChatPage() {
     }
   }
 
+  // ---------- Messages vocaux (2 minutes maximum) ----------
+  const voice = useVoiceRecorder(async (file, duration) => {
+    setSendingFile(true);
+    try {
+      const media = await uploadMedia(file);
+      await sendMessage(id, "", { url: media.url, type: "audio", duration });
+      await qc.invalidateQueries({ queryKey: ["messages", id] });
+      void qc.invalidateQueries({ queryKey: ["conversations"] });
+      if (duration >= MAX_VOICE_SECONDS) toast.info("Durée maximale atteinte : message vocal envoyé");
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setSendingFile(false);
+    }
+  });
+
+  async function startVoice() {
+    try {
+      await voice.start();
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
+
   const send = useMutation({
     mutationFn: (body: string) => sendMessage(id, body),
     onSuccess: () => { setText(""); qc.invalidateQueries({ queryKey: ["messages", id] }); },
@@ -158,10 +184,12 @@ function ChatPage() {
               {mine && <button aria-label="Supprimer" onClick={() => del.mutate(m.id)} className="opacity-0 transition-opacity group-hover:opacity-100 p-1 text-muted-foreground hover:text-destructive"><Trash2 className="h-3.5 w-3.5" /></button>}
               <div className={`max-w-[75%] rounded-2xl px-3.5 py-2 text-sm ${mine ? "brand-gradient rounded-br-md text-primary-foreground" : "rounded-bl-md bg-secondary text-foreground"}`}>
                 {isGroup && !mine && <span className="mb-0.5 block text-[11px] font-semibold text-primary">{m.sender_name}</span>}
+                {m.media_type === "audio_expired" && <p className="mb-1 text-xs italic opacity-80">🎤 Message vocal expiré (supprimé après 60 jours)</p>}
+                {m.media_type === "video_expired" && <p className="mb-1 text-xs italic opacity-80">🎥 Vidéo indisponible (supprimée après 90 jours)</p>}
                 {m.media_url && (m.media_type === "video" ? (
                   <video src={m.media_url} controls className="mb-1 max-h-64 rounded-xl" />
                 ) : m.media_type === "audio" ? (
-                  <audio src={m.media_url} controls className="mb-1 max-w-full" />
+                  <VoiceBubble src={m.media_url} duration={m.duration} mine={mine} />
                 ) : (
                   <img src={m.media_url} alt="" className="mb-1 max-h-64 rounded-xl object-cover" />
                 ))}
@@ -177,14 +205,35 @@ function ChatPage() {
         <div ref={endRef} />
       </main>
 
-      <form onSubmit={(e) => { e.preventDefault(); if (text.trim()) send.mutate(text); }} className="flex items-center gap-2 border-t border-border p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-        <input ref={fileRef} type="file" accept="image/*,video/*" hidden onChange={(e) => void sendFile(e.target.files?.[0])} />
-        <button type="button" disabled={sendingFile} onClick={() => fileRef.current?.click()} aria-label="Envoyer une photo ou une vidéo" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-border bg-card text-muted-foreground hover:bg-secondary disabled:opacity-60">
-          {sendingFile ? <Loader2 className="h-5 w-5 animate-spin" /> : <ImagePlus className="h-5 w-5" />}
-        </button>
-        <input value={text} onChange={(e) => setText(e.target.value)} maxLength={2000} placeholder="Écris un message…" className="flex-1 rounded-full border border-border bg-card px-4 py-2.5 text-sm text-foreground outline-none focus:border-primary" />
-        <button disabled={send.isPending || !text.trim()} aria-label="Envoyer" className="brand-gradient flex h-10 w-10 items-center justify-center rounded-full text-primary-foreground disabled:opacity-50"><Send className="h-4 w-4" /></button>
-      </form>
+      {voice.recording ? (
+        <div className="flex items-center gap-2 border-t border-border p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+          <button type="button" onClick={voice.cancel} aria-label="Annuler l'enregistrement" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-border bg-card text-destructive hover:bg-secondary">
+            <Trash2 className="h-5 w-5" />
+          </button>
+          <div className="flex flex-1 items-center gap-2 rounded-full border border-border bg-card px-4 py-2.5 text-sm text-foreground">
+            <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-destructive" />
+            <span className="font-semibold tabular-nums">{formatDuration(voice.seconds)}</span>
+            <span className="text-xs text-muted-foreground">/ {formatDuration(MAX_VOICE_SECONDS)}</span>
+            <span className="ml-auto text-xs text-muted-foreground">Enregistrement…</span>
+          </div>
+          <button type="button" onClick={voice.stop} aria-label="Envoyer le message vocal" className="brand-gradient flex h-10 w-10 items-center justify-center rounded-full text-primary-foreground">
+            <Send className="h-4 w-4" />
+          </button>
+        </div>
+      ) : (
+        <form onSubmit={(e) => { e.preventDefault(); if (text.trim()) send.mutate(text); }} className="flex items-center gap-2 border-t border-border p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+          <input ref={fileRef} type="file" accept="image/*,video/*" hidden onChange={(e) => void sendFile(e.target.files?.[0])} />
+          <button type="button" disabled={sendingFile} onClick={() => fileRef.current?.click()} aria-label="Envoyer une photo ou une vidéo" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-border bg-card text-muted-foreground hover:bg-secondary disabled:opacity-60">
+            {sendingFile ? <Loader2 className="h-5 w-5 animate-spin" /> : <ImagePlus className="h-5 w-5" />}
+          </button>
+          <input value={text} onChange={(e) => setText(e.target.value)} maxLength={2000} placeholder="Écris un message…" className="flex-1 rounded-full border border-border bg-card px-4 py-2.5 text-sm text-foreground outline-none focus:border-primary" />
+          {text.trim() ? (
+            <button disabled={send.isPending} aria-label="Envoyer" className="brand-gradient flex h-10 w-10 items-center justify-center rounded-full text-primary-foreground disabled:opacity-50"><Send className="h-4 w-4" /></button>
+          ) : (
+            <button type="button" disabled={sendingFile} onClick={() => void startVoice()} aria-label="Enregistrer un message vocal" className="brand-gradient flex h-10 w-10 items-center justify-center rounded-full text-primary-foreground disabled:opacity-50"><Mic className="h-5 w-5" /></button>
+          )}
+        </form>
+      )}
     </div>
   );
 }

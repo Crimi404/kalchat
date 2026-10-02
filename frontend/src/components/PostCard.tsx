@@ -229,6 +229,12 @@ export function PostCard({ post }: { post: FeedPost }) {
             />
           ))}
 
+          {post.media_type === "video_expired" && (
+            <div className="mt-3 rounded-2xl border border-dashed border-border bg-secondary/40 px-4 py-6 text-center text-xs text-muted-foreground">
+              🎥 Vidéo indisponible (supprimée après 90 jours)
+            </div>
+          )}
+
           <div className="mt-3 flex items-center justify-between text-muted-foreground">
             <button
               onClick={() => requireAuth() && likeMutation.mutate()}

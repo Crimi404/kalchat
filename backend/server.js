@@ -28,6 +28,8 @@ app.use(express.json({ limit: '10mb' }));
 
 // ---------- Upload de médias (photos, vidéos, avatars) — stockés sur Supabase Storage ----------
 const MAX_UPLOAD_MB = 25;
+const MAX_AUDIO_MB = 3;
+
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_UPLOAD_MB * 1024 * 1024 } });
 
 function handleUpload(req, res, next) {
@@ -45,6 +47,10 @@ function handleUpload(req, res, next) {
 
 app.post('/api/upload', handleUpload, async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Aucun fichier reçu' });
+  // Un message vocal dure 2 minutes maximum : au-delà de 3 Mo, ce n'est pas un vocal valide
+  if (req.file.mimetype.startsWith('audio/') && req.file.size > MAX_AUDIO_MB * 1024 * 1024) {
+    return res.status(413).json({ error: `Message vocal trop volumineux (max ${MAX_AUDIO_MB} Mo, 2 minutes)` });
+  }
   try {
     const ext = path.extname(req.file.originalname) || '';
     const filename = `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`;

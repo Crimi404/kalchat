@@ -344,7 +344,7 @@ router.get('/conversations/:id/messages', async (req, res) => {
     .prepare(
       `SELECT m.id, m.sender_id, u.username AS sender_username, u.first_name AS sender_first_name, u.last_name AS sender_last_name,
               u.avatar_url AS sender_avatar_url, u.badge AS sender_badge, u.role AS sender_role,
-              m.content, m.media_url, m.media_type, m.created_at,
+              m.content, m.media_url, m.media_type, m.media_duration, m.created_at,
               EXISTS(SELECT 1 FROM message_reads r WHERE r.message_id = m.id AND r.user_id != m.sender_id) AS seen
        FROM messages m JOIN users u ON u.id = m.sender_id
        WHERE m.conversation_id = ? ORDER BY m.created_at ASC LIMIT 200`
@@ -362,18 +362,29 @@ router.post('/conversations/:id/messages', async (req, res) => {
     .get(req.params.id, req.user.id);
   if (!isMember) return res.status(403).json({ error: 'Accès refusé' });
   // « system » est réservé aux messages automatiques du serveur
-  if (media_type === 'system') return res.status(400).json({ error: 'Type de média invalide' });
+  if (media_type === 'system' || (media_type && String(media_type).endsWith('_expired'))) {
+    return res.status(400).json({ error: 'Type de média invalide' });
+  }
+
+  // Message vocal : 2 minutes maximum (une petite marge est tolérée pour l'arrondi côté appareil)
+  let duration = null;
+  if (media_type === 'audio') {
+    duration = Math.round(Number(req.body.media_duration));
+    if (!Number.isFinite(duration) || duration < 1) duration = null;
+    if (duration && duration > 125) return res.status(400).json({ error: 'Un message vocal dure 2 minutes maximum' });
+    if (duration && duration > 120) duration = 120;
+  }
 
   const id = uuid();
   await db
-    .prepare('INSERT INTO messages (id, conversation_id, sender_id, content, media_url, media_type) VALUES (?, ?, ?, ?, ?, ?)')
-    .run(id, req.params.id, req.user.id, content || null, media_url || null, media_type || null);
+    .prepare('INSERT INTO messages (id, conversation_id, sender_id, content, media_url, media_type, media_duration) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    .run(id, req.params.id, req.user.id, content || null, media_url || null, media_type || null, duration);
 
   const message = await db
     .prepare(
       `SELECT m.id, m.sender_id, u.username AS sender_username, u.first_name AS sender_first_name, u.last_name AS sender_last_name,
               u.avatar_url AS sender_avatar_url, u.badge AS sender_badge, u.role AS sender_role,
-              m.content, m.media_url, m.media_type, m.created_at
+              m.content, m.media_url, m.media_type, m.media_duration, m.created_at
        FROM messages m JOIN users u ON u.id = m.sender_id WHERE m.id = ?`
     )
     .get(id);

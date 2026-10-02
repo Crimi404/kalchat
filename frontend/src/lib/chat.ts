@@ -31,6 +31,8 @@ export interface MessageRow {
   created_at: string;
   sender_name: string;
   sender_avatar: string | null;
+  /** Durée d'un message vocal, en secondes. */
+  duration: number | null;
 }
 
 interface RawConversation extends RawUser {
@@ -57,6 +59,7 @@ interface RawMessage {
   media_type: string | null;
   seen?: boolean;
   created_at: string;
+  media_duration?: number | null;
   sender_username?: string;
   sender_first_name?: string | null;
   sender_last_name?: string | null;
@@ -75,6 +78,7 @@ function shapeMessage(conversationId: string, m: RawMessage): MessageRow {
     created_at: m.created_at,
     sender_name: displayName({ username: m.sender_username ?? "", first_name: m.sender_first_name, last_name: m.sender_last_name }),
     sender_avatar: m.sender_avatar_url ?? null,
+    duration: m.media_duration ?? null,
   };
 }
 
@@ -110,7 +114,13 @@ export function previewText(c: ConversationItem, myId?: string | null): string {
   if (c.lastMediaType === "system") return c.lastMessage ?? "";
   let body = (c.lastMessage ?? "").trim();
   if (!body) {
-    body = c.lastMediaType === "video" ? "🎥 Vidéo" : c.lastMediaType === "audio" ? "🎤 Message vocal" : "📷 Photo";
+    const labels: Record<string, string> = {
+      video: "🎥 Vidéo",
+      audio: "🎤 Message vocal",
+      video_expired: "🎥 Vidéo indisponible",
+      audio_expired: "🎤 Message vocal expiré",
+    };
+    body = labels[c.lastMediaType ?? ""] ?? "📷 Photo";
   }
   if (c.isGroup && c.lastSenderId) {
     return `${c.lastSenderId === myId ? "Toi" : (c.lastSenderName ?? "")} : ${body}`;
@@ -215,12 +225,17 @@ export async function fetchMessages(conversationId: string): Promise<MessageRow[
   return rows.map((m) => shapeMessage(conversationId, m));
 }
 
-export async function sendMessage(conversationId: string, body: string, media?: { url: string; type: string }) {
+export async function sendMessage(conversationId: string, body: string, media?: { url: string; type: string; duration?: number }) {
   const text = body.trim().slice(0, 2000);
   if (!text && !media) return;
   await api(`/chat/conversations/${conversationId}/messages`, {
     method: "POST",
-    body: { content: text || null, media_url: media?.url ?? null, media_type: media?.type ?? null },
+    body: {
+      content: text || null,
+      media_url: media?.url ?? null,
+      media_type: media?.type ?? null,
+      ...(media?.duration ? { media_duration: media.duration } : {}),
+    },
   });
 }
 
