@@ -172,6 +172,15 @@ async function initSchema() {
     );
 
     CREATE INDEX IF NOT EXISTS idx_follows_followed ON follows(followed_id, status);
+
+    CREATE TABLE IF NOT EXISTS user_blocks (
+      blocker_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      blocked_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (blocker_id, blocked_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_user_blocks_blocked ON user_blocks(blocked_id);
   `);
 
   // ---------- Migrations légères (colonnes ajoutées après la première version) ----------
@@ -195,6 +204,11 @@ async function initSchema() {
     ALTER TABLE users ADD COLUMN IF NOT EXISTS username_changed_at TIMESTAMPTZ;
     ALTER TABLE conversation_members ADD COLUMN IF NOT EXISTS is_favorite INTEGER NOT NULL DEFAULT 0;
     ALTER TABLE messages ADD COLUMN IF NOT EXISTS media_duration INTEGER;
+    ALTER TABLE messages ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ;
+    ALTER TABLE conversations ADD COLUMN IF NOT EXISTS ephemeral_seconds INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS privacy_online TEXT NOT NULL DEFAULT 'everyone';
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS read_receipts INTEGER NOT NULL DEFAULT 1;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS default_ephemeral INTEGER NOT NULL DEFAULT 0;
   `);
 
   // ---------- Badges à rangs : plus (bleu) < vip (rouge) < vip_plus (violet) < legend (doré) ----------

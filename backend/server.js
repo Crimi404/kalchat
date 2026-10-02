@@ -16,7 +16,7 @@ const usersRoutes = require('./routes/users');
 const adminRoutes = require('./routes/admin');
 const db = require('./db');
 const storage = require('./storage');
-const { cleanupOldMedia } = require('./cleanup');
+const { cleanupOldMedia, cleanupExpiredMessages } = require('./cleanup');
 
 const app = express();
 const server = http.createServer(app);
@@ -104,10 +104,44 @@ function onlineIds() {
   return [...ids];
 }
 
+// Chaque membre reçoit uniquement les « En ligne » que le réglage de confidentialité de l'autre l'autorise à voir :
+// 'everyone' (tout le monde), 'friends' (abonnements acceptés) ou 'nobody' (personne).
+async function broadcastPresence() {
+  try {
+    const ids = onlineIds();
+    if (!ids.length) {
+      io.emit('presence', []);
+      return;
+    }
+    const settings = await db.prepare('SELECT id, privacy_online FROM users WHERE id = ANY(?)').all(ids);
+    const mode = new Map(settings.map((s) => [s.id, s.privacy_online]));
+    const links = await db
+      .prepare("SELECT follower_id, followed_id FROM follows WHERE status = 'accepted' AND follower_id = ANY(?) AND followed_id = ANY(?)")
+      .all(ids, ids);
+    const friends = new Set();
+    for (const l of links) {
+      friends.add(`${l.follower_id}|${l.followed_id}`);
+      friends.add(`${l.followed_id}|${l.follower_id}`);
+    }
+    for (const s of io.sockets.sockets.values()) {
+      const viewer = s.user?.id;
+      const visible = ids.filter((id) => {
+        if (id === viewer) return true;
+        const m = mode.get(id) || 'everyone';
+        return m === 'everyone' || (m === 'friends' && friends.has(`${viewer}|${id}`));
+      });
+      s.emit('presence', visible);
+    }
+  } catch (err) {
+    console.error('Erreur présence en ligne:', err.message);
+  }
+}
+app.set('broadcastPresence', broadcastPresence);
+
 io.on('connection', (socket) => {
   socket.join(`user:${socket.user.id}`);
-  io.emit('presence', onlineIds());
-  socket.on('disconnect', () => io.emit('presence', onlineIds()));
+  void broadcastPresence();
+  socket.on('disconnect', () => void broadcastPresence());
 
   socket.on('join', async (conversationId) => {
     try {
@@ -142,7 +176,7 @@ db.initSchema()
     server.listen(PORT, () => {
       console.log(`Kalchat backend démarré sur http://localhost:${PORT}`);
     });
-    // Nettoyage des vieux médias (vidéos/vocaux > 90 jours) : au démarrage, puis 1x/jour.
+    // Nettoyage des vieux médias (vidéos > 60 jours, vocaux > 60 jours) : au démarrage, puis 1x/jour.
     // Ne fonctionne que tant que le service tourne (il se rendort après inactivité sur le
     // plan gratuit Render) — pas une garantie absolue de ponctualité, mais s'exécute dès
     // que le service se réveille.
@@ -150,6 +184,10 @@ db.initSchema()
     setInterval(() => {
       cleanupOldMedia().catch((err) => console.error('Erreur nettoyage médias:', err.message));
     }, 24 * 60 * 60 * 1000);
+    // Messages éphémères : on supprime ceux dont la durée est écoulée, toutes les 5 minutes
+    const purgeEphemeral = () => cleanupExpiredMessages(io).catch((err) => console.error('Erreur messages éphémères:', err.message));
+    purgeEphemeral();
+    setInterval(purgeEphemeral, 5 * 60 * 1000);
   })
   .catch((err) => {
     console.error('❌ Impossible d\'initialiser Postgres ou Supabase Storage. Vérifie DATABASE_URL / SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY.', err);

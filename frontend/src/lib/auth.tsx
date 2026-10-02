@@ -22,6 +22,12 @@ export interface Profile {
   theme: "dark" | "light";
   /** Date (ISO) à partir de laquelle le nom d'utilisateur pourra de nouveau être changé ; null = possible maintenant. */
   username_next_change_at: string | null;
+  /** Qui peut voir que je suis en ligne. */
+  privacy_online: "everyone" | "friends" | "nobody";
+  /** Confirmations de lecture (« Vu ») activées ou non. */
+  read_receipts: boolean;
+  /** Durée par défaut des messages éphémères des nouvelles conversations (secondes, 0 = désactivé). */
+  default_ephemeral: number;
 }
 
 interface RawMe {
@@ -41,6 +47,9 @@ interface RawMe {
   created_at: string;
   theme?: string | null;
   username_next_change_at?: string | null;
+  privacy_online?: string | null;
+  read_receipts?: number | boolean | null;
+  default_ephemeral?: number | null;
 }
 
 export interface SignUpInput {
@@ -83,6 +92,9 @@ function toProfile(m: RawMe): Profile {
     badges: toBadges(m.id, m.badge, m.role),
     theme: m.theme === "light" ? "light" : "dark",
     username_next_change_at: m.username_next_change_at ?? null,
+    privacy_online: m.privacy_online === "friends" || m.privacy_online === "nobody" ? m.privacy_online : "everyone",
+    read_receipts: m.read_receipts === undefined || m.read_receipts === null ? true : !!Number(m.read_receipts),
+    default_ephemeral: Number(m.default_ephemeral) || 0,
   };
 }
 

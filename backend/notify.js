@@ -1,5 +1,6 @@
 const { v4: uuid } = require('uuid');
 const db = require('./db');
+const { isBlockedEitherWay } = require('./blocks');
 
 /**
  * Crée une notification pour `user_id` et la pousse en temps réel si l'utilisateur est connecté.
@@ -7,6 +8,8 @@ const db = require('./db');
  */
 async function notify(io, { user_id, actor_id, type, post_id = null, conversation_id = null, message_id = null, body = null }) {
   if (user_id === actor_id) return;
+  // Si l'un a bloqué l'autre, aucune notification (sauf avertissement officiel de la modération)
+  if (type !== 'moderation' && (await isBlockedEitherWay(user_id, actor_id))) return;
 
   const id = uuid();
   await db

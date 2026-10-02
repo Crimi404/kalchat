@@ -4,6 +4,7 @@ const jwt = require('jsonwebtoken');
 const db = require('../db');
 const authMiddleware = require('../middleware/auth');
 const { notify } = require('../notify');
+const { isBlockedEitherWay } = require('../blocks');
 const { USERNAME_RE, nextUsernameChangeAt } = require('../usernamePolicy');
 
 const router = express.Router();
@@ -48,12 +49,117 @@ router.patch('/me', async (req, res) => {
 
 // ---------- Paramètres : thème de l'application (clair / sombre) ----------
 router.patch('/me/settings', async (req, res) => {
-  const { theme } = req.body;
-  if (theme !== 'dark' && theme !== 'light') {
-    return res.status(400).json({ error: 'Thème invalide' });
+  const { theme, privacy_online, read_receipts, default_ephemeral } = req.body;
+  const sets = [];
+  const params = [];
+
+  if (theme !== undefined) {
+    if (theme !== 'dark' && theme !== 'light') return res.status(400).json({ error: 'Thème invalide' });
+    sets.push('theme = ?');
+    params.push(theme);
   }
-  await db.prepare('UPDATE users SET theme = ? WHERE id = ?').run(theme, req.user.id);
-  res.json({ theme });
+  if (privacy_online !== undefined) {
+    if (!['everyone', 'friends', 'nobody'].includes(privacy_online)) return res.status(400).json({ error: 'Valeur invalide pour la présence en ligne' });
+    sets.push('privacy_online = ?');
+    params.push(privacy_online);
+  }
+  if (read_receipts !== undefined) {
+    sets.push('read_receipts = ?');
+    params.push(read_receipts ? 1 : 0);
+  }
+  if (default_ephemeral !== undefined) {
+    // 0 = désactivé, sinon 24 h, 7 jours ou 90 jours
+    if (![0, 86400, 604800, 7776000].includes(Number(default_ephemeral))) return res.status(400).json({ error: 'Durée invalide' });
+    sets.push('default_ephemeral = ?');
+    params.push(Number(default_ephemeral));
+  }
+  if (!sets.length) return res.status(400).json({ error: 'Aucun réglage à modifier' });
+
+  await db.prepare(`UPDATE users SET ${sets.join(', ')} WHERE id = ?`).run(...params, req.user.id);
+  if (privacy_online !== undefined) void req.app.get('broadcastPresence')?.();
+
+  const row = await db.prepare('SELECT theme, privacy_online, read_receipts, default_ephemeral FROM users WHERE id = ?').get(req.user.id);
+  res.json(row);
+});
+
+// ---------- Paramètres : changer son mot de passe ----------
+router.post('/me/password', async (req, res) => {
+  try {
+    const current = String(req.body.current_password ?? '');
+    const next = String(req.body.new_password ?? '');
+    if (!current || !next) return res.status(400).json({ error: 'Remplis tous les champs' });
+    if (next.length < 6) return res.status(400).json({ error: 'Le nouveau mot de passe doit faire au moins 6 caractères' });
+    if (next === current) return res.status(400).json({ error: 'Le nouveau mot de passe doit être différent de l\'ancien' });
+
+    const user = await db.prepare('SELECT password_hash FROM users WHERE id = ?').get(req.user.id);
+    if (!user) return res.status(404).json({ error: 'Compte introuvable' });
+    // Pas de code 401 ici : le site le prendrait pour une session expirée et te déconnecterait.
+    if (!(await bcrypt.compare(current, user.password_hash))) return res.status(403).json({ error: 'Mot de passe actuel incorrect' });
+
+    await db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(await bcrypt.hash(next, 10), req.user.id);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+// ---------- Paramètres : supprimer définitivement son compte ----------
+router.delete('/me', async (req, res) => {
+  try {
+    const password = String(req.body?.password ?? '');
+    if (!password) return res.status(400).json({ error: 'Entre ton mot de passe pour confirmer' });
+
+    const user = await db.prepare('SELECT id, password_hash, is_admin FROM users WHERE id = ?').get(req.user.id);
+    if (!user) return res.status(404).json({ error: 'Compte introuvable' });
+    if (!(await bcrypt.compare(password, user.password_hash))) return res.status(403).json({ error: 'Mot de passe incorrect' });
+
+    if (user.is_admin) {
+      const others = await db.prepare('SELECT COUNT(*) AS n FROM users WHERE is_admin = 1 AND id != ?').get(user.id);
+      if (Number(others.n) === 0) {
+        return res.status(403).json({ error: 'Tu es le seul administrateur : nomme un autre administrateur avant de supprimer ton compte' });
+      }
+    }
+
+    // Groupes dont il est le seul admin : le membre le plus ancien reprend la main
+    const adminGroups = await db
+      .prepare('SELECT cm.conversation_id FROM conversation_members cm JOIN conversations c ON c.id = cm.conversation_id WHERE cm.user_id = ? AND c.is_group = 1 AND cm.is_admin = 1')
+      .all(user.id);
+    for (const g of adminGroups) {
+      const other = await db.prepare('SELECT COUNT(*) AS n FROM conversation_members WHERE conversation_id = ? AND is_admin = 1 AND user_id != ?').get(g.conversation_id, user.id);
+      if (Number(other.n) === 0) {
+        const oldest = await db.prepare('SELECT user_id FROM conversation_members WHERE conversation_id = ? AND user_id != ? ORDER BY joined_at ASC LIMIT 1').get(g.conversation_id, user.id);
+        if (oldest) await db.prepare('UPDATE conversation_members SET is_admin = 1 WHERE conversation_id = ? AND user_id = ?').run(g.conversation_id, oldest.user_id);
+      }
+    }
+
+    // Conversations privées supprimées ; les groupes créés par lui restent (sans créateur)
+    await db.prepare('DELETE FROM conversations WHERE is_group = 0 AND id IN (SELECT conversation_id FROM conversation_members WHERE user_id = ?)').run(user.id);
+    await db.prepare('UPDATE conversations SET created_by = NULL WHERE created_by = ?').run(user.id);
+    await db.prepare('DELETE FROM users WHERE id = ?').run(user.id);
+    // Groupes devenus vides
+    await db.prepare('DELETE FROM conversations WHERE id NOT IN (SELECT DISTINCT conversation_id FROM conversation_members)').run();
+
+    req.app.get('io')?.in(`user:${user.id}`).disconnectSockets(true);
+    void req.app.get('broadcastPresence')?.();
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+// ---------- Comptes que j'ai bloqués ----------
+router.get('/me/blocked', async (req, res) => {
+  const rows = await db
+    .prepare(
+      `SELECT u.id, u.username, u.avatar_url, u.badge, u.role, u.first_name, u.last_name, b.created_at
+       FROM user_blocks b JOIN users u ON u.id = b.blocked_id
+       WHERE b.blocker_id = ?
+       ORDER BY b.created_at DESC`
+    )
+    .all(req.user.id);
+  res.json(rows);
 });
 
 // ---------- Paramètres : changer son nom d'utilisateur (1 fois tous les 60 jours) ----------
@@ -177,6 +283,8 @@ router.get('/:username', async (req, res) => {
 
   const isMe = user.id === req.user.id;
   const relationship = isMe ? 'me' : (await followStatusBetween(req.user.id, user.id)) || 'none';
+  const blockedByMe = isMe ? false : !!(await db.prepare('SELECT 1 FROM user_blocks WHERE blocker_id = ? AND blocked_id = ?').get(req.user.id, user.id));
+  const blockedMe = isMe ? false : !!(await db.prepare('SELECT 1 FROM user_blocks WHERE blocker_id = ? AND blocked_id = ?').get(user.id, req.user.id));
 
   res.json({
     ...user,
@@ -184,7 +292,9 @@ router.get('/:username', async (req, res) => {
     following_count: followingRow.n,
     post_count: postRow.n,
     relationship,
-    can_message: isMe ? false : await canMessage(req.user.id, user.id),
+    blocked_by_me: blockedByMe,
+    blocked_me: blockedMe,
+    can_message: isMe || blockedByMe || blockedMe ? false : await canMessage(req.user.id, user.id),
   });
 });
 
@@ -225,12 +335,37 @@ router.post('/:username/follow', async (req, res) => {
   if (!target) return res.status(404).json({ error: 'Utilisateur introuvable' });
   if (target.id === req.user.id) return res.status(400).json({ error: 'Impossible de s\'abonner à soi-même' });
 
+  if (await isBlockedEitherWay(req.user.id, target.id)) {
+    return res.status(403).json({ error: 'Action impossible avec ce compte' });
+  }
+
   const existing = await followStatusBetween(req.user.id, target.id);
   if (existing) return res.json({ status: existing });
 
   await db.prepare("INSERT INTO follows (follower_id, followed_id, status) VALUES (?, ?, 'pending')").run(req.user.id, target.id);
   await notify(req.app.get('io'), { user_id: target.id, actor_id: req.user.id, type: 'follow_request' });
   res.status(201).json({ status: 'pending' });
+});
+
+// ---------- Bloquer un compte (coupe aussi les abonnements dans les deux sens) ----------
+router.post('/:username/block', async (req, res) => {
+  const target = await db.prepare('SELECT id FROM users WHERE username = ?').get(req.params.username);
+  if (!target) return res.status(404).json({ error: 'Utilisateur introuvable' });
+  if (target.id === req.user.id) return res.status(400).json({ error: 'Tu ne peux pas te bloquer toi-même' });
+
+  await db.prepare('INSERT INTO user_blocks (blocker_id, blocked_id) VALUES (?, ?) ON CONFLICT DO NOTHING').run(req.user.id, target.id);
+  await db
+    .prepare('DELETE FROM follows WHERE (follower_id = ? AND followed_id = ?) OR (follower_id = ? AND followed_id = ?)')
+    .run(req.user.id, target.id, target.id, req.user.id);
+  void req.app.get('broadcastPresence')?.();
+  res.json({ blocked: true });
+});
+
+router.delete('/:username/block', async (req, res) => {
+  const target = await db.prepare('SELECT id FROM users WHERE username = ?').get(req.params.username);
+  if (!target) return res.status(404).json({ error: 'Utilisateur introuvable' });
+  await db.prepare('DELETE FROM user_blocks WHERE blocker_id = ? AND blocked_id = ?').run(req.user.id, target.id);
+  res.json({ blocked: false });
 });
 
 // ---------- Se désabonner / annuler une demande ----------

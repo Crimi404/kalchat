@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { RichText } from "@/components/RichText";
 import { BadgeList } from "@/components/KalBadge";
 import { useAuth } from "@/lib/auth";
 import {
@@ -215,7 +216,7 @@ export function PostCard({ post }: { post: FeedPost }) {
               </div>
             </div>
           ) : (
-            post.content && <p className="mt-1.5 whitespace-pre-line text-sm leading-relaxed text-foreground">{post.content}</p>
+            post.content && <p className="mt-1.5 whitespace-pre-line text-sm leading-relaxed text-foreground"><RichText text={post.content} /></p>
           )}
 
           {post.image_url && (post.media_type === "video" ? (
@@ -231,7 +232,7 @@ export function PostCard({ post }: { post: FeedPost }) {
 
           {post.media_type === "video_expired" && (
             <div className="mt-3 rounded-2xl border border-dashed border-border bg-secondary/40 px-4 py-6 text-center text-xs text-muted-foreground">
-              🎥 Vidéo indisponible (supprimée après 90 jours)
+              🎥 Vidéo indisponible (supprimée après 60 jours)
             </div>
           )}
 
@@ -289,7 +290,7 @@ export function PostCard({ post }: { post: FeedPost }) {
                       {c.author && <BadgeList badges={c.author.badges ?? []} size={12} />}
                       <span className="text-[10px] text-muted-foreground">{timeAgo(c.created_at)}</span>
                     </div>
-                    <p className="whitespace-pre-line text-xs text-foreground">{c.content}</p>
+                    <p className="whitespace-pre-line text-xs text-foreground"><RichText text={c.content} /></p>
                   </div>
                   {(user?.id === c.author_id || isMine || isStaff) && (
                     <button

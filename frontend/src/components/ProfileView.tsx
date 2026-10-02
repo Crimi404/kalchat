@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bookmark, CalendarDays, Grid3x3, Loader2, MapPin, Pencil, Settings } from "lucide-react";
+import { Ban, Bookmark, CalendarDays, Grid3x3, Loader2, MapPin, Pencil, Settings } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+import { blockUser, unblockUser } from "@/lib/settings";
 import { BadgeList } from "@/components/KalBadge";
 import { PostCard } from "@/components/PostCard";
 import { useAuth } from "@/lib/auth";
@@ -74,6 +75,14 @@ export function ProfileView({ username }: { username: string }) {
     onSuccess: () => qc.invalidateQueries(),
     onError: (e: Error) => toast.error(e.message),
   });
+  const block = useMutation({
+    mutationFn: (blocked: boolean) => (blocked ? unblockUser(p!.username) : blockUser(p!.username)),
+    onSuccess: (_d, wasBlocked) => {
+      toast.success(wasBlocked ? "Compte débloqué" : "Compte bloqué");
+      void qc.invalidateQueries();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
   const openChat = useMutation({
     mutationFn: () => getOrCreateConversation(p!.id),
     onSuccess: (id) => navigate({ to: "/messages/$id", params: { id } }),
@@ -113,8 +122,24 @@ export function ProfileView({ username }: { username: string }) {
                   <Pencil className="h-4 w-4" /> Modifier
                 </button>
               </div>
-            ) : user ? (
+            ) : user && p.blockedByMe ? (
+              <button
+                disabled={block.isPending}
+                onClick={() => block.mutate(true)}
+                className="rounded-full border border-border bg-card px-5 py-2 text-sm font-bold text-foreground hover:bg-secondary disabled:opacity-60"
+              >
+                Débloquer
+              </button>
+            ) : user && p.blockedMe ? null : user ? (
               <div className="flex items-center gap-2">
+                <button
+                  aria-label={`Bloquer @${p.username}`}
+                  disabled={block.isPending}
+                  onClick={() => { if (window.confirm(`Bloquer @${p.username} ? Cette personne ne pourra plus te suivre, t'écrire ni te notifier, et vos abonnements seront supprimés.`)) block.mutate(false); }}
+                  className="rounded-full border border-border bg-card p-2 text-muted-foreground hover:bg-secondary hover:text-destructive disabled:opacity-60"
+                >
+                  <Ban className="h-4 w-4" />
+                </button>
                 {p.canMessage && (
                   <button
                     disabled={openChat.isPending}

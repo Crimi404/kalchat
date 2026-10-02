@@ -3,6 +3,7 @@ const { v4: uuid } = require('uuid');
 const db = require('../db');
 const authMiddleware = require('../middleware/auth');
 const { notify } = require('../notify');
+const { notifyMentions } = require('../mentions');
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -18,6 +19,8 @@ router.post('/', async (req, res) => {
   await db
     .prepare('INSERT INTO posts (id, user_id, content, media_url, media_type) VALUES (?, ?, ?, ?, ?)')
     .run(id, req.user.id, content?.trim() || null, media_url || null, media_type || null);
+
+  await notifyMentions(req.app.get('io'), { text: content, actorId: req.user.id, postId: id, where: 'post' });
 
   res.status(201).json(await getPostById(id));
 });
@@ -124,6 +127,8 @@ router.post('/:id/comments', async (req, res) => {
     .run(id, req.params.id, req.user.id, content.trim());
 
   await notify(req.app.get('io'), { user_id: post.user_id, actor_id: req.user.id, type: 'comment', post_id: post.id });
+  // Les personnes mentionnées sont prévenues (le propriétaire du post l'est déjà par la notification ci-dessus)
+  await notifyMentions(req.app.get('io'), { text: content, actorId: req.user.id, postId: post.id, where: 'comment', skipUserIds: [post.user_id] });
 
   const comment = await db
     .prepare(
@@ -138,16 +143,20 @@ router.post('/:id/comments', async (req, res) => {
 router.get('/', async (req, res) => {
   const { user_id, hashtag } = req.query;
 
-  let whereClause = '';
-  const extraParams = [];
+  // On ne voit jamais les publications d'un compte qu'on a bloqué (ni de quelqu'un qui nous a bloqué)
+  const conditions = [
+    `NOT EXISTS (SELECT 1 FROM user_blocks ub WHERE (ub.blocker_id = ? AND ub.blocked_id = p.user_id) OR (ub.blocker_id = p.user_id AND ub.blocked_id = ?))`,
+  ];
+  const extraParams = [req.user.id, req.user.id];
   if (user_id) {
-    whereClause = 'WHERE p.user_id = ?';
+    conditions.push('p.user_id = ?');
     extraParams.push(user_id);
   } else if (hashtag) {
     // Recherche insensible à la casse, délimitée par un mot pour éviter les faux positifs (#kalchat vs #kalchatting)
-    whereClause = "WHERE p.content ~* ?";
+    conditions.push('p.content ~* ?');
     extraParams.push(`(^|[^\\w#])#${hashtag}([^\\w]|$)`);
   }
+  const whereClause = `WHERE ${conditions.join(' AND ')}`;
 
   const rows = await db
     .prepare(

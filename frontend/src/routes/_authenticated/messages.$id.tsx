@@ -1,17 +1,19 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Check, CheckCheck, ImagePlus, Loader2, Mic, MoreVertical, Send, Star, Trash2, Users } from "lucide-react";
+import { ArrowLeft, Check, CheckCheck, ImagePlus, Loader2, Mic, MoreVertical, Send, Star, Timer, Trash2, Users } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
 import { useOnline } from "@/lib/presence";
 import { BadgeList } from "@/components/KalBadge";
 import { GroupInfoSheet } from "@/components/GroupInfoSheet";
 import { MiniAvatar } from "@/components/MiniAvatar";
+import { EphemeralSheet } from "@/components/EphemeralSheet";
 import { VoiceBubble } from "@/components/VoiceBubble";
+import { ephemeralLabel } from "@/lib/settings";
 import { MAX_VOICE_SECONDS, formatDuration, useVoiceRecorder } from "@/lib/voice";
 import { MAX_UPLOAD_MB, uploadMedia } from "@/lib/media";
-import { deleteMessage, fetchConversationDetail, fetchMessages, joinConversation, markRead, sendMessage, toggleFavoriteConversation } from "@/lib/chat";
+import { deleteMessage, fetchConversationDetail, fetchMessages, joinConversation, markRead, sendMessage, setEphemeral, toggleFavoriteConversation } from "@/lib/chat";
 
 export const Route = createFileRoute("/_authenticated/messages/$id")({
   head: () => ({
@@ -36,12 +38,26 @@ function ChatPage() {
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [infoOpen, setInfoOpen] = useState(false);
+  const [ephOpen, setEphOpen] = useState(false);
 
   const conv = useQuery({ queryKey: ["conversation", id], queryFn: () => fetchConversationDetail(id, uid) });
-  const msgs = useQuery({ queryKey: ["messages", id], queryFn: () => fetchMessages(id) });
   const detail = conv.data;
+  const ephemeralSeconds = detail?.ephemeralSeconds ?? 0;
+  // Avec les messages éphémères, on revérifie régulièrement pour faire disparaître ceux qui ont expiré
+  const msgs = useQuery({ queryKey: ["messages", id], queryFn: () => fetchMessages(id), refetchInterval: ephemeralSeconds > 0 ? 30000 : false });
   const other = detail?.other ?? null;
   const isGroup = !!detail?.isGroup;
+
+  const ephemeral = useMutation({
+    mutationFn: (seconds: number) => setEphemeral(id, seconds),
+    onSuccess: () => {
+      setEphOpen(false);
+      void qc.invalidateQueries({ queryKey: ["conversation", id] });
+      void qc.invalidateQueries({ queryKey: ["messages", id] });
+      void qc.invalidateQueries({ queryKey: ["conversations"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
 
   const favorite = useMutation({
     mutationFn: () => toggleFavoriteConversation(id),
@@ -159,6 +175,12 @@ function ChatPage() {
                 <Star className={`h-4 w-4 ${detail.isFavorite ? "fill-current text-primary" : ""}`} />
                 {detail.isFavorite ? "Retirer des favoris" : "Ajouter aux favoris"}
               </button>
+              {(!isGroup || detail.myIsAdmin) && (
+                <button onClick={() => { setMenuOpen(false); setEphOpen(true); }} className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-foreground hover:bg-secondary">
+                  <Timer className="h-4 w-4" /> Messages éphémères
+                  <span className="ml-auto text-xs text-muted-foreground">{ephemeralLabel(ephemeralSeconds)}</span>
+                </button>
+              )}
               {isGroup && (
                 <button onClick={() => { setMenuOpen(false); setInfoOpen(true); }} className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-foreground hover:bg-secondary">
                   <Users className="h-4 w-4" /> Infos du groupe
@@ -168,6 +190,12 @@ function ChatPage() {
           </>
         )}
       </header>
+      {ephemeralSeconds > 0 && (
+        <p className="flex items-center justify-center gap-1.5 border-b border-border bg-primary/10 px-3 py-1.5 text-[11px] font-semibold text-primary">
+          <Timer className="h-3.5 w-3.5" /> Messages éphémères : les nouveaux messages disparaissent après {ephemeralLabel(ephemeralSeconds)}
+        </p>
+      )}
+      {ephOpen && <EphemeralSheet current={ephemeralSeconds} pending={ephemeral.isPending} onSelect={(s) => ephemeral.mutate(s)} onClose={() => setEphOpen(false)} />}
       {infoOpen && isGroup && <GroupInfoSheet detail={detail} myId={uid} onClose={() => setInfoOpen(false)} />}
 
       <main className="flex-1 space-y-2 overflow-y-auto px-3 py-4">
@@ -185,7 +213,7 @@ function ChatPage() {
               <div className={`max-w-[75%] rounded-2xl px-3.5 py-2 text-sm ${mine ? "brand-gradient rounded-br-md text-primary-foreground" : "rounded-bl-md bg-secondary text-foreground"}`}>
                 {isGroup && !mine && <span className="mb-0.5 block text-[11px] font-semibold text-primary">{m.sender_name}</span>}
                 {m.media_type === "audio_expired" && <p className="mb-1 text-xs italic opacity-80">🎤 Message vocal expiré (supprimé après 60 jours)</p>}
-                {m.media_type === "video_expired" && <p className="mb-1 text-xs italic opacity-80">🎥 Vidéo indisponible (supprimée après 90 jours)</p>}
+                {m.media_type === "video_expired" && <p className="mb-1 text-xs italic opacity-80">🎥 Vidéo indisponible (supprimée après 60 jours)</p>}
                 {m.media_url && (m.media_type === "video" ? (
                   <video src={m.media_url} controls className="mb-1 max-h-64 rounded-xl" />
                 ) : m.media_type === "audio" ? (

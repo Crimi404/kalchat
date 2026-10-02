@@ -2,7 +2,7 @@ const db = require('./db');
 const { deleteFileByUrl } = require('./storage');
 
 // ---------- Durées de conservation (en jours) ----------
-const VIDEO_RETENTION_DAYS = 90;
+const VIDEO_RETENTION_DAYS = 60;
 const AUDIO_RETENTION_DAYS = 60;
 
 // ---------- Supprime les fichiers trop anciens du stockage ----------
@@ -34,4 +34,16 @@ async function cleanupOldMedia() {
   await cleanupTable('posts', 'video', VIDEO_RETENTION_DAYS);
 }
 
-module.exports = { cleanupOldMedia };
+// ---------- Messages éphémères : supprime ceux dont la durée est écoulée ----------
+async function cleanupExpiredMessages(io) {
+  const rows = await db
+    .prepare('SELECT id, conversation_id, media_url FROM messages WHERE expires_at IS NOT NULL AND expires_at < NOW() LIMIT 500')
+    .all();
+  for (const row of rows) {
+    if (row.media_url) await deleteFileByUrl(row.media_url).catch(() => {});
+    await db.prepare('DELETE FROM messages WHERE id = ?').run(row.id);
+    io?.to(row.conversation_id).emit('message_deleted', { conversation_id: row.conversation_id, message_id: row.id });
+  }
+}
+
+module.exports = { cleanupOldMedia, cleanupExpiredMessages };

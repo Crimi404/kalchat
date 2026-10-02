@@ -3,6 +3,7 @@ const { v4: uuid } = require('uuid');
 const db = require('../db');
 const authMiddleware = require('../middleware/auth');
 const { notify } = require('../notify');
+const { isBlockedEitherWay } = require('../blocks');
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -11,6 +12,13 @@ const MAX_GROUP_MEMBERS = 50;
 const MAX_GROUP_NAME = 50;
 
 // ---------- Utilitaires ----------
+function ephemeralLabel(seconds) {
+  if (seconds === 86400) return '24 heures';
+  if (seconds === 604800) return '7 jours';
+  if (seconds === 7776000) return '90 jours';
+  return `${seconds} s`;
+}
+
 async function areFriends(a, b) {
   const row = await db
     .prepare(
@@ -86,14 +94,14 @@ router.get('/conversations', async (req, res) => {
     .prepare(
       `SELECT c.id, c.is_group, c.name, c.avatar_url, cm.is_favorite,
               (SELECT COUNT(*) FROM conversation_members x WHERE x.conversation_id = c.id) AS member_count,
-              (SELECT content FROM messages m WHERE m.conversation_id = c.id ORDER BY m.created_at DESC LIMIT 1) AS last_message,
-              (SELECT media_type FROM messages m WHERE m.conversation_id = c.id ORDER BY m.created_at DESC LIMIT 1) AS last_media_type,
-              (SELECT m.sender_id FROM messages m WHERE m.conversation_id = c.id ORDER BY m.created_at DESC LIMIT 1) AS last_sender_id,
+              (SELECT content FROM messages m WHERE m.conversation_id = c.id AND (m.expires_at IS NULL OR m.expires_at > NOW()) ORDER BY m.created_at DESC LIMIT 1) AS last_message,
+              (SELECT media_type FROM messages m WHERE m.conversation_id = c.id AND (m.expires_at IS NULL OR m.expires_at > NOW()) ORDER BY m.created_at DESC LIMIT 1) AS last_media_type,
+              (SELECT m.sender_id FROM messages m WHERE m.conversation_id = c.id AND (m.expires_at IS NULL OR m.expires_at > NOW()) ORDER BY m.created_at DESC LIMIT 1) AS last_sender_id,
               (SELECT COALESCE(NULLIF(u.first_name, ''), u.username) FROM messages m JOIN users u ON u.id = m.sender_id
-                 WHERE m.conversation_id = c.id ORDER BY m.created_at DESC LIMIT 1) AS last_sender_name,
-              (SELECT created_at FROM messages m WHERE m.conversation_id = c.id ORDER BY m.created_at DESC LIMIT 1) AS last_message_at,
+                 WHERE m.conversation_id = c.id AND (m.expires_at IS NULL OR m.expires_at > NOW()) ORDER BY m.created_at DESC LIMIT 1) AS last_sender_name,
+              (SELECT created_at FROM messages m WHERE m.conversation_id = c.id AND (m.expires_at IS NULL OR m.expires_at > NOW()) ORDER BY m.created_at DESC LIMIT 1) AS last_message_at,
               (SELECT COUNT(*) FROM messages m
-                 WHERE m.conversation_id = c.id AND m.sender_id != ?
+                 WHERE m.conversation_id = c.id AND (m.expires_at IS NULL OR m.expires_at > NOW()) AND m.sender_id != ?
                    AND NOT EXISTS (SELECT 1 FROM message_reads r WHERE r.message_id = m.id AND r.user_id = ?)) AS unread
        FROM conversations c
        JOIN conversation_members cm ON cm.conversation_id = c.id
@@ -169,14 +177,21 @@ router.post('/conversations', async (req, res) => {
     }
 
     const id = uuid();
+    // Durée « messages éphémères » par défaut choisie dans la confidentialité du créateur
+    const prefs = await db.prepare('SELECT default_ephemeral FROM users WHERE id = ?').get(req.user.id);
+    const ephemeral = Number(prefs?.default_ephemeral) || 0;
     await db
-      .prepare('INSERT INTO conversations (id, is_group, name, avatar_url, created_by) VALUES (?, ?, ?, ?, ?)')
-      .run(id, is_group ? 1 : 0, is_group ? name : null, is_group ? avatar_url : null, req.user.id);
+      .prepare('INSERT INTO conversations (id, is_group, name, avatar_url, created_by, ephemeral_seconds) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(id, is_group ? 1 : 0, is_group ? name : null, is_group ? avatar_url : null, req.user.id, ephemeral);
 
     const insertMember = db.prepare('INSERT INTO conversation_members (conversation_id, user_id, is_admin) VALUES (?, ?, ?)');
     await insertMember.run(id, req.user.id, 1);
     for (const uid of member_ids) {
       await insertMember.run(id, uid, 0);
+    }
+
+    if (ephemeral > 0) {
+      await addSystemMessage(req.app.get('io'), id, req.user.id, `Messages éphémères activés : ${ephemeralLabel(ephemeral)}`);
     }
 
     if (is_group) {
@@ -201,7 +216,7 @@ router.get('/conversations/:id', async (req, res) => {
   const me = await getMembership(req.params.id, req.user.id);
   if (!me) return res.status(403).json({ error: 'Accès refusé' });
 
-  const conv = await db.prepare('SELECT id, is_group, name, avatar_url, created_by, created_at FROM conversations WHERE id = ?').get(req.params.id);
+  const conv = await db.prepare('SELECT id, is_group, name, avatar_url, created_by, created_at, ephemeral_seconds FROM conversations WHERE id = ?').get(req.params.id);
   if (!conv) return res.status(404).json({ error: 'Conversation introuvable' });
 
   const members = await db
@@ -333,6 +348,32 @@ router.post('/conversations/:id/favorite', async (req, res) => {
   res.json({ favorite: !!next });
 });
 
+// ---------- Messages éphémères : durée de vie des NOUVEAUX messages (0 = désactivé) ----------
+// Discussion privée : chacun des deux peut changer ; groupe : seulement les administrateurs.
+router.post('/conversations/:id/ephemeral', async (req, res) => {
+  const me = await getMembership(req.params.id, req.user.id);
+  if (!me) return res.status(403).json({ error: 'Accès refusé' });
+  const conv = await db.prepare('SELECT id, is_group, ephemeral_seconds FROM conversations WHERE id = ?').get(req.params.id);
+  if (!conv) return res.status(404).json({ error: 'Conversation introuvable' });
+  if (conv.is_group && !me.is_admin) return res.status(403).json({ error: 'Seuls les administrateurs du groupe peuvent changer cette option' });
+
+  const seconds = Number(req.body.seconds);
+  if (![0, 86400, 604800, 7776000].includes(seconds)) return res.status(400).json({ error: 'Durée invalide' });
+  if (seconds === conv.ephemeral_seconds) return res.json({ ok: true, seconds });
+
+  const io = req.app.get('io');
+  await db.prepare('UPDATE conversations SET ephemeral_seconds = ? WHERE id = ?').run(seconds, req.params.id);
+  const who = await nameOf(req.user.id);
+  await addSystemMessage(
+    io,
+    req.params.id,
+    req.user.id,
+    seconds > 0 ? `${who} a activé les messages éphémères : ${ephemeralLabel(seconds)}` : `${who} a désactivé les messages éphémères`
+  );
+  await pingMembers(io, req.params.id);
+  res.json({ ok: true, seconds });
+});
+
 // ---------- Historique des messages d'une conversation ----------
 router.get('/conversations/:id/messages', async (req, res) => {
   const isMember = await db
@@ -345,9 +386,9 @@ router.get('/conversations/:id/messages', async (req, res) => {
       `SELECT m.id, m.sender_id, u.username AS sender_username, u.first_name AS sender_first_name, u.last_name AS sender_last_name,
               u.avatar_url AS sender_avatar_url, u.badge AS sender_badge, u.role AS sender_role,
               m.content, m.media_url, m.media_type, m.media_duration, m.created_at,
-              EXISTS(SELECT 1 FROM message_reads r WHERE r.message_id = m.id AND r.user_id != m.sender_id) AS seen
+              EXISTS(SELECT 1 FROM message_reads r JOIN users ru ON ru.id = r.user_id WHERE r.message_id = m.id AND r.user_id != m.sender_id AND ru.read_receipts = 1) AS seen
        FROM messages m JOIN users u ON u.id = m.sender_id
-       WHERE m.conversation_id = ? ORDER BY m.created_at ASC LIMIT 200`
+       WHERE m.conversation_id = ? AND (m.expires_at IS NULL OR m.expires_at > NOW()) ORDER BY m.created_at ASC LIMIT 200`
     )
     .all(req.params.id);
 
@@ -375,10 +416,21 @@ router.post('/conversations/:id/messages', async (req, res) => {
     if (duration && duration > 120) duration = 120;
   }
 
+  // Discussion privée : impossible d'écrire si l'un des deux a bloqué l'autre
+  const convRow = await db.prepare('SELECT is_group, ephemeral_seconds FROM conversations WHERE id = ?').get(req.params.id);
+  if (convRow && !convRow.is_group) {
+    const peer = await db.prepare('SELECT user_id FROM conversation_members WHERE conversation_id = ? AND user_id != ?').get(req.params.id, req.user.id);
+    if (peer && (await isBlockedEitherWay(req.user.id, peer.user_id))) {
+      return res.status(403).json({ error: 'Tu ne peux pas envoyer de message à ce compte' });
+    }
+  }
+  const eph = Number(convRow?.ephemeral_seconds) || 0;
+  const expiresAt = eph > 0 ? new Date(Date.now() + eph * 1000).toISOString() : null;
+
   const id = uuid();
   await db
-    .prepare('INSERT INTO messages (id, conversation_id, sender_id, content, media_url, media_type, media_duration) VALUES (?, ?, ?, ?, ?, ?, ?)')
-    .run(id, req.params.id, req.user.id, content || null, media_url || null, media_type || null, duration);
+    .prepare('INSERT INTO messages (id, conversation_id, sender_id, content, media_url, media_type, media_duration, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(id, req.params.id, req.user.id, content || null, media_url || null, media_type || null, duration, expiresAt);
 
   const message = await db
     .prepare(

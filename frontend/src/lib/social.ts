@@ -166,6 +166,10 @@ export interface PublicProfile {
   stats: { posts: number; followers: number; following: number };
   relationship: Relationship;
   canMessage: boolean;
+  /** J'ai bloqué ce compte. */
+  blockedByMe: boolean;
+  /** Ce compte m'a bloqué. */
+  blockedMe: boolean;
 }
 
 interface RawProfile extends RawAuthor {
@@ -180,6 +184,8 @@ interface RawProfile extends RawAuthor {
   post_count: number;
   relationship: Relationship;
   can_message: boolean;
+  blocked_by_me?: boolean;
+  blocked_me?: boolean;
 }
 
 export async function fetchProfileByUsername(username: string): Promise<PublicProfile | null> {
@@ -201,6 +207,8 @@ export async function fetchProfileByUsername(username: string): Promise<PublicPr
       stats: { posts: p.post_count, followers: p.follower_count, following: p.following_count },
       relationship: p.relationship,
       canMessage: !!p.can_message,
+      blockedByMe: !!p.blocked_by_me,
+      blockedMe: !!p.blocked_me,
     };
   } catch (e) {
     if (e instanceof Error && /introuvable/i.test(e.message)) return null;

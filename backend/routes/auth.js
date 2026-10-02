@@ -83,7 +83,7 @@ router.post('/login', async (req, res) => {
 // ---------- Profil courant ----------
 router.get('/me', authMiddleware, async (req, res) => {
   const user = await db
-    .prepare('SELECT id, username, avatar_url, cover_url, location, status_text, bio, badge, role, is_admin, is_blocked, first_name, last_name, created_at, theme, username_changed_at FROM users WHERE id = ?')
+    .prepare('SELECT id, username, avatar_url, cover_url, location, status_text, bio, badge, role, is_admin, is_blocked, first_name, last_name, created_at, theme, username_changed_at, privacy_online, read_receipts, default_ephemeral FROM users WHERE id = ?')
     .get(req.user.id);
   res.json({
     ...user,
@@ -98,9 +98,12 @@ router.get('/search', authMiddleware, async (req, res) => {
   const q = `%${req.query.q || ''}%`;
   const users = await db
     .prepare(
-      "SELECT id, username, avatar_url, badge, role, first_name, last_name FROM users WHERE (username ILIKE ? OR (COALESCE(first_name, '') || ' ' || COALESCE(last_name, '')) ILIKE ?) AND id != ? LIMIT 20"
+      `SELECT id, username, avatar_url, badge, role, first_name, last_name FROM users
+       WHERE (username ILIKE ? OR (COALESCE(first_name, '') || ' ' || COALESCE(last_name, '')) ILIKE ?) AND id != ?
+         AND NOT EXISTS (SELECT 1 FROM user_blocks ub WHERE (ub.blocker_id = ? AND ub.blocked_id = users.id) OR (ub.blocker_id = users.id AND ub.blocked_id = ?))
+       LIMIT 20`
     )
-    .all(q, q, req.user.id);
+    .all(q, q, req.user.id, req.user.id, req.user.id);
   res.json(users);
 });
 

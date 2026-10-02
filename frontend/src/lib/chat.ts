@@ -150,6 +150,8 @@ export interface ConversationDetail {
   avatar_url: string | null;
   isFavorite: boolean;
   myIsAdmin: boolean;
+  /** Durée de vie des nouveaux messages (secondes, 0 = messages éphémères désactivés). */
+  ephemeralSeconds: number;
   members: GroupMember[];
   /** Pour une discussion privée : l'autre personne. */
   other: MiniProfile | null;
@@ -162,6 +164,7 @@ interface RawDetail {
   avatar_url: string | null;
   is_favorite: number | boolean;
   my_is_admin: number | boolean;
+  ephemeral_seconds?: number;
   members: (RawUser & { id: string; avatar_url: string | null; is_admin: number | boolean })[];
 }
 
@@ -184,6 +187,7 @@ export async function fetchConversationDetail(id: string, myId?: string | null):
     avatar_url: isGroup ? d.avatar_url : (other?.avatar_url ?? null),
     isFavorite: !!Number(d.is_favorite),
     myIsAdmin: !!Number(d.my_is_admin),
+    ephemeralSeconds: Number(d.ephemeral_seconds) || 0,
     members,
     other,
   };
@@ -214,6 +218,10 @@ export async function addGroupMembers(id: string, userIds: string[]) {
 /** Retire un membre (administrateur) ou, avec son propre id, quitte le groupe. */
 export async function removeGroupMember(id: string, userId: string) {
   await api(`/chat/conversations/${id}/members/${userId}`, { method: "DELETE" });
+}
+
+export async function setEphemeral(id: string, seconds: number) {
+  await api(`/chat/conversations/${id}/ephemeral`, { method: "POST", body: { seconds } });
 }
 
 export async function toggleFavoriteConversation(id: string): Promise<{ favorite: boolean }> {
