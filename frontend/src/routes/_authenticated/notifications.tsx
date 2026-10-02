@@ -43,6 +43,7 @@ const TEXTS: Record<string, string> = {
   follow_request: "t'a envoyé une demande d'abonnement",
   follow_accept: "a accepté ta demande d'abonnement",
   message: "t'a envoyé un message",
+  group_add: "t'a ajouté à un groupe",
 };
 
 function NotificationsPage() {
@@ -75,7 +76,7 @@ function NotificationsPage() {
             <div key={n.id} className={`border-b border-border px-4 py-3 text-sm ${n.is_read ? "" : "bg-primary/5"}`}>
               <Link to="/u/$username" params={{ username: n.actor_username }} className="font-semibold text-foreground hover:underline">@{n.actor_username}</Link>
               <span className="mx-1 inline-flex align-middle"><BadgeList badges={toBadges(n.actor_id, n.actor_badge, n.actor_role)} size={14} /></span>
-              {n.type === "message" && n.conversation_id ? (
+              {(n.type === "message" || n.type === "group_add") && n.conversation_id ? (
                 <Link to="/messages/$id" params={{ id: n.conversation_id }} className="text-muted-foreground hover:underline">{TEXTS[n.type]}</Link>
               ) : n.type === "follow_request" ? (
                 <Link to="/messages" className="text-muted-foreground hover:underline">{TEXTS[n.type]}</Link>

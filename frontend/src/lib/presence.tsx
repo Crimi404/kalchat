@@ -33,10 +33,12 @@ export function PresenceProvider({ children }: { children: ReactNode }) {
     socket.on("presence", onPresence);
     socket.on("new_message", onMessage);
     socket.on("notification", onNotification);
+    socket.on("conversation_changed", onMessage);
     return () => {
       socket.off("presence", onPresence);
       socket.off("new_message", onMessage);
       socket.off("notification", onNotification);
+      socket.off("conversation_changed", onMessage);
     };
   }, [user, qc]);
 

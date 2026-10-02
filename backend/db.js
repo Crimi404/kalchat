@@ -193,6 +193,7 @@ async function initSchema() {
     ALTER TABLE notifications ADD COLUMN IF NOT EXISTS body TEXT;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS theme TEXT NOT NULL DEFAULT 'dark';
     ALTER TABLE users ADD COLUMN IF NOT EXISTS username_changed_at TIMESTAMPTZ;
+    ALTER TABLE conversation_members ADD COLUMN IF NOT EXISTS is_favorite INTEGER NOT NULL DEFAULT 0;
   `);
 
   // ---------- Badges à rangs : plus (bleu) < vip (rouge) < vip_plus (violet) < legend (doré) ----------

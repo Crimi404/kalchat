@@ -103,8 +103,15 @@ io.on('connection', (socket) => {
   io.emit('presence', onlineIds());
   socket.on('disconnect', () => io.emit('presence', onlineIds()));
 
-  socket.on('join', (conversationId) => {
-    socket.join(conversationId);
+  socket.on('join', async (conversationId) => {
+    try {
+      const ok = await db
+        .prepare('SELECT 1 FROM conversation_members WHERE conversation_id = ? AND user_id = ?')
+        .get(conversationId, socket.user.id);
+      if (ok) socket.join(conversationId);
+    } catch (err) {
+      console.error('Erreur join socket:', err.message);
+    }
   });
 
   socket.on('leave', (conversationId) => {
