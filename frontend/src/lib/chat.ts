@@ -33,6 +33,32 @@ export interface MessageRow {
   sender_avatar: string | null;
   /** Durée d'un message vocal, en secondes. */
   duration: number | null;
+  edited: boolean;
+  pinned: boolean;
+  /** Message auquel celui-ci répond (null si ce n'est pas une réponse). */
+  reply: ReplyPreview | null;
+}
+
+export interface ReplyPreview {
+  id: string;
+  senderId: string | null;
+  senderName: string;
+  text: string;
+  /** true si le message d'origine a été supprimé. */
+  deleted: boolean;
+}
+
+/** Texte court décrivant un message (pour les aperçus de réponse, d'épinglage, etc.). */
+export function messageSnippet(text: string | null | undefined, mediaType: string | null | undefined): string {
+  const t = (text ?? "").trim();
+  if (t) return t.length > 80 ? `${t.slice(0, 80)}…` : t;
+  const labels: Record<string, string> = {
+    video: "🎥 Vidéo",
+    audio: "🎤 Message vocal",
+    video_expired: "🎥 Vidéo indisponible",
+    audio_expired: "🎤 Message vocal expiré",
+  };
+  return labels[mediaType ?? ""] ?? "📷 Photo";
 }
 
 interface RawConversation extends RawUser {
@@ -64,6 +90,14 @@ interface RawMessage {
   sender_first_name?: string | null;
   sender_last_name?: string | null;
   sender_avatar_url?: string | null;
+  edited_at?: string | null;
+  pinned_at?: string | null;
+  reply_to_id?: string | null;
+  reply_exists?: string | null;
+  reply_content?: string | null;
+  reply_media_type?: string | null;
+  reply_sender_id?: string | null;
+  reply_sender_name?: string | null;
 }
 
 function shapeMessage(conversationId: string, m: RawMessage): MessageRow {
@@ -79,6 +113,17 @@ function shapeMessage(conversationId: string, m: RawMessage): MessageRow {
     sender_name: displayName({ username: m.sender_username ?? "", first_name: m.sender_first_name, last_name: m.sender_last_name }),
     sender_avatar: m.sender_avatar_url ?? null,
     duration: m.media_duration ?? null,
+    edited: !!m.edited_at,
+    pinned: !!m.pinned_at,
+    reply: m.reply_to_id
+      ? {
+          id: m.reply_to_id,
+          senderId: m.reply_sender_id ?? null,
+          senderName: m.reply_sender_name ?? "",
+          text: m.reply_exists ? messageSnippet(m.reply_content, m.reply_media_type) : "Message supprimé",
+          deleted: !m.reply_exists,
+        }
+      : null,
   };
 }
 
@@ -152,6 +197,8 @@ export interface ConversationDetail {
   myIsAdmin: boolean;
   /** Durée de vie des nouveaux messages (secondes, 0 = messages éphémères désactivés). */
   ephemeralSeconds: number;
+  /** Messages épinglés, le plus récent d'abord. */
+  pinned: { id: string; text: string; senderName: string }[];
   members: GroupMember[];
   /** Pour une discussion privée : l'autre personne. */
   other: MiniProfile | null;
@@ -165,6 +212,7 @@ interface RawDetail {
   is_favorite: number | boolean;
   my_is_admin: number | boolean;
   ephemeral_seconds?: number;
+  pinned?: { id: string; content: string | null; media_type: string | null; sender_name: string }[];
   members: (RawUser & { id: string; avatar_url: string | null; is_admin: number | boolean })[];
 }
 
@@ -188,6 +236,7 @@ export async function fetchConversationDetail(id: string, myId?: string | null):
     isFavorite: !!Number(d.is_favorite),
     myIsAdmin: !!Number(d.my_is_admin),
     ephemeralSeconds: Number(d.ephemeral_seconds) || 0,
+    pinned: (d.pinned ?? []).map((p) => ({ id: p.id, text: messageSnippet(p.content, p.media_type), senderName: p.sender_name })),
     members,
     other,
   };
@@ -233,7 +282,7 @@ export async function fetchMessages(conversationId: string): Promise<MessageRow[
   return rows.map((m) => shapeMessage(conversationId, m));
 }
 
-export async function sendMessage(conversationId: string, body: string, media?: { url: string; type: string; duration?: number }) {
+export async function sendMessage(conversationId: string, body: string, media?: { url: string; type: string; duration?: number }, replyToId?: string | null) {
   const text = body.trim().slice(0, 2000);
   if (!text && !media) return;
   await api(`/chat/conversations/${conversationId}/messages`, {
@@ -243,6 +292,7 @@ export async function sendMessage(conversationId: string, body: string, media?: 
       media_url: media?.url ?? null,
       media_type: media?.type ?? null,
       ...(media?.duration ? { media_duration: media.duration } : {}),
+      ...(replyToId ? { reply_to_id: replyToId } : {}),
     },
   });
 }
@@ -253,6 +303,16 @@ export async function markRead(conversationId: string) {
 
 export async function deleteMessage(id: string) {
   await api(`/chat/messages/${id}`, { method: "DELETE" });
+}
+
+/** Modifier le texte d'un de ses messages (possible 15 minutes après l'envoi). */
+export const EDIT_WINDOW_MS = 15 * 60 * 1000;
+export async function editMessage(id: string, content: string) {
+  await api(`/chat/messages/${id}`, { method: "PATCH", body: { content } });
+}
+
+export async function togglePinMessage(id: string): Promise<{ pinned: boolean }> {
+  return api(`/chat/messages/${id}/pin`, { method: "POST" });
 }
 
 /** Rejoint la « salle » Socket.io d'une conversation pour recevoir ses messages en direct. */

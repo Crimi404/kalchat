@@ -30,6 +30,7 @@ interface RawNotif {
   type: string;
   body: string | null;
   conversation_id: string | null;
+  post_id: string | null;
   is_read: number | boolean;
   created_at: string;
   actor_id: string;
@@ -198,6 +199,8 @@ function NotificationsPage() {
                   <span className="mx-1 inline-flex align-middle"><BadgeList badges={toBadges(n.actor_id, n.actor_badge, n.actor_role)} size={14} /></span>
                   {(n.type === "message" || n.type === "group_add") && n.conversation_id ? (
                     <Link to="/messages/$id" params={{ id: n.conversation_id }} className="text-muted-foreground hover:underline">{textFor(n)}</Link>
+                  ) : n.post_id && ["like", "comment", "share", "mention"].includes(n.type) ? (
+                    <Link to="/post/$id" params={{ id: n.post_id }} className="text-muted-foreground hover:underline">{textFor(n)}</Link>
                   ) : (
                     <span className="text-muted-foreground">{textFor(n)}</span>
                   )}

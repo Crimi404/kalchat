@@ -179,6 +179,29 @@ router.get('/', async (req, res) => {
   res.json(rows);
 });
 
+// ---------- Une publication (page « Post ») ----------
+router.get('/:id', async (req, res) => {
+  const blocked = `NOT EXISTS (SELECT 1 FROM user_blocks ub WHERE (ub.blocker_id = ? AND ub.blocked_id = p.user_id) OR (ub.blocker_id = p.user_id AND ub.blocked_id = ?))`;
+  const post = await db
+    .prepare(
+      `SELECT p.id, p.user_id, u.username, u.avatar_url, u.badge, u.role, u.first_name, u.last_name, p.content, p.media_url, p.media_type, p.created_at,
+              (SELECT COUNT(*) FROM post_likes l WHERE l.post_id = p.id) AS like_count,
+              EXISTS(SELECT 1 FROM post_likes l WHERE l.post_id = p.id AND l.user_id = ?) AS liked_by_me,
+              (SELECT COUNT(*) FROM post_comments c WHERE c.post_id = p.id) AS comment_count,
+              (SELECT COUNT(*) FROM posts sp WHERE sp.shared_from_id = p.id) AS share_count,
+              EXISTS(SELECT 1 FROM post_bookmarks b WHERE b.post_id = p.id AND b.user_id = ?) AS bookmarked_by_me,
+              su.username AS shared_from_username
+       FROM posts p
+       JOIN users u ON u.id = p.user_id
+       LEFT JOIN posts so ON so.id = p.shared_from_id
+       LEFT JOIN users su ON su.id = so.user_id
+       WHERE p.id = ? AND ${blocked}`
+    )
+    .get(req.user.id, req.user.id, req.params.id, req.user.id, req.user.id);
+  if (!post) return res.status(404).json({ error: 'Publication introuvable' });
+  res.json(post);
+});
+
 // ---------- Modifier son propre post ----------
 router.patch('/:id', async (req, res) => {
   const post = await db.prepare('SELECT * FROM posts WHERE id = ?').get(req.params.id);

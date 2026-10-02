@@ -1,5 +1,5 @@
 import { Heart, MessageCircle, Repeat2, Bookmark, MoreHorizontal, Trash2, Pencil, Loader2, Send } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -19,6 +19,23 @@ import {
   type FeedPost,
 } from "@/lib/social";
 
+// Au-delà de cette limite, le texte est coupé avec « Voir plus » (la page de la publication affiche tout)
+const PREVIEW_CHARS = 280;
+const PREVIEW_LINES = 6;
+
+function previewOf(content: string): { text: string; truncated: boolean } {
+  const lines = content.split("\n");
+  let text = lines.length > PREVIEW_LINES ? lines.slice(0, PREVIEW_LINES).join("\n") : content;
+  let truncated = lines.length > PREVIEW_LINES;
+  if (text.length > PREVIEW_CHARS) {
+    const cut = text.slice(0, PREVIEW_CHARS);
+    const lastSpace = cut.lastIndexOf(" ");
+    text = lastSpace > PREVIEW_CHARS * 0.6 ? cut.slice(0, lastSpace) : cut;
+    truncated = true;
+  }
+  return { text: text.trimEnd(), truncated };
+}
+
 function Avatar({ url, name, size = 44 }: { url: string | null | undefined; name: string; size?: number }) {
   return url ? (
     <img src={url} alt={name} loading="lazy" className="rounded-full object-cover" style={{ width: size, height: size }} />
@@ -32,11 +49,16 @@ function Avatar({ url, name, size = 44 }: { url: string | null | undefined; name
   );
 }
 
-export function PostCard({ post }: { post: FeedPost }) {
+/**
+ * `detail` = page d'une publication : texte en entier, commentaires affichés en bas.
+ * Dans le fil, un appui sur la publication (hors boutons, liens et vidéo) l'ouvre.
+ */
+export function PostCard({ post, detail = false }: { post: FeedPost; detail?: boolean }) {
   const { user, isStaff } = useAuth();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [showComments, setShowComments] = useState(false);
+  const showComments = detail;
+  const commentInputRef = useRef<HTMLInputElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(post.content);
@@ -84,6 +106,10 @@ export function PostCard({ post }: { post: FeedPost }) {
     onSuccess: () => {
       invalidate();
       toast.success("Publication supprimée");
+      if (detail) {
+        if (window.history.length > 1) window.history.back();
+        else navigate({ to: "/" });
+      }
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -120,7 +146,16 @@ export function PostCard({ post }: { post: FeedPost }) {
   });
 
   return (
-    <article className="border-b border-border px-4 py-4">
+    <article
+      className={`border-b border-border px-4 py-4 ${detail ? "" : "cursor-pointer transition-colors hover:bg-secondary/20"}`}
+      onClick={(e) => {
+        if (detail || editing) return;
+        const target = e.target as HTMLElement;
+        if (target.closest("a, button, video, input, textarea, form")) return;
+        if (window.getSelection()?.toString()) return; // l'utilisateur sélectionne du texte
+        void navigate({ to: "/post/$id", params: { id: post.id } });
+      }}
+    >
       <div className="flex items-start gap-3">
         {author ? (
           <Link to="/u/$username" params={{ username: author.username }}>
@@ -216,7 +251,20 @@ export function PostCard({ post }: { post: FeedPost }) {
               </div>
             </div>
           ) : (
-            post.content && <p className="mt-1.5 whitespace-pre-line text-sm leading-relaxed text-foreground"><RichText text={post.content} /></p>
+            post.content && (() => {
+              const { text, truncated } = detail ? { text: post.content, truncated: false } : previewOf(post.content);
+              return (
+                <p className={`mt-1.5 whitespace-pre-line break-words leading-relaxed text-foreground ${detail ? "text-base" : "text-sm"}`}>
+                  <RichText text={text} />
+                  {truncated && (
+                    <>
+                      {"… "}
+                      <Link to="/post/$id" params={{ id: post.id }} className="font-semibold text-primary hover:underline">Voir plus</Link>
+                    </>
+                  )}
+                </p>
+              );
+            })()
           )}
 
           {post.image_url && (post.media_type === "video" ? (
@@ -236,7 +284,13 @@ export function PostCard({ post }: { post: FeedPost }) {
             </div>
           )}
 
-          <div className="mt-3 flex items-center justify-between text-muted-foreground">
+          {detail && (
+            <p className="mt-3 text-xs text-muted-foreground">
+              {new Date(post.created_at).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })} · {new Date(post.created_at).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "2-digit" })}
+            </p>
+          )}
+
+          <div className={`mt-3 flex items-center justify-between text-muted-foreground ${detail ? "border-y border-border py-2.5" : ""}`}>
             <button
               onClick={() => requireAuth() && likeMutation.mutate()}
               className={`flex items-center gap-1.5 text-xs transition-colors ${post.likedByMe ? "text-like" : "hover:text-like"}`}
@@ -245,7 +299,10 @@ export function PostCard({ post }: { post: FeedPost }) {
               {post.likeCount}
             </button>
             <button
-              onClick={() => setShowComments((v) => !v)}
+              onClick={() => {
+                if (detail) commentInputRef.current?.focus();
+                else void navigate({ to: "/post/$id", params: { id: post.id } });
+              }}
               className={`flex items-center gap-1.5 text-xs transition-colors ${showComments ? "text-primary" : "hover:text-primary"}`}
             >
               <MessageCircle className="h-[18px] w-[18px]" />
@@ -310,12 +367,13 @@ export function PostCard({ post }: { post: FeedPost }) {
                     e.preventDefault();
                     if (commentText.trim()) commentMutation.mutate();
                   }}
-                  className="flex items-center gap-2"
+                  className={`flex items-center gap-2 ${detail ? "sticky bottom-[4.25rem] -mx-4 border-t border-border bg-background/95 px-4 py-2.5 backdrop-blur-xl" : ""}`}
                 >
                   <input
+                    ref={commentInputRef}
                     value={commentText}
                     onChange={(e) => setCommentText(e.target.value)}
-                    placeholder="Écrire un commentaire…"
+                    placeholder="Poste ta réponse…"
                     className="flex-1 rounded-full border border-border bg-secondary/40 px-4 py-2 text-xs text-foreground outline-none focus:border-primary"
                   />
                   <button

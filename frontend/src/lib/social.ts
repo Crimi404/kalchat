@@ -84,6 +84,10 @@ export async function fetchSavedPosts(): Promise<FeedPost[]> {
   return (await api<RawPost[]>("/posts/bookmarks")).map(shape);
 }
 
+export async function fetchPost(id: string): Promise<FeedPost> {
+  return shape(await api<RawPost>(`/posts/${id}`));
+}
+
 export async function fetchHashtagPosts(tag: string): Promise<FeedPost[]> {
   return (await api<RawPost[]>(`/posts?hashtag=${encodeURIComponent(tag.replace(/^#/, ""))}`)).map(shape);
 }

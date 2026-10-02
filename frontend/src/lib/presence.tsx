@@ -22,6 +22,12 @@ export function PresenceProvider({ children }: { children: ReactNode }) {
       void qc.invalidateQueries({ queryKey: ["unread"] });
       void qc.invalidateQueries({ queryKey: ["messages"] });
     };
+    // Message modifié, supprimé ou épinglé par quelqu'un d'autre : on rafraîchit la conversation ouverte
+    const onMessageChanged = () => {
+      void qc.invalidateQueries({ queryKey: ["messages"] });
+      void qc.invalidateQueries({ queryKey: ["conversation"] });
+      void qc.invalidateQueries({ queryKey: ["conversations"] });
+    };
     const onNotification = () => {
       void qc.invalidateQueries({ queryKey: ["notifications"] });
       void qc.invalidateQueries({ queryKey: ["notifUnread"] });
@@ -34,11 +40,17 @@ export function PresenceProvider({ children }: { children: ReactNode }) {
     socket.on("new_message", onMessage);
     socket.on("notification", onNotification);
     socket.on("conversation_changed", onMessage);
+    socket.on("message_edited", onMessageChanged);
+    socket.on("message_deleted", onMessageChanged);
+    socket.on("message_pinned", onMessageChanged);
     return () => {
       socket.off("presence", onPresence);
       socket.off("new_message", onMessage);
       socket.off("notification", onNotification);
       socket.off("conversation_changed", onMessage);
+      socket.off("message_edited", onMessageChanged);
+      socket.off("message_deleted", onMessageChanged);
+      socket.off("message_pinned", onMessageChanged);
     };
   }, [user, qc]);
 

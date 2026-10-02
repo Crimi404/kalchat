@@ -52,8 +52,13 @@ async function addSystemMessage(io, conversationId, actorId, text) {
   const message = await db
     .prepare(
       `SELECT m.id, m.sender_id, u.username AS sender_username, u.first_name AS sender_first_name, u.last_name AS sender_last_name,
-              u.avatar_url AS sender_avatar_url, m.content, m.media_url, m.media_type, m.created_at
-       FROM messages m JOIN users u ON u.id = m.sender_id WHERE m.id = ?`
+              u.avatar_url AS sender_avatar_url, u.badge AS sender_badge, u.role AS sender_role,
+              m.content, m.media_url, m.media_type, m.media_duration, m.created_at, m.edited_at, m.pinned_at, m.reply_to_id,
+              rm.id AS reply_exists, rm.content AS reply_content, rm.media_type AS reply_media_type, rm.sender_id AS reply_sender_id,
+              COALESCE(NULLIF(rmu.first_name, ''), rmu.username) AS reply_sender_name
+       FROM messages m JOIN users u ON u.id = m.sender_id
+       LEFT JOIN messages rm ON rm.id = m.reply_to_id
+       LEFT JOIN users rmu ON rmu.id = rm.sender_id WHERE m.id = ?`
     )
     .get(id);
   io?.to(conversationId).emit('new_message', { conversation_id: conversationId, message });
@@ -228,7 +233,16 @@ router.get('/conversations/:id', async (req, res) => {
     )
     .all(req.params.id);
 
-  res.json({ ...conv, is_favorite: me.is_favorite, my_is_admin: me.is_admin, members });
+  const pinned = await db
+    .prepare(
+      `SELECT m.id, m.content, m.media_type, COALESCE(NULLIF(u.first_name, ''), u.username) AS sender_name, m.pinned_at
+       FROM messages m JOIN users u ON u.id = m.sender_id
+       WHERE m.conversation_id = ? AND m.pinned_at IS NOT NULL AND (m.expires_at IS NULL OR m.expires_at > NOW())
+       ORDER BY m.pinned_at DESC`
+    )
+    .all(req.params.id);
+
+  res.json({ ...conv, is_favorite: me.is_favorite, my_is_admin: me.is_admin, members, pinned });
 });
 
 // ---------- Modifier le nom / la photo d'un groupe (administrateurs du groupe) ----------
@@ -383,12 +397,18 @@ router.get('/conversations/:id/messages', async (req, res) => {
 
   const messages = await db
     .prepare(
-      `SELECT m.id, m.sender_id, u.username AS sender_username, u.first_name AS sender_first_name, u.last_name AS sender_last_name,
-              u.avatar_url AS sender_avatar_url, u.badge AS sender_badge, u.role AS sender_role,
-              m.content, m.media_url, m.media_type, m.media_duration, m.created_at,
-              EXISTS(SELECT 1 FROM message_reads r JOIN users ru ON ru.id = r.user_id WHERE r.message_id = m.id AND r.user_id != m.sender_id AND ru.read_receipts = 1) AS seen
-       FROM messages m JOIN users u ON u.id = m.sender_id
-       WHERE m.conversation_id = ? AND (m.expires_at IS NULL OR m.expires_at > NOW()) ORDER BY m.created_at ASC LIMIT 200`
+      `SELECT * FROM (
+         SELECT m.id, m.sender_id, u.username AS sender_username, u.first_name AS sender_first_name, u.last_name AS sender_last_name,
+                u.avatar_url AS sender_avatar_url, u.badge AS sender_badge, u.role AS sender_role,
+              m.content, m.media_url, m.media_type, m.media_duration, m.created_at, m.edited_at, m.pinned_at, m.reply_to_id,
+              rm.id AS reply_exists, rm.content AS reply_content, rm.media_type AS reply_media_type, rm.sender_id AS reply_sender_id,
+              COALESCE(NULLIF(rmu.first_name, ''), rmu.username) AS reply_sender_name,
+                EXISTS(SELECT 1 FROM message_reads r JOIN users ru ON ru.id = r.user_id WHERE r.message_id = m.id AND r.user_id != m.sender_id AND ru.read_receipts = 1) AS seen
+         FROM messages m JOIN users u ON u.id = m.sender_id
+       LEFT JOIN messages rm ON rm.id = m.reply_to_id
+       LEFT JOIN users rmu ON rmu.id = rm.sender_id
+         WHERE m.conversation_id = ? AND (m.expires_at IS NULL OR m.expires_at > NOW()) ORDER BY m.created_at DESC LIMIT 200
+       ) t ORDER BY t.created_at ASC`
     )
     .all(req.params.id);
 
@@ -424,20 +444,31 @@ router.post('/conversations/:id/messages', async (req, res) => {
       return res.status(403).json({ error: 'Tu ne peux pas envoyer de message à ce compte' });
     }
   }
+  // Réponse à un message : il doit appartenir à la même conversation
+  let replyToId = null;
+  if (req.body.reply_to_id) {
+    const target = await db.prepare('SELECT id FROM messages WHERE id = ? AND conversation_id = ?').get(String(req.body.reply_to_id), req.params.id);
+    if (!target) return res.status(400).json({ error: 'Le message auquel tu réponds est introuvable' });
+    replyToId = target.id;
+  }
   const eph = Number(convRow?.ephemeral_seconds) || 0;
   const expiresAt = eph > 0 ? new Date(Date.now() + eph * 1000).toISOString() : null;
 
   const id = uuid();
   await db
-    .prepare('INSERT INTO messages (id, conversation_id, sender_id, content, media_url, media_type, media_duration, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-    .run(id, req.params.id, req.user.id, content || null, media_url || null, media_type || null, duration, expiresAt);
+    .prepare('INSERT INTO messages (id, conversation_id, sender_id, content, media_url, media_type, media_duration, expires_at, reply_to_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(id, req.params.id, req.user.id, content || null, media_url || null, media_type || null, duration, expiresAt, replyToId);
 
   const message = await db
     .prepare(
       `SELECT m.id, m.sender_id, u.username AS sender_username, u.first_name AS sender_first_name, u.last_name AS sender_last_name,
               u.avatar_url AS sender_avatar_url, u.badge AS sender_badge, u.role AS sender_role,
-              m.content, m.media_url, m.media_type, m.media_duration, m.created_at
-       FROM messages m JOIN users u ON u.id = m.sender_id WHERE m.id = ?`
+              m.content, m.media_url, m.media_type, m.media_duration, m.created_at, m.edited_at, m.pinned_at, m.reply_to_id,
+              rm.id AS reply_exists, rm.content AS reply_content, rm.media_type AS reply_media_type, rm.sender_id AS reply_sender_id,
+              COALESCE(NULLIF(rmu.first_name, ''), rmu.username) AS reply_sender_name
+       FROM messages m JOIN users u ON u.id = m.sender_id
+       LEFT JOIN messages rm ON rm.id = m.reply_to_id
+       LEFT JOIN users rmu ON rmu.id = rm.sender_id WHERE m.id = ?`
     )
     .get(id);
 
@@ -475,6 +506,46 @@ router.post('/conversations/:id/read', async (req, res) => {
 
   req.app.get('io')?.to(req.params.id).emit('messages_read', { conversation_id: req.params.id, reader_id: req.user.id });
   res.json({ ok: true });
+});
+
+// ---------- Modifier son propre message texte (dans les 15 minutes qui suivent l'envoi) ----------
+const EDIT_WINDOW_MINUTES = 15;
+router.patch('/messages/:id', async (req, res) => {
+  const m = await db.prepare('SELECT id, sender_id, conversation_id, media_type, media_url, created_at FROM messages WHERE id = ?').get(req.params.id);
+  if (!m) return res.status(404).json({ error: 'Message introuvable' });
+  if (m.sender_id !== req.user.id || m.media_type === 'system') return res.status(403).json({ error: 'Non autorisé' });
+  if (m.media_type === 'audio' || m.media_type === 'audio_expired') return res.status(400).json({ error: 'Un message vocal ne peut pas être modifié' });
+  if (Date.now() - new Date(m.created_at).getTime() > EDIT_WINDOW_MINUTES * 60 * 1000) {
+    return res.status(403).json({ error: `Tu ne peux modifier un message que pendant ${EDIT_WINDOW_MINUTES} minutes après l'envoi` });
+  }
+  const content = typeof req.body.content === 'string' ? req.body.content.trim().slice(0, 2000) : '';
+  if (!content && !m.media_url) return res.status(400).json({ error: 'Le message ne peut pas être vide' });
+
+  await db.prepare('UPDATE messages SET content = ?, edited_at = NOW() WHERE id = ?').run(content || null, m.id);
+  req.app.get('io')?.to(m.conversation_id).emit('message_edited', { conversation_id: m.conversation_id, message_id: m.id });
+  res.json({ ok: true });
+});
+
+// ---------- Épingler / désépingler un message (3 maximum par conversation) ----------
+const MAX_PINNED = 3;
+router.post('/messages/:id/pin', async (req, res) => {
+  const m = await db.prepare('SELECT id, conversation_id, media_type, pinned_at FROM messages WHERE id = ?').get(req.params.id);
+  if (!m) return res.status(404).json({ error: 'Message introuvable' });
+  const me = await getMembership(m.conversation_id, req.user.id);
+  if (!me) return res.status(403).json({ error: 'Accès refusé' });
+  if (m.media_type === 'system') return res.status(400).json({ error: 'Ce message ne peut pas être épinglé' });
+
+  if (m.pinned_at) {
+    await db.prepare('UPDATE messages SET pinned_at = NULL WHERE id = ?').run(m.id);
+  } else {
+    const count = await db.prepare('SELECT COUNT(*) AS n FROM messages WHERE conversation_id = ? AND pinned_at IS NOT NULL').get(m.conversation_id);
+    if (Number(count.n) >= MAX_PINNED) {
+      return res.status(400).json({ error: `${MAX_PINNED} messages épinglés maximum : désépingle-en un d'abord` });
+    }
+    await db.prepare('UPDATE messages SET pinned_at = NOW() WHERE id = ?').run(m.id);
+  }
+  req.app.get('io')?.to(m.conversation_id).emit('message_pinned', { conversation_id: m.conversation_id, message_id: m.id });
+  res.json({ pinned: !m.pinned_at });
 });
 
 // ---------- Supprimer son propre message ----------

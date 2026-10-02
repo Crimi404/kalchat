@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Check, CheckCheck, ImagePlus, Loader2, Mic, MoreVertical, Send, Star, Timer, Trash2, Users } from "lucide-react";
+import { ArrowLeft, Check, CheckCheck, ImagePlus, Loader2, Mic, MoreVertical, Pencil, Pin, Reply, Send, Star, Timer, Trash2, Users, X } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
 import { useOnline } from "@/lib/presence";
@@ -10,10 +10,12 @@ import { GroupInfoSheet } from "@/components/GroupInfoSheet";
 import { MiniAvatar } from "@/components/MiniAvatar";
 import { EphemeralSheet } from "@/components/EphemeralSheet";
 import { VoiceBubble } from "@/components/VoiceBubble";
+import { SwipeableMessage } from "@/components/SwipeableMessage";
+import { ActionIcons, MessageActionSheet, type MessageAction } from "@/components/MessageActionSheet";
 import { ephemeralLabel } from "@/lib/settings";
 import { MAX_VOICE_SECONDS, formatDuration, useVoiceRecorder } from "@/lib/voice";
 import { MAX_UPLOAD_MB, uploadMedia } from "@/lib/media";
-import { deleteMessage, fetchConversationDetail, fetchMessages, joinConversation, markRead, sendMessage, setEphemeral, toggleFavoriteConversation } from "@/lib/chat";
+import { EDIT_WINDOW_MS, deleteMessage, editMessage, fetchConversationDetail, fetchMessages, joinConversation, markRead, messageSnippet, sendMessage, setEphemeral, togglePinMessage, toggleFavoriteConversation, type MessageRow } from "@/lib/chat";
 
 export const Route = createFileRoute("/_authenticated/messages/$id")({
   head: () => ({
@@ -39,6 +41,13 @@ function ChatPage() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [infoOpen, setInfoOpen] = useState(false);
   const [ephOpen, setEphOpen] = useState(false);
+  const [replyTo, setReplyTo] = useState<MessageRow | null>(null);
+  const [editing, setEditing] = useState<MessageRow | null>(null);
+  const [actionMsg, setActionMsg] = useState<MessageRow | null>(null);
+  const [highlightId, setHighlightId] = useState<string | null>(null);
+  const [pinIdx, setPinIdx] = useState(0);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const lastMsgRef = useRef<string | null>(null);
 
   const conv = useQuery({ queryKey: ["conversation", id], queryFn: () => fetchConversationDetail(id, uid) });
   const detail = conv.data;
@@ -73,7 +82,11 @@ function ChatPage() {
   useEffect(() => joinConversation(id), [id]);
 
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth" });
+    const lastId = msgs.data?.length ? msgs.data[msgs.data.length - 1].id : null;
+    if (lastId !== lastMsgRef.current) {
+      lastMsgRef.current = lastId;
+      endRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
     if (msgs.data?.some((m) => m.sender_id !== uid && !m.seen)) {
       void markRead(id).then(() => {
         void qc.invalidateQueries({ queryKey: ["unread"] });
@@ -92,8 +105,9 @@ function ChatPage() {
     setSendingFile(true);
     try {
       const media = await uploadMedia(f);
-      await sendMessage(id, text, media);
+      await sendMessage(id, text, media, replyTo?.id);
       setText("");
+      setReplyTo(null);
       await qc.invalidateQueries({ queryKey: ["messages", id] });
       void qc.invalidateQueries({ queryKey: ["conversations"] });
     } catch (e) {
@@ -109,7 +123,8 @@ function ChatPage() {
     setSendingFile(true);
     try {
       const media = await uploadMedia(file);
-      await sendMessage(id, "", { url: media.url, type: "audio", duration });
+      await sendMessage(id, "", { url: media.url, type: "audio", duration }, replyTo?.id);
+      setReplyTo(null);
       await qc.invalidateQueries({ queryKey: ["messages", id] });
       void qc.invalidateQueries({ queryKey: ["conversations"] });
       if (duration >= MAX_VOICE_SECONDS) toast.info("Durée maximale atteinte : message vocal envoyé");
@@ -129,15 +144,85 @@ function ChatPage() {
   }
 
   const send = useMutation({
-    mutationFn: (body: string) => sendMessage(id, body),
-    onSuccess: () => { setText(""); qc.invalidateQueries({ queryKey: ["messages", id] }); },
+    mutationFn: (body: string) => sendMessage(id, body, undefined, replyTo?.id),
+    onSuccess: () => { setText(""); setReplyTo(null); void qc.invalidateQueries({ queryKey: ["messages", id] }); void qc.invalidateQueries({ queryKey: ["conversations"] }); },
     onError: (e: Error) => toast.error(e.message),
   });
   const del = useMutation({
     mutationFn: deleteMessage,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["messages", id] }),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: ["messages", id] }); void qc.invalidateQueries({ queryKey: ["conversation", id] }); void qc.invalidateQueries({ queryKey: ["conversations"] }); },
     onError: (e: Error) => toast.error(e.message),
   });
+  const edit = useMutation({
+    mutationFn: ({ messageId, content }: { messageId: string; content: string }) => editMessage(messageId, content),
+    onSuccess: () => { setEditing(null); setText(""); void qc.invalidateQueries({ queryKey: ["messages", id] }); void qc.invalidateQueries({ queryKey: ["conversations"] }); },
+    onError: (e: Error) => toast.error(e.message),
+  });
+  const pin = useMutation({
+    mutationFn: (messageId: string) => togglePinMessage(messageId),
+    onSuccess: (r) => {
+      toast.success(r.pinned ? "Message épinglé" : "Message désépinglé");
+      void qc.invalidateQueries({ queryKey: ["messages", id] });
+      void qc.invalidateQueries({ queryKey: ["conversation", id] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  function startReply(m: MessageRow) {
+    setEditing(null);
+    setReplyTo(m);
+    inputRef.current?.focus();
+  }
+  function startEdit(m: MessageRow) {
+    setReplyTo(null);
+    setEditing(m);
+    setText(m.body);
+    inputRef.current?.focus();
+  }
+  function cancelCompose() {
+    setReplyTo(null);
+    if (editing) setText("");
+    setEditing(null);
+  }
+  function submitText() {
+    const t = text.trim();
+    if (!t) return;
+    if (editing) edit.mutate({ messageId: editing.id, content: t });
+    else send.mutate(t);
+  }
+  /** Fait défiler jusqu'à un message (réponse citée, message épinglé) et le met brièvement en évidence. */
+  function jumpTo(messageId: string) {
+    const el = document.getElementById(`msg-${messageId}`);
+    if (!el) { toast.info("Ce message est trop ancien pour être affiché ici"); return; }
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    setHighlightId(messageId);
+    window.setTimeout(() => setHighlightId((cur) => (cur === messageId ? null : cur)), 1400);
+  }
+  function actionsFor(m: MessageRow): MessageAction[] {
+    const mine = m.sender_id === uid;
+    const list: MessageAction[] = [{ id: "reply", label: "Répondre", icon: ActionIcons.reply, onSelect: () => startReply(m) }];
+    if (m.body) {
+      list.push({
+        id: "copy",
+        label: "Copier le texte",
+        icon: ActionIcons.copy,
+        onSelect: () => { void navigator.clipboard?.writeText(m.body).then(() => toast.success("Texte copié")).catch(() => toast.error("Copie impossible")); },
+      });
+    }
+    list.push({ id: "pin", label: m.pinned ? "Désépingler" : "Épingler", icon: m.pinned ? ActionIcons.unpin : ActionIcons.pin, onSelect: () => pin.mutate(m.id) });
+    const editable = mine && m.media_type !== "audio" && !m.media_type?.endsWith("_expired") && Date.now() - new Date(m.created_at).getTime() <= EDIT_WINDOW_MS;
+    if (editable) list.push({ id: "edit", label: "Modifier", icon: ActionIcons.edit, onSelect: () => startEdit(m) });
+    if (mine) {
+      list.push({
+        id: "delete",
+        label: "Supprimer pour tout le monde",
+        icon: ActionIcons.delete,
+        danger: true,
+        onSelect: () => { if (window.confirm("Supprimer ce message pour tout le monde ?")) del.mutate(m.id); },
+      });
+    }
+    return list;
+  }
 
   if (conv.isLoading) return <div className="flex justify-center py-20"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>;
   if (!detail || (!isGroup && !other)) return <p className="py-20 text-center text-sm text-muted-foreground">Conversation introuvable.</p>;
@@ -195,6 +280,20 @@ function ChatPage() {
           <Timer className="h-3.5 w-3.5" /> Messages éphémères : les nouveaux messages disparaissent après {ephemeralLabel(ephemeralSeconds)}
         </p>
       )}
+      {detail.pinned.length > 0 && (() => {
+        const idx = pinIdx % detail.pinned.length;
+        const cur = detail.pinned[idx];
+        return (
+          <button onClick={() => { jumpTo(cur.id); setPinIdx((i) => i + 1); }} className="flex w-full items-center gap-2 border-b border-border bg-secondary/50 px-3 py-2 text-left">
+            <Pin className="h-4 w-4 shrink-0 text-primary" />
+            <span className="min-w-0 flex-1">
+              <span className="block text-[11px] font-semibold text-primary">Message épinglé{detail.pinned.length > 1 ? ` · ${idx + 1}/${detail.pinned.length}` : ""}</span>
+              <span className="block truncate text-xs text-foreground">{cur.senderName} : {cur.text}</span>
+            </span>
+          </button>
+        );
+      })()}
+      {actionMsg && <MessageActionSheet preview={messageSnippet(actionMsg.body, actionMsg.media_type)} actions={actionsFor(actionMsg)} onClose={() => setActionMsg(null)} />}
       {ephOpen && <EphemeralSheet current={ephemeralSeconds} pending={ephemeral.isPending} onSelect={(s) => ephemeral.mutate(s)} onClose={() => setEphOpen(false)} />}
       {infoOpen && isGroup && <GroupInfoSheet detail={detail} myId={uid} onClose={() => setInfoOpen(false)} />}
 
@@ -208,25 +307,40 @@ function ChatPage() {
           }
           const mine = m.sender_id === uid;
           return (
-            <div key={m.id} className={`group flex items-center gap-1 ${mine ? "justify-end" : "justify-start"}`}>
-              {mine && <button aria-label="Supprimer" onClick={() => del.mutate(m.id)} className="opacity-0 transition-opacity group-hover:opacity-100 p-1 text-muted-foreground hover:text-destructive"><Trash2 className="h-3.5 w-3.5" /></button>}
-              <div className={`max-w-[75%] rounded-2xl px-3.5 py-2 text-sm ${mine ? "brand-gradient rounded-br-md text-primary-foreground" : "rounded-bl-md bg-secondary text-foreground"}`}>
-                {isGroup && !mine && <span className="mb-0.5 block text-[11px] font-semibold text-primary">{m.sender_name}</span>}
-                {m.media_type === "audio_expired" && <p className="mb-1 text-xs italic opacity-80">🎤 Message vocal expiré (supprimé après 60 jours)</p>}
-                {m.media_type === "video_expired" && <p className="mb-1 text-xs italic opacity-80">🎥 Vidéo indisponible (supprimée après 60 jours)</p>}
-                {m.media_url && (m.media_type === "video" ? (
-                  <video src={m.media_url} controls className="mb-1 max-h-64 rounded-xl" />
-                ) : m.media_type === "audio" ? (
-                  <VoiceBubble src={m.media_url} duration={m.duration} mine={mine} />
-                ) : (
-                  <img src={m.media_url} alt="" className="mb-1 max-h-64 rounded-xl object-cover" />
-                ))}
-                {m.body && <p className="whitespace-pre-wrap break-words">{m.body}</p>}
-                <span className={`mt-0.5 flex items-center justify-end gap-1 text-[10px] ${mine ? "text-primary-foreground/70" : "text-muted-foreground"}`}>
-                  {new Date(m.created_at).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}
-                  {mine && (m.seen ? <CheckCheck className="h-3 w-3" /> : <Check className="h-3 w-3" />)}
-                </span>
-              </div>
+            <div key={m.id} id={`msg-${m.id}`} className={`rounded-2xl transition-colors duration-500 ${highlightId === m.id ? "bg-primary/20" : ""}`}>
+              <SwipeableMessage onReply={() => startReply(m)} onLongPress={() => setActionMsg(m)}>
+                <div className={`flex ${mine ? "justify-end" : "justify-start"}`}>
+                  <div className={`max-w-[75%] rounded-2xl px-3.5 py-2 text-sm ${mine ? "brand-gradient rounded-br-md text-primary-foreground" : "rounded-bl-md bg-secondary text-foreground"}`}>
+                    {isGroup && !mine && <span className="mb-0.5 block text-[11px] font-semibold text-primary">{m.sender_name}</span>}
+                    {m.reply && (
+                      <button
+                        type="button"
+                        onClick={() => m.reply && !m.reply.deleted && jumpTo(m.reply.id)}
+                        className={`mb-1.5 block w-full rounded-lg border-l-4 px-2 py-1 text-left text-xs ${mine ? "border-primary-foreground/70 bg-primary-foreground/15" : "border-primary bg-background/50"}`}
+                      >
+                        <span className="block font-semibold">{m.reply.senderId === uid ? "Toi" : m.reply.senderName}</span>
+                        <span className={`block truncate ${m.reply.deleted ? "italic opacity-70" : "opacity-90"}`}>{m.reply.text}</span>
+                      </button>
+                    )}
+                    {m.media_type === "audio_expired" && <p className="mb-1 text-xs italic opacity-80">🎤 Message vocal expiré (supprimé après 60 jours)</p>}
+                    {m.media_type === "video_expired" && <p className="mb-1 text-xs italic opacity-80">🎥 Vidéo indisponible (supprimée après 60 jours)</p>}
+                    {m.media_url && (m.media_type === "video" ? (
+                      <video src={m.media_url} controls className="mb-1 max-h-64 rounded-xl" />
+                    ) : m.media_type === "audio" ? (
+                      <VoiceBubble src={m.media_url} duration={m.duration} mine={mine} />
+                    ) : (
+                      <img src={m.media_url} alt="" draggable={false} className="mb-1 max-h-64 rounded-xl object-cover" />
+                    ))}
+                    {m.body && <p className="whitespace-pre-wrap break-words">{m.body}</p>}
+                    <span className={`mt-0.5 flex items-center justify-end gap-1 text-[10px] ${mine ? "text-primary-foreground/70" : "text-muted-foreground"}`}>
+                      {m.pinned && <Pin className="h-3 w-3" />}
+                      {m.edited && <span className="italic">modifié</span>}
+                      {new Date(m.created_at).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}
+                      {mine && (m.seen ? <CheckCheck className="h-3 w-3" /> : <Check className="h-3 w-3" />)}
+                    </span>
+                  </div>
+                </div>
+              </SwipeableMessage>
             </div>
           );
         })}
@@ -249,18 +363,32 @@ function ChatPage() {
           </button>
         </div>
       ) : (
-        <form onSubmit={(e) => { e.preventDefault(); if (text.trim()) send.mutate(text); }} className="flex items-center gap-2 border-t border-border p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+        <div className="border-t border-border">
+        {(replyTo || editing) && (
+          <div className="flex items-center gap-2 border-b border-border bg-secondary/40 px-3 py-2">
+            {editing ? <Pencil className="h-4 w-4 shrink-0 text-primary" /> : <Reply className="h-4 w-4 shrink-0 text-primary" />}
+            <span className="min-w-0 flex-1 border-l-4 border-primary pl-2">
+              <span className="block text-[11px] font-semibold text-primary">
+                {editing ? "Modifier le message" : `Répondre à ${replyTo!.sender_id === uid ? "toi-même" : replyTo!.sender_name}`}
+              </span>
+              <span className="block truncate text-xs text-muted-foreground">{messageSnippet((editing ?? replyTo)!.body, (editing ?? replyTo)!.media_type)}</span>
+            </span>
+            <button type="button" aria-label="Annuler" onClick={cancelCompose} className="rounded-full p-1.5 text-muted-foreground hover:bg-secondary"><X className="h-4 w-4" /></button>
+          </div>
+        )}
+        <form onSubmit={(e) => { e.preventDefault(); submitText(); }} className="flex items-center gap-2 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
           <input ref={fileRef} type="file" accept="image/*,video/*" hidden onChange={(e) => void sendFile(e.target.files?.[0])} />
           <button type="button" disabled={sendingFile} onClick={() => fileRef.current?.click()} aria-label="Envoyer une photo ou une vidéo" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-border bg-card text-muted-foreground hover:bg-secondary disabled:opacity-60">
             {sendingFile ? <Loader2 className="h-5 w-5 animate-spin" /> : <ImagePlus className="h-5 w-5" />}
           </button>
-          <input value={text} onChange={(e) => setText(e.target.value)} maxLength={2000} placeholder="Écris un message…" className="flex-1 rounded-full border border-border bg-card px-4 py-2.5 text-sm text-foreground outline-none focus:border-primary" />
+          <input ref={inputRef} value={text} onChange={(e) => setText(e.target.value)} maxLength={2000} placeholder={editing ? "Modifie ton message…" : "Écris un message…"} className="flex-1 rounded-full border border-border bg-card px-4 py-2.5 text-sm text-foreground outline-none focus:border-primary" />
           {text.trim() ? (
-            <button disabled={send.isPending} aria-label="Envoyer" className="brand-gradient flex h-10 w-10 items-center justify-center rounded-full text-primary-foreground disabled:opacity-50"><Send className="h-4 w-4" /></button>
+            <button disabled={send.isPending || edit.isPending} aria-label={editing ? "Enregistrer la modification" : "Envoyer"} className="brand-gradient flex h-10 w-10 items-center justify-center rounded-full text-primary-foreground disabled:opacity-50"><Send className="h-4 w-4" /></button>
           ) : (
             <button type="button" disabled={sendingFile} onClick={() => void startVoice()} aria-label="Enregistrer un message vocal" className="brand-gradient flex h-10 w-10 items-center justify-center rounded-full text-primary-foreground disabled:opacity-50"><Mic className="h-5 w-5" /></button>
           )}
         </form>
+        </div>
       )}
     </div>
   );
