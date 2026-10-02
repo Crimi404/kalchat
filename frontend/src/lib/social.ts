@@ -80,6 +80,10 @@ export async function fetchUserPosts(authorId: string, _uid?: string | null): Pr
   return (await api<RawPost[]>(`/posts?user_id=${encodeURIComponent(authorId)}`)).map(shape);
 }
 
+export async function fetchSavedPosts(): Promise<FeedPost[]> {
+  return (await api<RawPost[]>("/posts/bookmarks")).map(shape);
+}
+
 export async function fetchHashtagPosts(tag: string): Promise<FeedPost[]> {
   return (await api<RawPost[]>(`/posts?hashtag=${encodeURIComponent(tag.replace(/^#/, ""))}`)).map(shape);
 }

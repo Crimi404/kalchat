@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CalendarDays, Loader2, MapPin, Pencil, Settings } from "lucide-react";
+import { Bookmark, CalendarDays, Grid3x3, Loader2, MapPin, Pencil, Settings } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { BadgeList } from "@/components/KalBadge";
@@ -10,6 +10,7 @@ import { getOrCreateConversation } from "@/lib/chat";
 import {
   fetchFollowList,
   fetchProfileByUsername,
+  fetchSavedPosts,
   fetchUserPosts,
   toggleFollow,
   updateMyProfile,
@@ -52,6 +53,7 @@ export function ProfileView({ username }: { username: string }) {
   const qc = useQueryClient();
   const [editing, setEditing] = useState(false);
   const [list, setList] = useState<"followers" | "following" | null>(null);
+  const [tab, setTab] = useState<"posts" | "saved">("posts");
 
   const profileQ = useQuery({ queryKey: ["profile", username], queryFn: () => fetchProfileByUsername(username) });
   const p = profileQ.data;
@@ -59,6 +61,12 @@ export function ProfileView({ username }: { username: string }) {
     queryKey: ["userPosts", p?.id, user?.id],
     queryFn: () => fetchUserPosts(p!.id),
     enabled: !!p,
+  });
+  const isMeEarly = !!user && !!p && user.id === p.id;
+  const savedQ = useQuery({
+    queryKey: ["savedPosts", user?.id],
+    queryFn: () => fetchSavedPosts(),
+    enabled: isMeEarly && tab === "saved",
   });
   const navigate = useNavigate();
   const follow = useMutation({
@@ -166,7 +174,31 @@ export function ProfileView({ username }: { username: string }) {
         )}
       </div>
       <div className="mt-4 border-t border-border">
-        {postsQ.isLoading ? (
+        {isMe && (
+          <div className="grid grid-cols-2 border-b border-border">
+            {([
+              { id: "posts", label: "Publications", Icon: Grid3x3 },
+              { id: "saved", label: "Enregistrés", Icon: Bookmark },
+            ] as const).map(({ id, label, Icon }) => (
+              <button
+                key={id}
+                onClick={() => setTab(id)}
+                className={`flex items-center justify-center gap-1.5 py-3 text-sm font-semibold transition-colors ${tab === id ? "border-b-2 border-primary text-primary" : "text-muted-foreground hover:text-foreground"}`}
+              >
+                <Icon className="h-4 w-4" /> {label}
+              </button>
+            ))}
+          </div>
+        )}
+        {isMe && tab === "saved" ? (
+          savedQ.isLoading ? (
+            <div className="flex justify-center py-10"><Loader2 className="h-5 w-5 animate-spin text-primary" /></div>
+          ) : savedQ.data?.length ? (
+            savedQ.data.map((post) => <PostCard key={post.id} post={post} />)
+          ) : (
+            <p className="py-10 text-center text-sm text-muted-foreground">Aucune publication enregistrée. Touche le signet sous un post pour le retrouver ici.</p>
+          )
+        ) : postsQ.isLoading ? (
           <div className="flex justify-center py-10"><Loader2 className="h-5 w-5 animate-spin text-primary" /></div>
         ) : postsQ.data?.length ? (
           postsQ.data.map((post) => <PostCard key={post.id} post={post} />)

@@ -75,6 +75,30 @@ router.post('/:id/bookmark', async (req, res) => {
   res.json({ bookmarked: !already });
 });
 
+// ---------- Mes publications enregistrées (les plus récemment enregistrées en premier) ----------
+router.get('/bookmarks', async (req, res) => {
+  const rows = await db
+    .prepare(
+      `SELECT p.id, p.user_id, u.username, u.avatar_url, u.badge, u.role, u.first_name, u.last_name, p.content, p.media_url, p.media_type, p.created_at,
+              (SELECT COUNT(*) FROM post_likes l WHERE l.post_id = p.id) AS like_count,
+              EXISTS(SELECT 1 FROM post_likes l WHERE l.post_id = p.id AND l.user_id = ?) AS liked_by_me,
+              (SELECT COUNT(*) FROM post_comments c WHERE c.post_id = p.id) AS comment_count,
+              (SELECT COUNT(*) FROM posts sp WHERE sp.shared_from_id = p.id) AS share_count,
+              true AS bookmarked_by_me,
+              su.username AS shared_from_username
+       FROM post_bookmarks b
+       JOIN posts p ON p.id = b.post_id
+       JOIN users u ON u.id = p.user_id
+       LEFT JOIN posts so ON so.id = p.shared_from_id
+       LEFT JOIN users su ON su.id = so.user_id
+       WHERE b.user_id = ?
+       ORDER BY b.created_at DESC
+       LIMIT 100`
+    )
+    .all(req.user.id, req.user.id);
+  res.json(rows);
+});
+
 // ---------- Commentaires ----------
 router.get('/:id/comments', async (req, res) => {
   const comments = await db
