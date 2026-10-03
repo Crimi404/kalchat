@@ -229,7 +229,7 @@ function ChatPage() {
 
   return (
     <div className="app-shell flex h-[100dvh] flex-col">
-      <header className="relative flex items-center gap-3 border-b border-border bg-background/90 px-3 py-2.5 backdrop-blur-xl">
+      <header className="relative z-30 flex items-center gap-3 border-b border-border bg-background/90 px-3 py-2.5 backdrop-blur-xl">
         <Link to="/messages" aria-label="Retour" className="p-1.5"><ArrowLeft className="h-5 w-5" /></Link>
         {isGroup ? (
           <button onClick={() => setInfoOpen(true)} className="flex min-w-0 flex-1 items-center gap-2.5 text-left">
