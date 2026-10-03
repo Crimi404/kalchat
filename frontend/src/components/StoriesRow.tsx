@@ -4,7 +4,7 @@ import { Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
-import { deleteStory, fetchStoryGroups, markStoryViewed, storyViewCount, type StoryGroup } from "@/lib/stories";
+import { deleteStory, fetchStoryGroups, fetchStoryViewers, markStoryViewed, type StoryGroup } from "@/lib/stories";
 import { timeAgo } from "@/lib/social";
 import { BadgeList } from "@/components/KalBadge";
 
@@ -28,16 +28,17 @@ function StoryViewer({ group, onClose }: { group: StoryGroup; onClose: () => voi
   const s = group.stories[i];
   const isVideo = !!s?.image_url && s.media_type === "video";
   const mine = user?.id === group.author.id;
-  const views = useQuery({ queryKey: ["storyViews", s?.id], queryFn: () => storyViewCount(s!.id), enabled: mine && !!s });
+  const [showViewers, setShowViewers] = useState(false);
+  const viewers = useQuery({ queryKey: ["storyViewers", s?.id], queryFn: () => fetchStoryViewers(s!.id), enabled: mine && !!s });
 
   useEffect(() => {
     if (!s || !user) return;
     if (!mine && !s.seen) void markStoryViewed(s.id);
     setVideoSeconds(null);
-    if (isVideo) return; // la vidéo passe à la suite toute seule quand elle se termine (onEnded)
+    if (isVideo || showViewers) return; // la vidéo passe à la suite toute seule quand elle se termine (onEnded)
     const t = setTimeout(() => (i < group.stories.length - 1 ? setI(i + 1) : onClose()), 6000);
     return () => clearTimeout(t);
-  }, [s, i, user, mine, group.stories.length, onClose, isVideo]);
+  }, [s, i, user, mine, group.stories.length, onClose, isVideo, showViewers]);
 
   // Démarre avec le son ; si le navigateur refuse (autoplay), on repasse en muet et le bouton permet de réactiver
   useEffect(() => {
@@ -48,6 +49,13 @@ function StoryViewer({ group, onClose }: { group: StoryGroup; onClose: () => voi
     if (p) p.catch(() => { v.muted = true; setMuted(true); void v.play().catch(() => undefined); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [i, isVideo]);
+
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v || !isVideo) return;
+    if (showViewers) v.pause();
+    else void v.play().catch(() => undefined);
+  }, [showViewers, isVideo]);
 
   function nextStory() {
     if (i < group.stories.length - 1) setI(i + 1);
@@ -91,7 +99,7 @@ function StoryViewer({ group, onClose }: { group: StoryGroup; onClose: () => voi
           )}
           {mine && (
             <>
-              <span className="flex items-center gap-1 text-xs text-muted-foreground"><Eye className="h-4 w-4" />{views.data ?? 0}</span>
+              <button aria-label="Voir qui a vu la story" onClick={() => setShowViewers(true)} className="flex items-center gap-1 rounded-full bg-secondary/60 px-2.5 py-1 text-xs font-semibold text-foreground"><Eye className="h-4 w-4" />{viewers.data?.length ?? 0}</button>
               <button aria-label="Supprimer la story" onClick={() => del.mutate()} className="p-1.5 text-muted-foreground hover:text-destructive"><Trash2 className="h-5 w-5" /></button>
             </>
           )}
@@ -122,6 +130,29 @@ function StoryViewer({ group, onClose }: { group: StoryGroup; onClose: () => voi
             </div>
           )}
         </div>
+        {showViewers && (
+          <div className="absolute inset-0 z-20 flex flex-col justify-end bg-black/50" onClick={() => setShowViewers(false)}>
+            <div className="max-h-[65%] overflow-y-auto rounded-t-3xl border-t border-border bg-card p-4" onClick={(e) => e.stopPropagation()}>
+              <div className="mb-3 flex items-center justify-between">
+                <h3 className="text-sm font-bold text-foreground">Vu par {viewers.data?.length ?? 0} personne{(viewers.data?.length ?? 0) > 1 ? "s" : ""}</h3>
+                <button aria-label="Fermer" onClick={() => setShowViewers(false)} className="p-1 text-muted-foreground"><X className="h-5 w-5" /></button>
+              </div>
+              {viewers.isLoading ? (
+                <p className="py-6 text-center text-xs text-muted-foreground">Chargement…</p>
+              ) : viewers.data?.length ? (
+                viewers.data.map((v) => (
+                  <Link key={v.id} to="/u/$username" params={{ username: v.username }} onClick={onClose} className="flex items-center gap-3 rounded-xl px-1 py-2 hover:bg-secondary/60">
+                    <Avatar url={v.avatar_url} name={v.username} size={36} />
+                    <span className="flex-1 text-sm font-semibold text-foreground">@{v.username}</span>
+                    <span className="text-[11px] text-muted-foreground">{timeAgo(v.viewed_at)}</span>
+                  </Link>
+                ))
+              ) : (
+                <p className="py-6 text-center text-xs text-muted-foreground">Personne n'a encore vu cette story.</p>
+              )}
+            </div>
+          </div>
+        )}
         <button aria-label="Précédente" className="absolute bottom-0 left-0 top-20 w-1/3" onClick={() => setI(Math.max(0, i - 1))} />
         <button aria-label="Suivante" className="absolute bottom-0 right-0 top-20 w-1/3" onClick={() => (i < group.stories.length - 1 ? setI(i + 1) : onClose())} />
       </div>

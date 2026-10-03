@@ -5,6 +5,7 @@ const { v4: uuid } = require('uuid');
 const db = require('../db');
 const authMiddleware = require('../middleware/auth');
 const { nextUsernameChangeAt } = require('../usernamePolicy');
+const ai = require('../ai');
 
 const router = express.Router();
 
@@ -23,14 +24,14 @@ router.post('/register', async (req, res) => {
       return res.status(400).json({ error: 'Le mot de passe doit faire au moins 6 caractères' });
     }
 
-    const existing = await db.prepare('SELECT id FROM users WHERE username = ?').get(username);
+    const existing = await db.prepare('SELECT id FROM users WHERE LOWER(username) = LOWER(?)').get(username);
     if (existing) {
       return res.status(409).json({ error: 'Ce nom d\'utilisateur est déjà pris' });
     }
 
     const id = uuid();
     const password_hash = await bcrypt.hash(password, 10);
-    const countRow = await db.prepare('SELECT COUNT(*) AS n FROM users').get();
+    const countRow = await db.prepare('SELECT COUNT(*) AS n FROM users WHERE id != ?').get(ai.BOT_ID); // le compte IA ne compte pas
     const isFirstUser = Number(countRow.n) === 0;
 
     await db
@@ -38,6 +39,9 @@ router.post('/register', async (req, res) => {
         'INSERT INTO users (id, username, password_hash, avatar_url, first_name, last_name, is_admin, badge) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
       )
       .run(id, username, password_hash, avatar_url || null, first_name.trim(), last_name.trim(), isFirstUser ? 1 : 0, isFirstUser ? 'gold' : null);
+
+    // Chaque nouveau membre a d'office une discussion avec Kalia (l'IA de Kalchat)
+    await ai.ensureConversationFor(id).catch((err) => console.error('Kalia : discussion non créée:', err.message));
 
     const token = jwt.sign({ id, username }, process.env.JWT_SECRET, { expiresIn: '30d' });
     res.status(201).json({ token, user: { id, username, avatar_url: avatar_url || null, first_name, last_name, is_admin: isFirstUser } });

@@ -342,6 +342,12 @@ router.post('/:username/follow', async (req, res) => {
   const existing = await followStatusBetween(req.user.id, target.id);
   if (existing) return res.json({ status: existing });
 
+  // Le compte IA accepte tout le monde d'office
+  if (target.id === 'kalchat-ai') {
+    await db.prepare("INSERT INTO follows (follower_id, followed_id, status) VALUES (?, ?, 'accepted')").run(req.user.id, target.id);
+    return res.status(201).json({ status: 'accepted' });
+  }
+
   await db.prepare("INSERT INTO follows (follower_id, followed_id, status) VALUES (?, ?, 'pending')").run(req.user.id, target.id);
   await notify(req.app.get('io'), { user_id: target.id, actor_id: req.user.id, type: 'follow_request' });
   res.status(201).json({ status: 'pending' });

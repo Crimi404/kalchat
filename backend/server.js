@@ -17,6 +17,7 @@ const adminRoutes = require('./routes/admin');
 const db = require('./db');
 const storage = require('./storage');
 const { cleanupOldMedia, cleanupExpiredMessages } = require('./cleanup');
+const ai = require('./ai');
 
 const app = express();
 const server = http.createServer(app);
@@ -172,6 +173,8 @@ const PORT = process.env.PORT || 4000;
 
 db.initSchema()
   .then(() => storage.initStorage())
+  // Kalia (IA) : une erreur ici ne doit jamais empêcher le site de démarrer
+  .then(() => ai.init().catch((err) => console.error('Kalia : initialisation impossible:', err.message)))
   .then(() => {
     server.listen(PORT, () => {
       console.log(`Kalchat backend démarré sur http://localhost:${PORT}`);

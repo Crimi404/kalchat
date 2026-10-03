@@ -80,3 +80,14 @@ export async function storyViewCount(id: string): Promise<number> {
   const viewers = await api<unknown[]>(`/stories/${id}/viewers`).catch(() => []);
   return viewers.length;
 }
+
+export interface StoryViewer {
+  id: string;
+  username: string;
+  avatar_url: string | null;
+  viewed_at: string;
+}
+
+export async function fetchStoryViewers(id: string): Promise<StoryViewer[]> {
+  return api<StoryViewer[]>(`/stories/${id}/viewers`);
+}

@@ -27,7 +27,7 @@ async function getTarget(id) {
 router.get('/stats', async (req, res) => {
   const n = async (sql) => (await db.prepare(sql).get()).n;
   const [users, messages, posts, comments, blocked, postPhotos, postVideos, storyPhotos, storyVideos] = await Promise.all([
-    n('SELECT COUNT(*) AS n FROM users'),
+    n("SELECT COUNT(*) AS n FROM users WHERE id != 'kalchat-ai'"),
     n('SELECT COUNT(*) AS n FROM messages'),
     n('SELECT COUNT(*) AS n FROM posts'),
     n('SELECT COUNT(*) AS n FROM post_comments'),
@@ -58,7 +58,7 @@ router.get('/users', async (req, res) => {
       `SELECT u.id, u.username, u.first_name, u.last_name, u.avatar_url, u.badge, u.role, u.is_admin, u.is_blocked, u.created_at,
               (SELECT COUNT(*) FROM posts p WHERE p.user_id = u.id) AS post_count
        FROM users u
-       ${q ? "WHERE u.username ILIKE ? OR (COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '')) ILIKE ?" : ''}
+       WHERE u.id != 'kalchat-ai'${q ? " AND (u.username ILIKE ? OR (COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '')) ILIKE ?)" : ''}
        ORDER BY u.created_at DESC
        LIMIT 100`
     )

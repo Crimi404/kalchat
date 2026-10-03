@@ -4,6 +4,7 @@ const db = require('../db');
 const authMiddleware = require('../middleware/auth');
 const { notify } = require('../notify');
 const { isBlockedEitherWay } = require('../blocks');
+const ai = require('../ai');
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -481,6 +482,11 @@ router.post('/conversations/:id/messages', async (req, res) => {
     .all(req.params.id, req.user.id);
   for (const m of otherMembers) {
     await notify(io, { user_id: m.user_id, actor_id: req.user.id, type: 'message', conversation_id: req.params.id, message_id: id });
+  }
+
+  // Discussion privée avec Kalia (l'IA de Kalchat) : elle répond
+  if (convRow && !convRow.is_group && otherMembers.some((m) => m.user_id === ai.BOT_ID)) {
+    ai.scheduleReply(io, req.params.id, req.user.id, { media_type });
   }
 
   res.status(201).json(message);

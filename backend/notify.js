@@ -8,6 +8,7 @@ const { isBlockedEitherWay } = require('./blocks');
  */
 async function notify(io, { user_id, actor_id, type, post_id = null, conversation_id = null, message_id = null, body = null }) {
   if (user_id === actor_id) return;
+  if (user_id === 'kalchat-ai') return; // le compte IA n'a pas de notifications
   // Si l'un a bloqué l'autre, aucune notification (sauf avertissement officiel de la modération)
   if (type !== 'moderation' && (await isBlockedEitherWay(user_id, actor_id))) return;
 

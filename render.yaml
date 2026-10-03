@@ -17,6 +17,9 @@ services:
         value: 24
       - key: DATABASE_URL
         sync: false
+      # Kalia (IA de Kalchat) — API compatible OpenAI (Groq par défaut)
+      - key: AI_API_KEY
+        sync: false
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY
