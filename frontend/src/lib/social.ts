@@ -23,6 +23,9 @@ export interface FeedPost {
   likedByMe: boolean;
   savedByMe: boolean;
   sharedFrom: string | null;
+  category: string;
+  /** Relation de l'auteur avec moi : « none », « pending » (demande envoyée) ou « accepted » (abonné). */
+  followStatus: Relationship;
 }
 
 interface RawAuthor extends RawUser {
@@ -52,6 +55,8 @@ interface RawPost extends RawAuthor {
   share_count: number;
   bookmarked_by_me: boolean;
   shared_from_username: string | null;
+  category?: string | null;
+  follow_status?: string | null;
 }
 
 function shape(r: RawPost): FeedPost {
@@ -69,6 +74,8 @@ function shape(r: RawPost): FeedPost {
     likedByMe: !!r.liked_by_me,
     savedByMe: !!r.bookmarked_by_me,
     sharedFrom: r.shared_from_username,
+    category: r.category || "divers",
+    followStatus: r.follow_status === "accepted" || r.follow_status === "pending" ? r.follow_status : "none",
   };
 }
 
@@ -98,14 +105,18 @@ export async function fetchTrendingHashtags(): Promise<TrendingTag[]> {
   return rows.map((r) => ({ tag: r.tag, count: Number(r.count) || 0 }));
 }
 
+export async function fetchCategoryPosts(category: string): Promise<FeedPost[]> {
+  return (await api<RawPost[]>(`/posts?category=${encodeURIComponent(category)}`)).map(shape);
+}
+
 export async function fetchHashtagPosts(tag: string): Promise<FeedPost[]> {
   return (await api<RawPost[]>(`/posts?hashtag=${encodeURIComponent(tag.replace(/^#/, ""))}`)).map(shape);
 }
 
-export async function createPost(input: { content: string; imageUrl?: string | null; mediaType?: string | null }) {
+export async function createPost(input: { content: string; imageUrl?: string | null; mediaType?: string | null; category?: string }) {
   await api("/posts", {
     method: "POST",
-    body: { content: input.content, media_url: input.imageUrl ?? null, media_type: input.mediaType ?? null },
+    body: { content: input.content, media_url: input.imageUrl ?? null, media_type: input.mediaType ?? null, category: input.category ?? "divers" },
   });
 }
 

@@ -1,4 +1,4 @@
-import { Heart, MessageCircle, Repeat2, Bookmark, MoreHorizontal, Trash2, Pencil, Loader2, Send, X, EyeOff, Flag, Ban } from "lucide-react";
+import { Heart, MessageCircle, Repeat2, Bookmark, MoreHorizontal, Trash2, Pencil, Loader2, Send, X, EyeOff, Flag, Ban, UserPlus, UserMinus, UserCheck, ThumbsDown } from "lucide-react";
 import { useRef, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -8,6 +8,7 @@ import { BadgeList } from "@/components/KalBadge";
 import { ReportSheet } from "@/components/ReportSheet";
 import { hidePost, unhidePost, type ReportTarget } from "@/lib/reports";
 import { blockUser } from "@/lib/settings";
+import { categoryOf, DEFAULT_CATEGORY, muteCategory, unmuteCategory } from "@/lib/categories";
 import { useAuth } from "@/lib/auth";
 import {
   addComment,
@@ -18,6 +19,7 @@ import {
   timeAgo,
   toggleCommentLike,
   toggleLike,
+  toggleFollow,
   toggleSave,
   updateComment,
   updatePost,
@@ -235,6 +237,30 @@ export function PostCard({ post, detail = false }: { post: FeedPost; detail?: bo
     onError: (e: Error) => toast.error(e.message),
   });
 
+  const followMutation = useMutation({
+    mutationFn: () => toggleFollow(author!.username, post.followStatus),
+    onSuccess: (status) => {
+      invalidate();
+      toast.success(status === "pending" ? "Demande d'abonnement envoyée" : status === "accepted" ? `Tu suis @${author!.username}` : `Tu ne suis plus @${author!.username}`);
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const muteTopicMutation = useMutation({
+    mutationFn: () => muteCategory(post.category),
+    onSuccess: () => {
+      invalidate();
+      const label = categoryOf(post.category).label;
+      toast(`Tu verras moins de publications « ${label} »`, {
+        action: {
+          label: "Annuler",
+          onClick: () => void unmuteCategory(post.category).then(invalidate).catch((e: Error) => toast.error(e.message)),
+        },
+      });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   const blockMutation = useMutation({
     mutationFn: () => blockUser(author!.username),
     onSuccess: () => {
@@ -351,6 +377,19 @@ export function PostCard({ post, detail = false }: { post: FeedPost; detail?: bo
                           <Pencil className="h-4 w-4" /> Modifier
                         </button>
                       )}
+                      {!isMine && author && (
+                        <button
+                          onClick={() => {
+                            setMenuOpen(false);
+                            if (post.followStatus === "accepted" && !window.confirm(`Ne plus suivre @${author.username} ?`)) return;
+                            followMutation.mutate();
+                          }}
+                          className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-foreground hover:bg-secondary"
+                        >
+                          {post.followStatus === "accepted" ? <UserMinus className="h-4 w-4" /> : post.followStatus === "pending" ? <UserCheck className="h-4 w-4" /> : <UserPlus className="h-4 w-4" />}
+                          {post.followStatus === "accepted" ? `Se désabonner de @${author.username}` : post.followStatus === "pending" ? "Annuler la demande d'abonnement" : `S'abonner à @${author.username}`}
+                        </button>
+                      )}
                       {!isMine && !detail && (
                         <button
                           onClick={() => {
@@ -360,6 +399,17 @@ export function PostCard({ post, detail = false }: { post: FeedPost; detail?: bo
                           className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-foreground hover:bg-secondary"
                         >
                           <EyeOff className="h-4 w-4" /> Masquer cette publication
+                        </button>
+                      )}
+                      {!isMine && !detail && post.category !== DEFAULT_CATEGORY && (
+                        <button
+                          onClick={() => {
+                            setMenuOpen(false);
+                            muteTopicMutation.mutate();
+                          }}
+                          className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-foreground hover:bg-secondary"
+                        >
+                          <ThumbsDown className="h-4 w-4" /> Ce sujet ne m'intéresse pas ({categoryOf(post.category).label})
                         </button>
                       )}
                       {!isMine && (
@@ -450,6 +500,16 @@ export function PostCard({ post, detail = false }: { post: FeedPost; detail?: bo
                 </p>
               );
             })()
+          )}
+
+          {post.category !== DEFAULT_CATEGORY && (
+            <Link
+              to="/explorer"
+              search={{ cat: post.category }}
+              className="mt-2 inline-flex items-center gap-1 rounded-full border border-border bg-secondary/50 px-2.5 py-0.5 text-[11px] font-semibold text-muted-foreground hover:bg-secondary hover:text-foreground"
+            >
+              {categoryOf(post.category).emoji} {categoryOf(post.category).label}
+            </Link>
           )}
 
           {post.image_url && (post.media_type === "video" ? (

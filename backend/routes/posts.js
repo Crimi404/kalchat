@@ -4,6 +4,7 @@ const db = require('../db');
 const authMiddleware = require('../middleware/auth');
 const { notify } = require('../notify');
 const { notifyMentions } = require('../mentions');
+const { CATEGORIES, DEFAULT_CATEGORY, normalizeCategory } = require('../categories');
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -17,8 +18,8 @@ router.post('/', async (req, res) => {
 
   const id = uuid();
   await db
-    .prepare('INSERT INTO posts (id, user_id, content, media_url, media_type) VALUES (?, ?, ?, ?, ?)')
-    .run(id, req.user.id, content?.trim() || null, media_url || null, media_type || null);
+    .prepare('INSERT INTO posts (id, user_id, content, media_url, media_type, category) VALUES (?, ?, ?, ?, ?, ?)')
+    .run(id, req.user.id, content?.trim() || null, media_url || null, media_type || null, normalizeCategory(req.body.category));
 
   await notifyMentions(req.app.get('io'), { text: content, actorId: req.user.id, postId: id, where: 'post' });
 
@@ -32,8 +33,8 @@ router.post('/:id/share', async (req, res) => {
 
   const id = uuid();
   await db
-    .prepare('INSERT INTO posts (id, user_id, content, media_url, media_type, shared_from_id) VALUES (?, ?, ?, ?, ?, ?)')
-    .run(id, req.user.id, original.content, original.media_url, original.media_type, original.id);
+    .prepare('INSERT INTO posts (id, user_id, content, media_url, media_type, shared_from_id, category) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    .run(id, req.user.id, original.content, original.media_url, original.media_type, original.id, normalizeCategory(original.category));
 
   await notify(req.app.get('io'), { user_id: original.user_id, actor_id: req.user.id, type: 'share', post_id: original.id });
 
@@ -91,6 +92,24 @@ router.delete('/:id/hide', async (req, res) => {
   res.json({ hidden: false });
 });
 
+// ---------- Sujets masqués (« Ce sujet ne m'intéresse pas ») ----------
+router.get('/categories/muted', async (req, res) => {
+  const rows = await db.prepare('SELECT category FROM muted_categories WHERE user_id = ? ORDER BY created_at DESC').all(req.user.id);
+  res.json(rows.map((r) => r.category));
+});
+
+router.post('/categories/:key/mute', async (req, res) => {
+  const key = String(req.params.key || '').toLowerCase();
+  if (!CATEGORIES.includes(key) || key === DEFAULT_CATEGORY) return res.status(400).json({ error: 'Ce sujet ne peut pas être masqué' });
+  await db.prepare('INSERT INTO muted_categories (user_id, category) VALUES (?, ?) ON CONFLICT DO NOTHING').run(req.user.id, key);
+  res.json({ muted: true });
+});
+
+router.delete('/categories/:key/mute', async (req, res) => {
+  await db.prepare('DELETE FROM muted_categories WHERE user_id = ? AND category = ?').run(req.user.id, String(req.params.key || '').toLowerCase());
+  res.json({ muted: false });
+});
+
 // ---------- Mes publications enregistrées (les plus récemment enregistrées en premier) ----------
 router.get('/bookmarks', async (req, res) => {
   const rows = await db
@@ -101,7 +120,9 @@ router.get('/bookmarks', async (req, res) => {
               (SELECT COUNT(*) FROM post_comments c WHERE c.post_id = p.id) AS comment_count,
               (SELECT COUNT(*) FROM posts sp WHERE sp.shared_from_id = p.id) AS share_count,
               true AS bookmarked_by_me,
-              su.username AS shared_from_username
+              su.username AS shared_from_username,
+              COALESCE(p.category, 'divers') AS category,
+              (SELECT f.status FROM follows f WHERE f.follower_id = ? AND f.followed_id = p.user_id) AS follow_status
        FROM post_bookmarks b
        JOIN posts p ON p.id = b.post_id
        JOIN users u ON u.id = p.user_id
@@ -111,7 +132,7 @@ router.get('/bookmarks', async (req, res) => {
        ORDER BY b.created_at DESC
        LIMIT 100`
     )
-    .all(req.user.id, req.user.id);
+    .all(req.user.id, req.user.id, req.user.id);
   res.json(rows);
 });
 
@@ -215,7 +236,7 @@ router.patch('/comments/:commentId', async (req, res) => {
 
 // ---------- Fil de publications (le plus récent en premier) ----------
 router.get('/', async (req, res) => {
-  const { user_id, hashtag } = req.query;
+  const { user_id, hashtag, category } = req.query;
 
   // On ne voit jamais les publications d'un compte qu'on a bloqué (ni de quelqu'un qui nous a bloqué)
   const conditions = [
@@ -225,6 +246,15 @@ router.get('/', async (req, res) => {
   // Les publications masquées disparaissent du fil et des hashtags (mais restent visibles sur le profil de leur auteur)
   if (!user_id) {
     conditions.push('NOT EXISTS (SELECT 1 FROM post_hidden ph WHERE ph.post_id = p.id AND ph.user_id = ?)');
+    extraParams.push(req.user.id);
+  }
+  if (category) {
+    // Parcourir une catégorie précise (page Explorer) : on l'affiche même si le sujet est masqué dans le fil
+    conditions.push(`COALESCE(p.category, 'divers') = ?`);
+    extraParams.push(normalizeCategory(category));
+  } else if (!user_id && !hashtag) {
+    // Fil principal : on retire les sujets que le membre ne veut plus voir
+    conditions.push(`COALESCE(p.category, 'divers') NOT IN (SELECT mc.category FROM muted_categories mc WHERE mc.user_id = ?)`);
     extraParams.push(req.user.id);
   }
   if (user_id) {
@@ -246,7 +276,9 @@ router.get('/', async (req, res) => {
               (SELECT COUNT(*) FROM post_comments c WHERE c.post_id = p.id) AS comment_count,
               (SELECT COUNT(*) FROM posts sp WHERE sp.shared_from_id = p.id) AS share_count,
               EXISTS(SELECT 1 FROM post_bookmarks b WHERE b.post_id = p.id AND b.user_id = ?) AS bookmarked_by_me,
-              su.username AS shared_from_username
+              su.username AS shared_from_username,
+              COALESCE(p.category, 'divers') AS category,
+              (SELECT f.status FROM follows f WHERE f.follower_id = ? AND f.followed_id = p.user_id) AS follow_status
        FROM posts p
        JOIN users u ON u.id = p.user_id
        LEFT JOIN posts so ON so.id = p.shared_from_id
@@ -255,7 +287,7 @@ router.get('/', async (req, res) => {
        ORDER BY p.created_at DESC
        LIMIT 100`
     )
-    .all(req.user.id, req.user.id, ...extraParams);
+    .all(req.user.id, req.user.id, req.user.id, ...extraParams);
   res.json(rows);
 });
 
@@ -270,14 +302,16 @@ router.get('/:id', async (req, res) => {
               (SELECT COUNT(*) FROM post_comments c WHERE c.post_id = p.id) AS comment_count,
               (SELECT COUNT(*) FROM posts sp WHERE sp.shared_from_id = p.id) AS share_count,
               EXISTS(SELECT 1 FROM post_bookmarks b WHERE b.post_id = p.id AND b.user_id = ?) AS bookmarked_by_me,
-              su.username AS shared_from_username
+              su.username AS shared_from_username,
+              COALESCE(p.category, 'divers') AS category,
+              (SELECT f.status FROM follows f WHERE f.follower_id = ? AND f.followed_id = p.user_id) AS follow_status
        FROM posts p
        JOIN users u ON u.id = p.user_id
        LEFT JOIN posts so ON so.id = p.shared_from_id
        LEFT JOIN users su ON su.id = so.user_id
        WHERE p.id = ? AND ${blocked}`
     )
-    .get(req.user.id, req.user.id, req.params.id, req.user.id, req.user.id);
+    .get(req.user.id, req.user.id, req.user.id, req.params.id, req.user.id, req.user.id);
   if (!post) return res.status(404).json({ error: 'Publication introuvable' });
   res.json(post);
 });
@@ -324,7 +358,8 @@ async function getPostById(id) {
     .prepare(
       `SELECT p.id, p.user_id, u.username, u.avatar_url, u.badge, u.role, u.first_name, u.last_name, p.content, p.media_url, p.media_type, p.created_at,
               0 AS like_count, false AS liked_by_me, 0 AS comment_count, 0 AS share_count,
-              false AS bookmarked_by_me, su.username AS shared_from_username
+              false AS bookmarked_by_me, su.username AS shared_from_username,
+              COALESCE(p.category, 'divers') AS category, NULL AS follow_status
        FROM posts p
        JOIN users u ON u.id = p.user_id
        LEFT JOIN posts so ON so.id = p.shared_from_id

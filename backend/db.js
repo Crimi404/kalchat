@@ -246,6 +246,13 @@ async function initSchema() {
       handled_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+    ALTER TABLE posts ADD COLUMN IF NOT EXISTS category TEXT;
+    CREATE TABLE IF NOT EXISTS muted_categories (
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      category TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (user_id, category)
+    );
     CREATE INDEX IF NOT EXISTS idx_reports_status ON reports(status, created_at);
     CREATE INDEX IF NOT EXISTS idx_reports_target ON reports(target_type, target_id);
   `);

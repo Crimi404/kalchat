@@ -1,6 +1,6 @@
 import { createFileRoute, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import { Check, Lock, LogOut, Moon, ShieldCheck, Sun, UserRound } from "lucide-react";
+import { Check, EyeOff, Lock, LogOut, Moon, ShieldCheck, Sun, UserRound } from "lucide-react";
 import { TopBar } from "@/components/TopBar";
 import { BottomNav } from "@/components/BottomNav";
 import { useAuth } from "@/lib/auth";
@@ -82,6 +82,7 @@ function ParametresPage() {
 
         <section className="rounded-2xl border border-border bg-card p-2">
           <SettingRow icon={UserRound} title="Informations du compte" description="Nom d'utilisateur, nom, date d'inscription et suppression du compte" onClick={() => navigate({ to: "/parametres/compte" })} />
+          <SettingRow icon={EyeOff} title="Sujets masqués" description="Catégories de publications que tu ne veux plus voir dans ton fil" onClick={() => navigate({ to: "/parametres/sujets" })} />
           <SettingRow icon={Lock} title="Changer de mot de passe" description="Change de mot de passe à tout moment" onClick={() => navigate({ to: "/parametres/mot-de-passe" })} />
           <SettingRow icon={ShieldCheck} title="Confidentialité" description="Présence en ligne, accusés de lecture, messages éphémères et comptes bloqués" onClick={() => navigate({ to: "/parametres/confidentialite" })} />
         </section>

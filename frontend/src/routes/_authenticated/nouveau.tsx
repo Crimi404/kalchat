@@ -7,6 +7,7 @@ import { TopBar } from "@/components/TopBar";
 import { useAuth } from "@/lib/auth";
 import { MAX_UPLOAD_MB, uploadMedia } from "@/lib/media";
 import { createPost } from "@/lib/social";
+import { CATEGORIES, DEFAULT_CATEGORY } from "@/lib/categories";
 
 export const Route = createFileRoute("/_authenticated/nouveau")({
   head: () => ({
@@ -30,6 +31,7 @@ function NewPost() {
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [category, setCategory] = useState(DEFAULT_CATEGORY);
 
   function pick(f: File | undefined) {
     if (!f) return;
@@ -45,7 +47,7 @@ function NewPost() {
     setBusy(true);
     try {
       const media = file ? await uploadMedia(file) : null;
-      await createPost({ content: text.trim(), imageUrl: media?.url ?? null, mediaType: media?.type ?? null });
+      await createPost({ content: text.trim(), imageUrl: media?.url ?? null, mediaType: media?.type ?? null, category });
       await qc.invalidateQueries();
       toast.success("Publication partagée");
       navigate({ to: "/" });
@@ -87,6 +89,22 @@ function NewPost() {
             <input type="file" accept="image/*,video/*" className="hidden" onChange={(e) => pick(e.target.files?.[0])} />
           </label>
         )}
+        <div>
+          <p className="mb-2 text-xs font-semibold text-muted-foreground">Catégorie <span className="font-normal">(facultatif — « Divers » par défaut)</span></p>
+          <div className="flex flex-wrap gap-2">
+            {CATEGORIES.map((c) => (
+              <button
+                key={c.value}
+                type="button"
+                onClick={() => setCategory(c.value)}
+                aria-pressed={category === c.value}
+                className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${category === c.value ? "border-primary bg-primary/15 text-foreground" : "border-border bg-secondary/40 text-muted-foreground hover:bg-secondary"}`}
+              >
+                {c.emoji} {c.label}
+              </button>
+            ))}
+          </div>
+        </div>
         <button onClick={publish} disabled={busy} className="brand-gradient glow-primary flex w-full items-center justify-center gap-2 rounded-xl py-3 font-bold text-primary-foreground disabled:opacity-60">
           {busy && <Loader2 className="h-4 w-4 animate-spin" />} Publier
         </button>

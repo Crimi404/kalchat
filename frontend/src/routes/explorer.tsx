@@ -8,11 +8,13 @@ import { BottomNav } from "@/components/BottomNav";
 import { BadgeList } from "@/components/KalBadge";
 import { PostCard } from "@/components/PostCard";
 import { useAuth } from "@/lib/auth";
-import { fetchFeed, fetchHashtagPosts, fetchTrendingHashtags, searchUsers } from "@/lib/social";
+import { fetchCategoryPosts, fetchFeed, fetchHashtagPosts, fetchTrendingHashtags, searchUsers } from "@/lib/social";
+import { CATEGORIES, categoryOf } from "@/lib/categories";
 
 export const Route = createFileRoute("/explorer")({
-  validateSearch: (search: Record<string, unknown>): { tag?: string } => ({
+  validateSearch: (search: Record<string, unknown>): { tag?: string; cat?: string } => ({
     tag: typeof search.tag === "string" && search.tag.trim() ? search.tag.trim().replace(/^#/, "").toLowerCase() : undefined,
+    cat: typeof search.cat === "string" && CATEGORIES.some((c) => c.value === search.cat) ? search.cat : undefined,
   }),
   beforeLoad: () => {
     if (!getToken()) throw redirect({ to: "/auth" });
@@ -55,14 +57,40 @@ function HashtagResults({ tag }: { tag: string }) {
   );
 }
 
+function CategoryResults({ cat }: { cat: string }) {
+  const navigate = useNavigate();
+  const info = categoryOf(cat);
+  const posts = useQuery({ queryKey: ["categoryPosts", cat], queryFn: () => fetchCategoryPosts(cat) });
+  return (
+    <section>
+      <div className="flex items-center gap-3 border-b border-border px-4 py-3">
+        <button aria-label="Retour" onClick={() => void navigate({ to: "/explorer", search: {} })} className="rounded-full p-2 hover:bg-secondary">
+          <ArrowLeft className="h-5 w-5" />
+        </button>
+        <div>
+          <h2 className="text-base font-bold text-foreground">{info.emoji} {info.label}</h2>
+          {posts.data && <p className="text-xs text-muted-foreground">{posts.data.length} publication{posts.data.length > 1 ? "s" : ""}</p>}
+        </div>
+      </div>
+      {posts.isLoading ? (
+        <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
+      ) : posts.data?.length ? (
+        posts.data.map((p) => <PostCard key={p.id} post={p} />)
+      ) : (
+        <p className="py-12 text-center text-sm text-muted-foreground">Aucune publication dans cette catégorie pour l'instant.</p>
+      )}
+    </section>
+  );
+}
+
 function ExplorerPage() {
   const { user } = useAuth();
-  const { tag } = Route.useSearch();
+  const { tag, cat } = Route.useSearch();
   const navigate = useNavigate();
   const [q, setQ] = useState("");
   const term = q.trim().replace(/[%,()]/g, "");
   const hashtagTerm = q.trim().startsWith("#") ? q.trim().slice(1).replace(/[^\p{L}\p{N}_]/gu, "").toLowerCase() : "";
-  const trending = useQuery({ queryKey: ["trendingTags"], queryFn: fetchTrendingHashtags, enabled: !tag });
+  const trending = useQuery({ queryKey: ["trendingTags"], queryFn: fetchTrendingHashtags, enabled: !tag && !cat });
 
   const people = useQuery({
     queryKey: ["search", term],
@@ -89,7 +117,9 @@ function ExplorerPage() {
               className="w-full bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground" />
           </div>
         </div>
-        {tag ? (
+        {cat ? (
+          <CategoryResults cat={cat} />
+        ) : tag ? (
           <HashtagResults tag={tag} />
         ) : hashtagTerm.length >= 2 ? (
           <section className="px-4">
@@ -112,6 +142,16 @@ function ExplorerPage() {
           </section>
         ) : (
           <>
+          <section className="px-4 pb-1 pt-1">
+            <h2 className="mb-2 text-sm font-bold text-foreground">Catégories</h2>
+            <div className="flex flex-wrap gap-2">
+              {CATEGORIES.map((c) => (
+                <Link key={c.value} to="/explorer" search={{ cat: c.value }} className="rounded-full border border-border bg-secondary/50 px-3 py-1.5 text-xs font-semibold text-foreground hover:bg-secondary">
+                  {c.emoji} {c.label}
+                </Link>
+              ))}
+            </div>
+          </section>
           {!!trending.data?.length && (
             <section className="px-4 pt-1">
               <h2 className="mb-2 text-sm font-bold text-foreground">Tendances</h2>
