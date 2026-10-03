@@ -484,7 +484,7 @@ router.post('/conversations/:id/messages', async (req, res) => {
     await notify(io, { user_id: m.user_id, actor_id: req.user.id, type: 'message', conversation_id: req.params.id, message_id: id });
   }
 
-  // Discussion privée avec Kalia (l'IA de Kalchat) : elle répond
+  // Discussion privée avec Kora IA (l'IA de Kalchat) : elle répond
   if (convRow && !convRow.is_group && otherMembers.some((m) => m.user_id === ai.BOT_ID)) {
     ai.scheduleReply(io, req.params.id, req.user.id, { media_type });
   }

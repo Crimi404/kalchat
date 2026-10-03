@@ -173,8 +173,8 @@ const PORT = process.env.PORT || 4000;
 
 db.initSchema()
   .then(() => storage.initStorage())
-  // Kalia (IA) : une erreur ici ne doit jamais empêcher le site de démarrer
-  .then(() => ai.init().catch((err) => console.error('Kalia : initialisation impossible:', err.message)))
+  // Kora IA : une erreur ici ne doit jamais empêcher le site de démarrer
+  .then(() => ai.init().catch((err) => console.error('Kora : initialisation impossible:', err.message)))
   .then(() => {
     server.listen(PORT, () => {
       console.log(`Kalchat backend démarré sur http://localhost:${PORT}`);

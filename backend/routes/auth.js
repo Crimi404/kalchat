@@ -40,8 +40,8 @@ router.post('/register', async (req, res) => {
       )
       .run(id, username, password_hash, avatar_url || null, first_name.trim(), last_name.trim(), isFirstUser ? 1 : 0, isFirstUser ? 'gold' : null);
 
-    // Chaque nouveau membre a d'office une discussion avec Kalia (l'IA de Kalchat)
-    await ai.ensureConversationFor(id).catch((err) => console.error('Kalia : discussion non créée:', err.message));
+    // Chaque nouveau membre a d'office une discussion avec Kora IA (l'IA de Kalchat)
+    await ai.ensureConversationFor(id).catch((err) => console.error('Kora : discussion non créée:', err.message));
 
     const token = jwt.sign({ id, username }, process.env.JWT_SECRET, { expiresIn: '30d' });
     res.status(201).json({ token, user: { id, username, avatar_url: avatar_url || null, first_name, last_name, is_admin: isFirstUser } });
