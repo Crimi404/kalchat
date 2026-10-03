@@ -88,6 +88,16 @@ export async function fetchPost(id: string): Promise<FeedPost> {
   return shape(await api<RawPost>(`/posts/${id}`));
 }
 
+export interface TrendingTag {
+  tag: string;
+  count: number;
+}
+
+export async function fetchTrendingHashtags(): Promise<TrendingTag[]> {
+  const rows = await api<{ tag: string; count: number | string }[]>("/posts/hashtags/trending");
+  return rows.map((r) => ({ tag: r.tag, count: Number(r.count) || 0 }));
+}
+
 export async function fetchHashtagPosts(tag: string): Promise<FeedPost[]> {
   return (await api<RawPost[]>(`/posts?hashtag=${encodeURIComponent(tag.replace(/^#/, ""))}`)).map(shape);
 }
@@ -124,6 +134,10 @@ export interface CommentRow {
   id: string;
   content: string;
   created_at: string;
+  edited_at: string | null;
+  parentId: string | null;
+  likeCount: number;
+  likedByMe: boolean;
   author_id: string;
   author: AuthorRow | null;
 }
@@ -132,19 +146,43 @@ interface RawComment extends RawAuthor {
   id: string;
   content: string;
   created_at: string;
+  edited_at: string | null;
+  parent_id: string | null;
+  like_count: number | string;
+  liked_by_me: boolean;
   user_id: string;
 }
 
 function shapeComment(c: RawComment): CommentRow {
-  return { id: c.id, content: c.content, created_at: c.created_at, author_id: c.user_id, author: toAuthor(c.user_id, c) };
+  return {
+    id: c.id,
+    content: c.content,
+    created_at: c.created_at,
+    edited_at: c.edited_at,
+    parentId: c.parent_id,
+    likeCount: Number(c.like_count) || 0,
+    likedByMe: !!c.liked_by_me,
+    author_id: c.user_id,
+    author: toAuthor(c.user_id, c),
+  };
 }
 
 export async function fetchComments(postId: string): Promise<CommentRow[]> {
   return (await api<RawComment[]>(`/posts/${postId}/comments`)).map(shapeComment);
 }
 
-export async function addComment(postId: string, content: string): Promise<CommentRow> {
-  return shapeComment(await api<RawComment>(`/posts/${postId}/comments`, { method: "POST", body: { content } }));
+export async function addComment(postId: string, content: string, parentId?: string | null): Promise<CommentRow> {
+  return shapeComment(
+    await api<RawComment>(`/posts/${postId}/comments`, { method: "POST", body: { content, parent_id: parentId ?? null } }),
+  );
+}
+
+export async function toggleCommentLike(commentId: string): Promise<{ liked: boolean; like_count: number }> {
+  return api(`/posts/comments/${commentId}/like`, { method: "POST" });
+}
+
+export async function updateComment(commentId: string, content: string) {
+  await api(`/posts/comments/${commentId}`, { method: "PATCH", body: { content } });
 }
 
 export async function deleteComment(id: string) {

@@ -212,6 +212,15 @@ async function initSchema() {
     ALTER TABLE users ADD COLUMN IF NOT EXISTS privacy_online TEXT NOT NULL DEFAULT 'everyone';
     ALTER TABLE users ADD COLUMN IF NOT EXISTS read_receipts INTEGER NOT NULL DEFAULT 1;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS default_ephemeral INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE post_comments ADD COLUMN IF NOT EXISTS parent_id TEXT REFERENCES post_comments(id) ON DELETE CASCADE;
+    ALTER TABLE post_comments ADD COLUMN IF NOT EXISTS edited_at TIMESTAMPTZ;
+    CREATE TABLE IF NOT EXISTS comment_likes (
+      comment_id TEXT NOT NULL REFERENCES post_comments(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (comment_id, user_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_comments_post ON post_comments(post_id, created_at);
   `);
 
   // ---------- Badges à rangs : plus (bleu) < vip (rouge) < vip_plus (violet) < legend (doré) ----------

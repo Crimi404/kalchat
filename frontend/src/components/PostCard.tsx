@@ -1,4 +1,4 @@
-import { Heart, MessageCircle, Repeat2, Bookmark, MoreHorizontal, Trash2, Pencil, Loader2, Send } from "lucide-react";
+import { Heart, MessageCircle, Repeat2, Bookmark, MoreHorizontal, Trash2, Pencil, Loader2, Send, X } from "lucide-react";
 import { useRef, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -13,9 +13,12 @@ import {
   fetchComments,
   repost,
   timeAgo,
+  toggleCommentLike,
   toggleLike,
   toggleSave,
+  updateComment,
   updatePost,
+  type CommentRow,
   type FeedPost,
 } from "@/lib/social";
 
@@ -49,6 +52,89 @@ function Avatar({ url, name, size = 44 }: { url: string | null | undefined; name
   );
 }
 
+/** Un commentaire (ou une réponse) : j'aime, répondre, modifier, supprimer. */
+function CommentItem({
+  c, isReply, canDelete, isMine, onReply, onLike, onDelete, onSave, saving,
+}: {
+  c: CommentRow;
+  isReply: boolean;
+  canDelete: boolean;
+  isMine: boolean;
+  onReply: () => void;
+  onLike: () => void;
+  onDelete: () => void;
+  onSave: (text: string) => void;
+  saving: boolean;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(c.content);
+
+  return (
+    <div className="flex items-start gap-2">
+      {c.author ? (
+        <Link to="/u/$username" params={{ username: c.author.username }} aria-label={`Profil de ${c.author.display_name}`}>
+          <Avatar url={c.author.avatar_url} name={c.author.display_name} size={isReply ? 24 : 28} />
+        </Link>
+      ) : (
+        <Avatar url={null} name="?" size={isReply ? 24 : 28} />
+      )}
+      <div className="min-w-0 flex-1">
+        <div className="rounded-2xl bg-secondary/50 px-3 py-2">
+          <div className="flex items-center gap-1.5">
+            {c.author ? (
+              <Link to="/u/$username" params={{ username: c.author.username }} className="truncate text-xs font-semibold text-foreground hover:underline">{c.author.display_name}</Link>
+            ) : (
+              <span className="truncate text-xs font-semibold text-foreground">Compte supprimé</span>
+            )}
+            {c.author && <BadgeList badges={c.author.badges ?? []} size={12} />}
+            <span className="text-[10px] text-muted-foreground">{timeAgo(c.created_at)}{c.edited_at ? " · modifié" : ""}</span>
+          </div>
+          {editing ? (
+            <div className="mt-1">
+              <textarea
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                rows={2}
+                className="w-full rounded-xl border border-border bg-background/60 p-2 text-xs text-foreground outline-none focus:border-primary"
+              />
+              <div className="mt-1 flex gap-2">
+                <button
+                  onClick={() => { onSave(draft.trim()); setEditing(false); }}
+                  disabled={saving || !draft.trim()}
+                  className="brand-gradient rounded-full px-3 py-1 text-[11px] font-semibold text-primary-foreground disabled:opacity-60"
+                >
+                  Enregistrer
+                </button>
+                <button
+                  onClick={() => { setDraft(c.content); setEditing(false); }}
+                  className="rounded-full border border-border px-3 py-1 text-[11px] font-semibold text-muted-foreground"
+                >
+                  Annuler
+                </button>
+              </div>
+            </div>
+          ) : (
+            <p className="whitespace-pre-line break-words text-xs text-foreground"><RichText text={c.content} /></p>
+          )}
+        </div>
+        <div className="mt-1 flex items-center gap-4 px-2 text-[11px] text-muted-foreground">
+          <button onClick={onLike} className={`flex items-center gap-1 transition-colors ${c.likedByMe ? "text-like" : "hover:text-like"}`}>
+            <Heart className="h-3.5 w-3.5" fill={c.likedByMe ? "currentColor" : "none"} />
+            {c.likeCount > 0 ? c.likeCount : "J'aime"}
+          </button>
+          <button onClick={onReply} className="font-semibold hover:text-primary">Répondre</button>
+          {isMine && !editing && (
+            <button onClick={() => setEditing(true)} aria-label="Modifier le commentaire" className="hover:text-primary"><Pencil className="h-3 w-3" /></button>
+          )}
+          {canDelete && (
+            <button onClick={onDelete} aria-label="Supprimer le commentaire" className="hover:text-destructive"><Trash2 className="h-3 w-3" /></button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /**
  * `detail` = page d'une publication : texte en entier, commentaires affichés en bas.
  * Dans le fil, un appui sur la publication (hors boutons, liens et vidéo) l'ouvre.
@@ -63,6 +149,8 @@ export function PostCard({ post, detail = false }: { post: FeedPost; detail?: bo
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(post.content);
   const [commentText, setCommentText] = useState("");
+  const [replyTo, setReplyTo] = useState<{ id: string; username: string } | null>(null);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   const isMine = user?.id === post.author_id;
   const author = post.author;
@@ -131,13 +219,39 @@ export function PostCard({ post, detail = false }: { post: FeedPost; detail?: bo
   });
 
   const commentMutation = useMutation({
-    mutationFn: () => addComment(post.id, commentText.trim()),
-    onSuccess: () => {
+    mutationFn: () => addComment(post.id, commentText.trim(), replyTo?.id ?? null),
+    onSuccess: (created) => {
       setCommentText("");
+      if (created.parentId) setExpanded((prev) => new Set(prev).add(created.parentId!));
+      setReplyTo(null);
       invalidate();
     },
     onError: (e: Error) => toast.error(e.message),
   });
+
+  const likeCommentMutation = useMutation({
+    mutationFn: (id: string) => toggleCommentLike(id),
+    onSuccess: invalidate,
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const editCommentMutation = useMutation({
+    mutationFn: (v: { id: string; text: string }) => updateComment(v.id, v.text),
+    onSuccess: () => {
+      invalidate();
+      toast.success("Commentaire modifié");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  function startReply(c: CommentRow) {
+    if (!requireAuth()) return;
+    const username = c.author?.username;
+    // Les réponses sont toujours rattachées au commentaire racine ; on mentionne la personne à qui l'on répond
+    setReplyTo({ id: c.id, username: username ?? "" });
+    setCommentText(username ? `@${username} ` : "");
+    commentInputRef.current?.focus();
+  }
 
   const deleteCommentMutation = useMutation({
     mutationFn: (id: string) => deleteComment(id),
@@ -328,39 +442,52 @@ export function PostCard({ post, detail = false }: { post: FeedPost; detail?: bo
             <div className="mt-3 space-y-3 border-t border-border pt-3">
               {commentsQuery.isLoading && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
               {commentsQuery.data?.length === 0 && <p className="text-xs text-muted-foreground">Aucun commentaire pour l'instant.</p>}
-              {commentsQuery.data?.map((c) => (
-                <div key={c.id} className="flex items-start gap-2">
-                  {c.author ? (
-                    <Link to="/u/$username" params={{ username: c.author.username }} aria-label={`Profil de ${c.author.display_name}`}>
-                      <Avatar url={c.author.avatar_url} name={c.author.display_name} size={28} />
-                    </Link>
-                  ) : (
-                    <Avatar url={null} name="?" size={28} />
-                  )}
-                  <div className="min-w-0 flex-1 rounded-2xl bg-secondary/50 px-3 py-2">
-                    <div className="flex items-center gap-1.5">
-                      {c.author ? (
-                        <Link to="/u/$username" params={{ username: c.author.username }} className="truncate text-xs font-semibold text-foreground hover:underline">{c.author.display_name}</Link>
-                      ) : (
-                        <span className="truncate text-xs font-semibold text-foreground">Compte supprimé</span>
+              {(() => {
+                const all = commentsQuery.data ?? [];
+                const roots = all.filter((c) => !c.parentId);
+                const repliesOf = (id: string) => all.filter((c) => c.parentId === id);
+                const renderItem = (c: CommentRow, isReply: boolean) => (
+                  <CommentItem
+                    key={c.id}
+                    c={c}
+                    isReply={isReply}
+                    isMine={user?.id === c.author_id}
+                    canDelete={user?.id === c.author_id || isMine || isStaff}
+                    onReply={() => startReply(c)}
+                    onLike={() => requireAuth() && likeCommentMutation.mutate(c.id)}
+                    onDelete={() => deleteCommentMutation.mutate(c.id)}
+                    onSave={(text) => editCommentMutation.mutate({ id: c.id, text })}
+                    saving={editCommentMutation.isPending}
+                  />
+                );
+                return roots.map((c) => {
+                  const replies = repliesOf(c.id);
+                  const open = expanded.has(c.id);
+                  return (
+                    <div key={c.id} className="space-y-2">
+                      {renderItem(c, false)}
+                      {replies.length > 0 && (
+                        <div className="ml-9 space-y-2">
+                          <button
+                            onClick={() => setExpanded((prev) => { const n = new Set(prev); if (n.has(c.id)) n.delete(c.id); else n.add(c.id); return n; })}
+                            className="text-[11px] font-semibold text-muted-foreground hover:text-primary"
+                          >
+                            {open ? "Masquer les réponses" : `Voir ${replies.length} réponse${replies.length > 1 ? "s" : ""}`}
+                          </button>
+                          {open && replies.map((r) => renderItem(r, true))}
+                        </div>
                       )}
-                      {c.author && <BadgeList badges={c.author.badges ?? []} size={12} />}
-                      <span className="text-[10px] text-muted-foreground">{timeAgo(c.created_at)}</span>
                     </div>
-                    <p className="whitespace-pre-line text-xs text-foreground"><RichText text={c.content} /></p>
-                  </div>
-                  {(user?.id === c.author_id || isMine || isStaff) && (
-                    <button
-                      aria-label="Supprimer le commentaire"
-                      onClick={() => deleteCommentMutation.mutate(c.id)}
-                      className="p-1 text-muted-foreground hover:text-destructive"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
-                  )}
-                </div>
-              ))}
+                  );
+                });
+              })()}
 
+              {user && replyTo && (
+                <div className="flex items-center justify-between rounded-xl bg-secondary/50 px-3 py-1.5 text-[11px] text-muted-foreground">
+                  <span>Réponse à {replyTo.username ? `@${replyTo.username}` : "un commentaire"}</span>
+                  <button aria-label="Annuler la réponse" onClick={() => { setReplyTo(null); setCommentText(""); }} className="p-0.5 hover:text-foreground"><X className="h-3.5 w-3.5" /></button>
+                </div>
+              )}
               {user ? (
                 <form
                   onSubmit={(e) => {
@@ -373,7 +500,7 @@ export function PostCard({ post, detail = false }: { post: FeedPost; detail?: bo
                     ref={commentInputRef}
                     value={commentText}
                     onChange={(e) => setCommentText(e.target.value)}
-                    placeholder="Poste ta réponse…"
+                    placeholder={replyTo ? "Écris ta réponse…" : "Poste ta réponse…"}
                     className="flex-1 rounded-full border border-border bg-secondary/40 px-4 py-2 text-xs text-foreground outline-none focus:border-primary"
                   />
                   <button

@@ -1,5 +1,5 @@
-import { Plus, Trash2, X, Eye } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Plus, Trash2, X, Eye, Volume2, VolumeX } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -22,16 +22,37 @@ function StoryViewer({ group, onClose }: { group: StoryGroup; onClose: () => voi
   const { user } = useAuth();
   const qc = useQueryClient();
   const [i, setI] = useState(0);
+  const [muted, setMuted] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [videoSeconds, setVideoSeconds] = useState<number | null>(null);
   const s = group.stories[i];
+  const isVideo = !!s?.image_url && s.media_type === "video";
   const mine = user?.id === group.author.id;
   const views = useQuery({ queryKey: ["storyViews", s?.id], queryFn: () => storyViewCount(s!.id), enabled: mine && !!s });
 
   useEffect(() => {
     if (!s || !user) return;
     if (!mine && !s.seen) void markStoryViewed(s.id);
+    setVideoSeconds(null);
+    if (isVideo) return; // la vidéo passe à la suite toute seule quand elle se termine (onEnded)
     const t = setTimeout(() => (i < group.stories.length - 1 ? setI(i + 1) : onClose()), 6000);
     return () => clearTimeout(t);
-  }, [s, i, user, mine, group.stories.length, onClose]);
+  }, [s, i, user, mine, group.stories.length, onClose, isVideo]);
+
+  // Démarre avec le son ; si le navigateur refuse (autoplay), on repasse en muet et le bouton permet de réactiver
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v || !isVideo) return;
+    v.muted = muted;
+    const p = v.play();
+    if (p) p.catch(() => { v.muted = true; setMuted(true); void v.play().catch(() => undefined); });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [i, isVideo]);
+
+  function nextStory() {
+    if (i < group.stories.length - 1) setI(i + 1);
+    else onClose();
+  }
 
   const del = useMutation({
     mutationFn: () => deleteStory(s!.id),
@@ -46,7 +67,10 @@ function StoryViewer({ group, onClose }: { group: StoryGroup; onClose: () => voi
         <div className="absolute inset-x-3 top-3 z-10 flex gap-1">
           {group.stories.map((x, k) => (
             <span key={x.id} className="h-0.5 flex-1 overflow-hidden rounded-full bg-muted">
-              <span className={`block h-full bg-foreground ${k < i ? "w-full" : k === i ? "animate-[grow_6s_linear_forwards] w-0" : "w-0"}`} />
+              <span
+                className={`block h-full bg-foreground ${k < i ? "w-full" : k === i ? "w-0" : "w-0"}`}
+                style={k === i && (!isVideo || videoSeconds) ? { animation: `grow ${isVideo ? Math.min(videoSeconds!, 60) : 6}s linear forwards` } : undefined}
+              />
             </span>
           ))}
         </div>
@@ -56,6 +80,15 @@ function StoryViewer({ group, onClose }: { group: StoryGroup; onClose: () => voi
           <BadgeList badges={group.author.badges} size={14} />
           <span className="text-xs text-muted-foreground">{timeAgo(s.created_at)}</span>
           <span className="flex-1" />
+          {isVideo && (
+            <button
+              aria-label={muted ? "Activer le son" : "Couper le son"}
+              onClick={() => { const v = videoRef.current; const next = !muted; setMuted(next); if (v) v.muted = next; }}
+              className="p-1.5 text-foreground"
+            >
+              {muted ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}
+            </button>
+          )}
           {mine && (
             <>
               <span className="flex items-center gap-1 text-xs text-muted-foreground"><Eye className="h-4 w-4" />{views.data ?? 0}</span>
@@ -68,7 +101,16 @@ function StoryViewer({ group, onClose }: { group: StoryGroup; onClose: () => voi
           {s.image_url ? (
             <div className="relative w-full">
               {s.media_type === "video" ? (
-                <video src={s.image_url} autoPlay muted playsInline loop className="max-h-[85vh] w-full object-contain" />
+                <video
+                  key={s.id}
+                  ref={videoRef}
+                  src={s.image_url}
+                  autoPlay
+                  playsInline
+                  onLoadedMetadata={(e) => setVideoSeconds(e.currentTarget.duration || 6)}
+                  onEnded={nextStory}
+                  className="max-h-[85vh] w-full object-contain"
+                />
               ) : (
                 <img src={s.image_url} alt="Story" className="max-h-[85vh] w-full object-contain" />
               )}

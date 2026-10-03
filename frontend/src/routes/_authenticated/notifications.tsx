@@ -47,8 +47,8 @@ const TABS: { id: Tab; label: string; types: string[] }[] = [
   { id: "all", label: "Tout", types: [] },
   { id: "requests", label: "Demandes", types: ["follow_request"] },
   { id: "mentions", label: "Mentions", types: ["mention"] },
-  { id: "likes", label: "J'aime", types: ["like"] },
-  { id: "comments", label: "Commentaires", types: ["comment"] },
+  { id: "likes", label: "J'aime", types: ["like", "comment_like"] },
+  { id: "comments", label: "Commentaires", types: ["comment", "reply"] },
 ];
 
 const EMPTY: Record<Tab, string> = {
@@ -63,6 +63,8 @@ function textFor(n: RawNotif): string {
   switch (n.type) {
     case "like": return "a aimé ta publication";
     case "comment": return "a commenté ta publication";
+    case "reply": return "a répondu à ton commentaire";
+    case "comment_like": return "a aimé ton commentaire";
     case "share": return "a repartagé ta publication";
     case "mention": return n.body === "comment" ? "t'a mentionné dans un commentaire" : "t'a mentionné dans une publication";
     case "follow_request": return "t'a envoyé une demande d'abonnement";
@@ -199,7 +201,7 @@ function NotificationsPage() {
                   <span className="mx-1 inline-flex align-middle"><BadgeList badges={toBadges(n.actor_id, n.actor_badge, n.actor_role)} size={14} /></span>
                   {(n.type === "message" || n.type === "group_add") && n.conversation_id ? (
                     <Link to="/messages/$id" params={{ id: n.conversation_id }} className="text-muted-foreground hover:underline">{textFor(n)}</Link>
-                  ) : n.post_id && ["like", "comment", "share", "mention"].includes(n.type) ? (
+                  ) : n.post_id && ["like", "comment", "reply", "comment_like", "share", "mention"].includes(n.type) ? (
                     <Link to="/post/$id" params={{ id: n.post_id }} className="text-muted-foreground hover:underline">{textFor(n)}</Link>
                   ) : (
                     <span className="text-muted-foreground">{textFor(n)}</span>

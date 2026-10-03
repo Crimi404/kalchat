@@ -102,41 +102,102 @@ router.get('/bookmarks', async (req, res) => {
   res.json(rows);
 });
 
+// ---------- Hashtags tendance (7 derniers jours) ----------
+router.get('/hashtags/trending', async (req, res) => {
+  const rows = await db
+    .prepare(
+      `SELECT LOWER(m[2]) AS tag, COUNT(DISTINCT p.id) AS count
+       FROM posts p, regexp_matches(p.content, '(^|[^[:alnum:]_#])#([[:alpha:]0-9_]{2,50})', 'g') AS m
+       WHERE p.content IS NOT NULL AND p.created_at > NOW() - INTERVAL '7 days'
+       GROUP BY 1 ORDER BY count DESC, tag ASC LIMIT 10`
+    )
+    .all();
+  res.json(rows);
+});
+
 // ---------- Commentaires ----------
+const COMMENT_SELECT = `SELECT c.id, c.content, c.created_at, c.edited_at, c.parent_id, u.id AS user_id, u.username, u.avatar_url, u.badge, u.role, u.first_name, u.last_name,
+              (SELECT COUNT(*) FROM comment_likes cl WHERE cl.comment_id = c.id) AS like_count,
+              EXISTS(SELECT 1 FROM comment_likes cl WHERE cl.comment_id = c.id AND cl.user_id = ?) AS liked_by_me
+       FROM post_comments c JOIN users u ON u.id = c.user_id`;
+
 router.get('/:id/comments', async (req, res) => {
   const comments = await db
-    .prepare(
-      `SELECT c.id, c.content, c.created_at, u.id AS user_id, u.username, u.avatar_url, u.badge, u.role, u.first_name, u.last_name
-       FROM post_comments c JOIN users u ON u.id = c.user_id
-       WHERE c.post_id = ? ORDER BY c.created_at ASC`
-    )
-    .all(req.params.id);
+    .prepare(`${COMMENT_SELECT} WHERE c.post_id = ? ORDER BY c.created_at ASC`)
+    .all(req.user.id, req.params.id);
   res.json(comments);
 });
 
 router.post('/:id/comments', async (req, res) => {
-  const { content } = req.body;
+  const { content, parent_id } = req.body;
   if (!content || !content.trim()) return res.status(400).json({ error: 'Commentaire vide' });
 
   const post = await db.prepare('SELECT id, user_id FROM posts WHERE id = ?').get(req.params.id);
   if (!post) return res.status(404).json({ error: 'Publication introuvable' });
 
+  // Réponse à un commentaire : on rattache toujours à un commentaire « racine » (un seul niveau, comme Instagram)
+  let rootId = null;
+  let repliedTo = null;
+  if (parent_id) {
+    const parent = await db.prepare('SELECT id, user_id, post_id, parent_id FROM post_comments WHERE id = ?').get(parent_id);
+    if (!parent || parent.post_id !== post.id) return res.status(404).json({ error: 'Commentaire introuvable' });
+    rootId = parent.parent_id || parent.id;
+    repliedTo = parent;
+  }
+
   const id = uuid();
   await db
-    .prepare('INSERT INTO post_comments (id, post_id, user_id, content) VALUES (?, ?, ?, ?)')
-    .run(id, req.params.id, req.user.id, content.trim());
+    .prepare('INSERT INTO post_comments (id, post_id, user_id, content, parent_id) VALUES (?, ?, ?, ?, ?)')
+    .run(id, req.params.id, req.user.id, content.trim(), rootId);
 
-  await notify(req.app.get('io'), { user_id: post.user_id, actor_id: req.user.id, type: 'comment', post_id: post.id });
-  // Les personnes mentionnées sont prévenues (le propriétaire du post l'est déjà par la notification ci-dessus)
-  await notifyMentions(req.app.get('io'), { text: content, actorId: req.user.id, postId: post.id, where: 'comment', skipUserIds: [post.user_id] });
+  const io = req.app.get('io');
+  const skip = [post.user_id];
+  if (repliedTo) {
+    // La personne à qui on répond est prévenue d'une réponse ; le propriétaire du post l'est aussi (sauf si c'est la même personne)
+    await notify(io, { user_id: repliedTo.user_id, actor_id: req.user.id, type: 'reply', post_id: post.id });
+    skip.push(repliedTo.user_id);
+    if (post.user_id !== repliedTo.user_id) {
+      await notify(io, { user_id: post.user_id, actor_id: req.user.id, type: 'comment', post_id: post.id });
+    }
+  } else {
+    await notify(io, { user_id: post.user_id, actor_id: req.user.id, type: 'comment', post_id: post.id });
+  }
+  // Les personnes mentionnées sont prévenues (sauf celles déjà notifiées ci-dessus)
+  await notifyMentions(io, { text: content, actorId: req.user.id, postId: post.id, where: 'comment', skipUserIds: skip });
 
-  const comment = await db
-    .prepare(
-      `SELECT c.id, c.content, c.created_at, u.id AS user_id, u.username, u.avatar_url, u.badge, u.role, u.first_name, u.last_name
-       FROM post_comments c JOIN users u ON u.id = c.user_id WHERE c.id = ?`
-    )
-    .get(id);
+  const comment = await db.prepare(`${COMMENT_SELECT} WHERE c.id = ?`).get(req.user.id, id);
   res.status(201).json(comment);
+});
+
+// ---------- Aimer / ne plus aimer un commentaire ----------
+router.post('/comments/:commentId/like', async (req, res) => {
+  const c = await db.prepare('SELECT id, user_id, post_id FROM post_comments WHERE id = ?').get(req.params.commentId);
+  if (!c) return res.status(404).json({ error: 'Commentaire introuvable' });
+
+  const already = await db
+    .prepare('SELECT 1 FROM comment_likes WHERE comment_id = ? AND user_id = ?')
+    .get(c.id, req.user.id);
+
+  if (already) {
+    await db.prepare('DELETE FROM comment_likes WHERE comment_id = ? AND user_id = ?').run(c.id, req.user.id);
+  } else {
+    await db.prepare('INSERT INTO comment_likes (comment_id, user_id) VALUES (?, ?)').run(c.id, req.user.id);
+    await notify(req.app.get('io'), { user_id: c.user_id, actor_id: req.user.id, type: 'comment_like', post_id: c.post_id });
+  }
+
+  const countRow = await db.prepare('SELECT COUNT(*) AS n FROM comment_likes WHERE comment_id = ?').get(c.id);
+  res.json({ liked: !already, like_count: countRow.n });
+});
+
+// ---------- Modifier son propre commentaire ----------
+router.patch('/comments/:commentId', async (req, res) => {
+  const c = await db.prepare('SELECT id, user_id FROM post_comments WHERE id = ?').get(req.params.commentId);
+  if (!c) return res.status(404).json({ error: 'Commentaire introuvable' });
+  if (c.user_id !== req.user.id) return res.status(403).json({ error: 'Non autorisé' });
+  const content = (req.body.content || '').trim();
+  if (!content) return res.status(400).json({ error: 'Commentaire vide' });
+  await db.prepare('UPDATE post_comments SET content = ?, edited_at = NOW() WHERE id = ?').run(content, c.id);
+  res.json({ ok: true });
 });
 
 // ---------- Fil de publications (le plus récent en premier) ----------
@@ -153,8 +214,9 @@ router.get('/', async (req, res) => {
     extraParams.push(user_id);
   } else if (hashtag) {
     // Recherche insensible à la casse, délimitée par un mot pour éviter les faux positifs (#kalchat vs #kalchatting)
+    const safeTag = String(hashtag).replace(/^#/, '').replace(/[^\p{L}\p{N}_]/gu, '');
     conditions.push('p.content ~* ?');
-    extraParams.push(`(^|[^\\w#])#${hashtag}([^\\w]|$)`);
+    extraParams.push(`(^|[^\\w#])#${safeTag}([^\\w]|$)`);
   }
   const whereClause = `WHERE ${conditions.join(' AND ')}`;
 
