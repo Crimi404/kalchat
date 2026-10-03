@@ -243,7 +243,18 @@ router.get('/conversations/:id', async (req, res) => {
     )
     .all(req.params.id);
 
-  res.json({ ...conv, is_favorite: me.is_favorite, my_is_admin: me.is_admin, members, pinned });
+  // Discussion privée : a-t-on bloqué l'autre personne (ou l'inverse) ?
+  let blockedByMe = false;
+  let blockedMe = false;
+  if (!conv.is_group) {
+    const peer = members.find((m) => m.id !== req.user.id);
+    if (peer) {
+      blockedByMe = !!(await db.prepare('SELECT 1 FROM user_blocks WHERE blocker_id = ? AND blocked_id = ?').get(req.user.id, peer.id));
+      blockedMe = !!(await db.prepare('SELECT 1 FROM user_blocks WHERE blocker_id = ? AND blocked_id = ?').get(peer.id, req.user.id));
+    }
+  }
+
+  res.json({ ...conv, is_favorite: me.is_favorite, my_is_admin: me.is_admin, members, pinned, blocked_by_me: blockedByMe, blocked_me: blockedMe });
 });
 
 // ---------- Modifier le nom / la photo d'un groupe (administrateurs du groupe) ----------

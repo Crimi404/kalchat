@@ -1,10 +1,13 @@
-import { Heart, MessageCircle, Repeat2, Bookmark, MoreHorizontal, Trash2, Pencil, Loader2, Send, X } from "lucide-react";
+import { Heart, MessageCircle, Repeat2, Bookmark, MoreHorizontal, Trash2, Pencil, Loader2, Send, X, EyeOff, Flag, Ban } from "lucide-react";
 import { useRef, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { RichText } from "@/components/RichText";
 import { BadgeList } from "@/components/KalBadge";
+import { ReportSheet } from "@/components/ReportSheet";
+import { hidePost, unhidePost, type ReportTarget } from "@/lib/reports";
+import { blockUser } from "@/lib/settings";
 import { useAuth } from "@/lib/auth";
 import {
   addComment,
@@ -54,7 +57,7 @@ function Avatar({ url, name, size = 44 }: { url: string | null | undefined; name
 
 /** Un commentaire (ou une réponse) : j'aime, répondre, modifier, supprimer. */
 function CommentItem({
-  c, isReply, canDelete, isMine, onReply, onLike, onDelete, onSave, saving,
+  c, isReply, canDelete, isMine, onReply, onLike, onDelete, onSave, onReport, saving,
 }: {
   c: CommentRow;
   isReply: boolean;
@@ -64,6 +67,8 @@ function CommentItem({
   onLike: () => void;
   onDelete: () => void;
   onSave: (text: string) => void;
+  /** Absent si le visiteur n'est pas connecté ou s'il s'agit de son propre commentaire. */
+  onReport?: () => void;
   saving: boolean;
 }) {
   const [editing, setEditing] = useState(false);
@@ -126,6 +131,9 @@ function CommentItem({
           {isMine && !editing && (
             <button onClick={() => setEditing(true)} aria-label="Modifier le commentaire" className="hover:text-primary"><Pencil className="h-3 w-3" /></button>
           )}
+          {onReport && (
+            <button onClick={onReport} aria-label="Signaler le commentaire" className="hover:text-destructive"><Flag className="h-3 w-3" /></button>
+          )}
           {canDelete && (
             <button onClick={onDelete} aria-label="Supprimer le commentaire" className="hover:text-destructive"><Trash2 className="h-3 w-3" /></button>
           )}
@@ -146,6 +154,7 @@ export function PostCard({ post, detail = false }: { post: FeedPost; detail?: bo
   const showComments = detail;
   const commentInputRef = useRef<HTMLInputElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [reporting, setReporting] = useState<{ type: ReportTarget; id: string } | null>(null);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(post.content);
   const [commentText, setCommentText] = useState("");
@@ -208,6 +217,33 @@ export function PostCard({ post, detail = false }: { post: FeedPost; detail?: bo
       setEditing(false);
       invalidate();
       toast.success("Publication modifiée");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const hideMutation = useMutation({
+    mutationFn: () => hidePost(post.id),
+    onSuccess: () => {
+      invalidate();
+      toast("Publication masquée", {
+        action: {
+          label: "Annuler",
+          onClick: () => void unhidePost(post.id).then(invalidate).catch((e: Error) => toast.error(e.message)),
+        },
+      });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const blockMutation = useMutation({
+    mutationFn: () => blockUser(author!.username),
+    onSuccess: () => {
+      invalidate();
+      toast.success(`@${author!.username} est bloqué`);
+      if (detail) {
+        if (window.history.length > 1) window.history.back();
+        else navigate({ to: "/" });
+      }
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -295,7 +331,7 @@ export function PostCard({ post, detail = false }: { post: FeedPost; detail?: bo
               </span>
             </div>
 
-            {(isMine || isStaff) && (
+            {user && (
               <div className="relative">
                 <button aria-label="Options" onClick={() => setMenuOpen((v) => !v)} className="rounded-full p-1 text-muted-foreground hover:bg-secondary">
                   <MoreHorizontal className="h-4 w-4" />
@@ -303,7 +339,7 @@ export function PostCard({ post, detail = false }: { post: FeedPost; detail?: bo
                 {menuOpen && (
                   <>
                     <button aria-label="Fermer" className="fixed inset-0 z-40 cursor-default" onClick={() => setMenuOpen(false)} />
-                    <div className="absolute right-0 z-50 mt-1 w-44 overflow-hidden rounded-xl border border-border bg-card shadow-xl">
+                    <div className="absolute right-0 z-50 mt-1 w-60 overflow-hidden rounded-xl border border-border bg-card shadow-xl">
                       {isMine && (
                         <button
                           onClick={() => {
@@ -315,15 +351,50 @@ export function PostCard({ post, detail = false }: { post: FeedPost; detail?: bo
                           <Pencil className="h-4 w-4" /> Modifier
                         </button>
                       )}
-                      <button
-                        onClick={() => {
-                          setMenuOpen(false);
-                          deleteMutation.mutate();
-                        }}
-                        className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-destructive hover:bg-secondary"
-                      >
-                        <Trash2 className="h-4 w-4" /> Supprimer
-                      </button>
+                      {!isMine && !detail && (
+                        <button
+                          onClick={() => {
+                            setMenuOpen(false);
+                            hideMutation.mutate();
+                          }}
+                          className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-foreground hover:bg-secondary"
+                        >
+                          <EyeOff className="h-4 w-4" /> Masquer cette publication
+                        </button>
+                      )}
+                      {!isMine && (
+                        <button
+                          onClick={() => {
+                            setMenuOpen(false);
+                            setReporting({ type: "post", id: post.id });
+                          }}
+                          className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-foreground hover:bg-secondary"
+                        >
+                          <Flag className="h-4 w-4" /> Signaler la publication
+                        </button>
+                      )}
+                      {!isMine && author && (
+                        <button
+                          onClick={() => {
+                            setMenuOpen(false);
+                            if (window.confirm(`Bloquer @${author.username} ? Cette personne ne pourra plus te suivre, t'écrire ni te notifier, et vous ne verrez plus vos publications.`)) blockMutation.mutate();
+                          }}
+                          className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-destructive hover:bg-secondary"
+                        >
+                          <Ban className="h-4 w-4" /> Bloquer @{author.username}
+                        </button>
+                      )}
+                      {(isMine || isStaff) && (
+                        <button
+                          onClick={() => {
+                            setMenuOpen(false);
+                            deleteMutation.mutate();
+                          }}
+                          className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-destructive hover:bg-secondary"
+                        >
+                          <Trash2 className="h-4 w-4" /> {isMine ? "Supprimer" : "Supprimer (modération)"}
+                        </button>
+                      )}
                     </div>
                   </>
                 )}
@@ -457,6 +528,7 @@ export function PostCard({ post, detail = false }: { post: FeedPost; detail?: bo
                     onLike={() => requireAuth() && likeCommentMutation.mutate(c.id)}
                     onDelete={() => deleteCommentMutation.mutate(c.id)}
                     onSave={(text) => editCommentMutation.mutate({ id: c.id, text })}
+                    onReport={user && user.id !== c.author_id ? () => setReporting({ type: "comment", id: c.id }) : undefined}
                     saving={editCommentMutation.isPending}
                   />
                 );
@@ -521,6 +593,7 @@ export function PostCard({ post, detail = false }: { post: FeedPost; detail?: bo
           )}
         </div>
       </div>
+      {reporting && <ReportSheet type={reporting.type} targetId={reporting.id} onClose={() => setReporting(null)} />}
     </article>
   );
 }

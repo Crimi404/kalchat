@@ -78,6 +78,19 @@ router.post('/:id/bookmark', async (req, res) => {
   res.json({ bookmarked: !already });
 });
 
+// ---------- Masquer une publication de mon fil (« Cela ne m'intéresse pas ») ----------
+router.post('/:id/hide', async (req, res) => {
+  const post = await db.prepare('SELECT id FROM posts WHERE id = ?').get(req.params.id);
+  if (!post) return res.status(404).json({ error: 'Publication introuvable' });
+  await db.prepare('INSERT INTO post_hidden (user_id, post_id) VALUES (?, ?) ON CONFLICT DO NOTHING').run(req.user.id, post.id);
+  res.json({ hidden: true });
+});
+
+router.delete('/:id/hide', async (req, res) => {
+  await db.prepare('DELETE FROM post_hidden WHERE user_id = ? AND post_id = ?').run(req.user.id, req.params.id);
+  res.json({ hidden: false });
+});
+
 // ---------- Mes publications enregistrées (les plus récemment enregistrées en premier) ----------
 router.get('/bookmarks', async (req, res) => {
   const rows = await db
@@ -209,6 +222,11 @@ router.get('/', async (req, res) => {
     `NOT EXISTS (SELECT 1 FROM user_blocks ub WHERE (ub.blocker_id = ? AND ub.blocked_id = p.user_id) OR (ub.blocker_id = p.user_id AND ub.blocked_id = ?))`,
   ];
   const extraParams = [req.user.id, req.user.id];
+  // Les publications masquées disparaissent du fil et des hashtags (mais restent visibles sur le profil de leur auteur)
+  if (!user_id) {
+    conditions.push('NOT EXISTS (SELECT 1 FROM post_hidden ph WHERE ph.post_id = p.id AND ph.user_id = ?)');
+    extraParams.push(req.user.id);
+  }
   if (user_id) {
     conditions.push('p.user_id = ?');
     extraParams.push(user_id);

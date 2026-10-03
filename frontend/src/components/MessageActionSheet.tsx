@@ -1,4 +1,4 @@
-import { Copy, Pencil, Pin, PinOff, Reply, Trash2, X } from "lucide-react";
+import { Copy, Flag, Pencil, Pin, PinOff, Reply, Trash2, X } from "lucide-react";
 import type { ReactNode } from "react";
 
 export interface MessageAction {
@@ -42,4 +42,5 @@ export const ActionIcons = {
   unpin: <PinOff className="h-5 w-5" />,
   edit: <Pencil className="h-5 w-5" />,
   delete: <Trash2 className="h-5 w-5" />,
+  report: <Flag className="h-5 w-5" />,
 };

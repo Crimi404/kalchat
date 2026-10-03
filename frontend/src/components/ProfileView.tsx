@@ -1,10 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Ban, Bookmark, CalendarDays, Grid3x3, Loader2, MapPin, Pencil, Settings } from "lucide-react";
+import { Ban, Bookmark, CalendarDays, Flag, Grid3x3, Loader2, MapPin, Pencil, Settings } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { blockUser, unblockUser } from "@/lib/settings";
 import { BadgeList } from "@/components/KalBadge";
 import { PostCard } from "@/components/PostCard";
+import { ReportSheet } from "@/components/ReportSheet";
 import { useAuth } from "@/lib/auth";
 import { uploadMedia } from "@/lib/media";
 import { getOrCreateConversation } from "@/lib/chat";
@@ -55,6 +56,7 @@ export function ProfileView({ username }: { username: string }) {
   const [editing, setEditing] = useState(false);
   const [list, setList] = useState<"followers" | "following" | null>(null);
   const [tab, setTab] = useState<"posts" | "saved">("posts");
+  const [reportOpen, setReportOpen] = useState(false);
 
   const profileQ = useQuery({ queryKey: ["profile", username], queryFn: () => fetchProfileByUsername(username) });
   const p = profileQ.data;
@@ -97,6 +99,7 @@ export function ProfileView({ username }: { username: string }) {
 
   return (
     <div>
+      {reportOpen && <ReportSheet type="user" targetId={p.id} onClose={() => setReportOpen(false)} />}
       <div className="relative h-36 bg-secondary">
         {p.cover_url ? <img src={p.cover_url} alt="Couverture" className="h-full w-full object-cover" /> : <div className="brand-gradient h-full w-full opacity-40" />}
         <div className="absolute inset-0 bg-gradient-to-t from-background to-transparent" />
@@ -139,6 +142,13 @@ export function ProfileView({ username }: { username: string }) {
                   className="rounded-full border border-border bg-card p-2 text-muted-foreground hover:bg-secondary hover:text-destructive disabled:opacity-60"
                 >
                   <Ban className="h-4 w-4" />
+                </button>
+                <button
+                  aria-label={`Signaler @${p.username}`}
+                  onClick={() => setReportOpen(true)}
+                  className="rounded-full border border-border bg-card p-2 text-muted-foreground hover:bg-secondary hover:text-destructive"
+                >
+                  <Flag className="h-4 w-4" />
                 </button>
                 {p.canMessage && (
                   <button

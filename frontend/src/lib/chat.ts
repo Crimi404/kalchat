@@ -202,6 +202,10 @@ export interface ConversationDetail {
   members: GroupMember[];
   /** Pour une discussion privée : l'autre personne. */
   other: MiniProfile | null;
+  /** Discussion privée : j'ai bloqué l'autre personne. */
+  blockedByMe: boolean;
+  /** Discussion privée : l'autre personne m'a bloqué. */
+  blockedMe: boolean;
 }
 
 interface RawDetail {
@@ -213,6 +217,8 @@ interface RawDetail {
   my_is_admin: number | boolean;
   ephemeral_seconds?: number;
   pinned?: { id: string; content: string | null; media_type: string | null; sender_name: string }[];
+  blocked_by_me?: boolean;
+  blocked_me?: boolean;
   members: (RawUser & { id: string; avatar_url: string | null; is_admin: number | boolean })[];
 }
 
@@ -239,6 +245,8 @@ export async function fetchConversationDetail(id: string, myId?: string | null):
     pinned: (d.pinned ?? []).map((p) => ({ id: p.id, text: messageSnippet(p.content, p.media_type), senderName: p.sender_name })),
     members,
     other,
+    blockedByMe: !!d.blocked_by_me,
+    blockedMe: !!d.blocked_me,
   };
 }
 

@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Check, CheckCheck, ImagePlus, Loader2, Mic, MoreVertical, Pencil, Pin, Reply, Send, Star, Timer, Trash2, Users, X } from "lucide-react";
+import { ArrowLeft, Check, CheckCheck, ImagePlus, Loader2, Mic, Ban, Flag, MoreVertical, Pencil, Pin, Reply, Send, Star, Timer, Trash2, Users, X } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
 import { useOnline } from "@/lib/presence";
@@ -9,6 +9,9 @@ import { BadgeList } from "@/components/KalBadge";
 import { GroupInfoSheet } from "@/components/GroupInfoSheet";
 import { MiniAvatar } from "@/components/MiniAvatar";
 import { EphemeralSheet } from "@/components/EphemeralSheet";
+import { ReportSheet } from "@/components/ReportSheet";
+import { blockUser, unblockUser } from "@/lib/settings";
+import type { ReportTarget } from "@/lib/reports";
 import { VoiceBubble } from "@/components/VoiceBubble";
 import { SwipeableMessage } from "@/components/SwipeableMessage";
 import { ActionIcons, MessageActionSheet, type MessageAction } from "@/components/MessageActionSheet";
@@ -44,6 +47,7 @@ function ChatPage() {
   const [replyTo, setReplyTo] = useState<MessageRow | null>(null);
   const [editing, setEditing] = useState<MessageRow | null>(null);
   const [actionMsg, setActionMsg] = useState<MessageRow | null>(null);
+  const [reporting, setReporting] = useState<{ type: ReportTarget; id: string } | null>(null);
   const [highlightId, setHighlightId] = useState<string | null>(null);
   const [pinIdx, setPinIdx] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -64,6 +68,17 @@ function ChatPage() {
       void qc.invalidateQueries({ queryKey: ["conversation", id] });
       void qc.invalidateQueries({ queryKey: ["messages", id] });
       void qc.invalidateQueries({ queryKey: ["conversations"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const block = useMutation({
+    mutationFn: (unblock: boolean) => (unblock ? unblockUser(other!.username) : blockUser(other!.username)),
+    onSuccess: (_d, unblock) => {
+      toast.success(unblock ? "Compte débloqué" : `@${other!.username} est bloqué`);
+      void qc.invalidateQueries({ queryKey: ["conversation", id] });
+      void qc.invalidateQueries({ queryKey: ["conversations"] });
+      void qc.invalidateQueries({ queryKey: ["contacts"] });
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -212,6 +227,9 @@ function ChatPage() {
     list.push({ id: "pin", label: m.pinned ? "Désépingler" : "Épingler", icon: m.pinned ? ActionIcons.unpin : ActionIcons.pin, onSelect: () => pin.mutate(m.id) });
     const editable = mine && m.media_type !== "audio" && !m.media_type?.endsWith("_expired") && Date.now() - new Date(m.created_at).getTime() <= EDIT_WINDOW_MS;
     if (editable) list.push({ id: "edit", label: "Modifier", icon: ActionIcons.edit, onSelect: () => startEdit(m) });
+    if (!mine) {
+      list.push({ id: "report", label: "Signaler le message", icon: ActionIcons.report, danger: true, onSelect: () => setReporting({ type: "message", id: m.id }) });
+    }
     if (mine) {
       list.push({
         id: "delete",
@@ -271,6 +289,23 @@ function ChatPage() {
                   <Users className="h-4 w-4" /> Infos du groupe
                 </button>
               )}
+              {!isGroup && other && (
+                <>
+                  <button onClick={() => { setMenuOpen(false); setReporting({ type: "user", id: other.id }); }} className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-foreground hover:bg-secondary">
+                    <Flag className="h-4 w-4" /> Signaler @{other.username}
+                  </button>
+                  <button
+                    onClick={() => {
+                      setMenuOpen(false);
+                      if (detail.blockedByMe) block.mutate(true);
+                      else if (window.confirm(`Bloquer @${other.username} ? Cette personne ne pourra plus t'écrire ni te notifier, et vos abonnements seront supprimés.`)) block.mutate(false);
+                    }}
+                    className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-destructive hover:bg-secondary"
+                  >
+                    <Ban className="h-4 w-4" /> {detail.blockedByMe ? `Débloquer @${other.username}` : `Bloquer @${other.username}`}
+                  </button>
+                </>
+              )}
             </div>
           </>
         )}
@@ -293,6 +328,7 @@ function ChatPage() {
           </button>
         );
       })()}
+      {reporting && <ReportSheet type={reporting.type} targetId={reporting.id} onClose={() => setReporting(null)} />}
       {actionMsg && <MessageActionSheet preview={messageSnippet(actionMsg.body, actionMsg.media_type)} actions={actionsFor(actionMsg)} onClose={() => setActionMsg(null)} />}
       {ephOpen && <EphemeralSheet current={ephemeralSeconds} pending={ephemeral.isPending} onSelect={(s) => ephemeral.mutate(s)} onClose={() => setEphOpen(false)} />}
       {infoOpen && isGroup && <GroupInfoSheet detail={detail} myId={uid} onClose={() => setInfoOpen(false)} />}
@@ -347,7 +383,20 @@ function ChatPage() {
         <div ref={endRef} />
       </main>
 
-      {voice.recording ? (
+      {!isGroup && (detail.blockedByMe || detail.blockedMe) ? (
+        <div className="border-t border-border p-4 pb-[max(1rem,env(safe-area-inset-bottom))] text-center">
+          {detail.blockedByMe ? (
+            <>
+              <p className="text-xs text-muted-foreground">Tu as bloqué @{other!.username}. Vous ne pouvez plus vous écrire.</p>
+              <button disabled={block.isPending} onClick={() => block.mutate(true)} className="mt-2 rounded-full border border-border bg-card px-5 py-2 text-sm font-bold text-foreground hover:bg-secondary disabled:opacity-60">
+                Débloquer
+              </button>
+            </>
+          ) : (
+            <p className="text-xs text-muted-foreground">Tu ne peux plus envoyer de message à ce compte.</p>
+          )}
+        </div>
+      ) : voice.recording ? (
         <div className="flex items-center gap-2 border-t border-border p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
           <button type="button" onClick={voice.cancel} aria-label="Annuler l'enregistrement" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-border bg-card text-destructive hover:bg-secondary">
             <Trash2 className="h-5 w-5" />

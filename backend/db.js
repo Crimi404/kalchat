@@ -223,6 +223,33 @@ async function initSchema() {
     CREATE INDEX IF NOT EXISTS idx_comments_post ON post_comments(post_id, created_at);
   `);
 
+  // ---------- Masquage de publications et signalements ----------
+  await exec(`
+    CREATE TABLE IF NOT EXISTS post_hidden (
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      post_id TEXT NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (user_id, post_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS reports (
+      id TEXT PRIMARY KEY,
+      reporter_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      target_type TEXT NOT NULL,            -- 'post' | 'comment' | 'message' | 'user'
+      target_id TEXT NOT NULL,
+      target_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      reason TEXT NOT NULL,
+      details TEXT,
+      snapshot TEXT,                        -- copie du contenu signalé (il peut être supprimé ensuite)
+      status TEXT NOT NULL DEFAULT 'open',  -- 'open' | 'resolved' | 'dismissed'
+      handled_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+      handled_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_reports_status ON reports(status, created_at);
+    CREATE INDEX IF NOT EXISTS idx_reports_target ON reports(target_type, target_id);
+  `);
+
   // ---------- Badges à rangs : plus (bleu) < vip (rouge) < vip_plus (violet) < legend (doré) ----------
   // Conversion des anciens badges (gold / diamond / blue) vers les nouveaux rangs. Idempotent.
   await exec(`

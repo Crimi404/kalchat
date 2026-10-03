@@ -26,7 +26,7 @@ async function getTarget(id) {
 // ---------- Statistiques globales ----------
 router.get('/stats', async (req, res) => {
   const n = async (sql) => (await db.prepare(sql).get()).n;
-  const [users, messages, posts, comments, blocked, postPhotos, postVideos, storyPhotos, storyVideos] = await Promise.all([
+  const [users, messages, posts, comments, blocked, postPhotos, postVideos, storyPhotos, storyVideos, openReports] = await Promise.all([
     n("SELECT COUNT(*) AS n FROM users WHERE id != 'kalchat-ai'"),
     n('SELECT COUNT(*) AS n FROM messages'),
     n('SELECT COUNT(*) AS n FROM posts'),
@@ -36,6 +36,7 @@ router.get('/stats', async (req, res) => {
     n("SELECT COUNT(*) AS n FROM posts WHERE media_type = 'video'"),
     n("SELECT COUNT(*) AS n FROM stories WHERE media_type = 'image'"),
     n("SELECT COUNT(*) AS n FROM stories WHERE media_type = 'video'"),
+    n("SELECT COUNT(*) AS n FROM reports WHERE status = 'open'"),
   ]);
   res.json({
     users,
@@ -44,6 +45,7 @@ router.get('/stats', async (req, res) => {
     posts,
     comments,
     blocked,
+    open_reports: openReports,
     photos: postPhotos + storyPhotos,
     videos: postVideos + storyVideos,
   });
@@ -118,6 +120,47 @@ router.post('/users/:id/warn', async (req, res) => {
 
   await notify(req.app.get('io'), { user_id: target.id, actor_id: req.user.id, type: 'moderation', body: message });
   res.status(201).json({ ok: true });
+});
+
+// ---------- Signalements ----------
+// ?status=open (par défaut) ou ?status=closed (traités : résolus ou classés sans suite)
+router.get('/reports', async (req, res) => {
+  const closed = req.query.status === 'closed';
+  const rows = await db
+    .prepare(
+      `SELECT r.id, r.target_type, r.target_id, r.reason, r.details, r.snapshot, r.status, r.created_at, r.handled_at,
+              ru.username AS reporter_username,
+              tu.id AS target_user_id, tu.username AS target_username, tu.is_admin AS target_is_admin,
+              hu.username AS handled_by_username,
+              (SELECT COUNT(*) FROM reports r2 WHERE r2.target_type = r.target_type AND r2.target_id = r.target_id) AS report_count,
+              CASE WHEN r.target_type = 'post' THEN EXISTS(SELECT 1 FROM posts p WHERE p.id = r.target_id)
+                   WHEN r.target_type = 'comment' THEN EXISTS(SELECT 1 FROM post_comments c WHERE c.id = r.target_id)
+                   WHEN r.target_type = 'message' THEN EXISTS(SELECT 1 FROM messages m WHERE m.id = r.target_id)
+                   ELSE TRUE END AS target_exists,
+              (SELECT c.post_id FROM post_comments c WHERE r.target_type = 'comment' AND c.id = r.target_id) AS comment_post_id
+       FROM reports r
+       JOIN users ru ON ru.id = r.reporter_id
+       LEFT JOIN users tu ON tu.id = r.target_user_id
+       LEFT JOIN users hu ON hu.id = r.handled_by
+       WHERE r.status ${closed ? "!= 'open'" : "= 'open'"}
+       ORDER BY r.created_at ${closed ? 'DESC' : 'ASC'}
+       LIMIT 100`
+    )
+    .all();
+  res.json(rows.map((r) => ({ ...r, target_is_admin: !!r.target_is_admin, target_exists: !!r.target_exists })));
+});
+
+// ---------- Clôturer un signalement : « resolved » (mesure prise) ou « dismissed » (sans suite) ----------
+// Tous les signalements ouverts sur le même contenu sont clôturés ensemble.
+router.patch('/reports/:id', async (req, res) => {
+  const status = req.body.status;
+  if (!['resolved', 'dismissed'].includes(status)) return res.status(400).json({ error: 'Statut invalide' });
+  const report = await db.prepare('SELECT id, target_type, target_id FROM reports WHERE id = ?').get(req.params.id);
+  if (!report) return res.status(404).json({ error: 'Signalement introuvable' });
+  await db
+    .prepare("UPDATE reports SET status = ?, handled_by = ?, handled_at = NOW() WHERE target_type = ? AND target_id = ? AND status = 'open'")
+    .run(status, req.user.id, report.target_type, report.target_id);
+  res.json({ ok: true });
 });
 
 module.exports = router;
