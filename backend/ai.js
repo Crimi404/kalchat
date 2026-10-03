@@ -10,7 +10,7 @@ const { notify } = require('./notify');
  * Fonctionne avec n'importe quelle API compatible OpenAI (Groq, Gemini, OpenRouter, etc.) :
  *   AI_API_KEY  (obligatoire)
  *   AI_API_URL  (défaut : Groq)
- *   AI_MODEL    (défaut : llama-3.3-70b-versatile)
+ *   AI_MODEL    (défaut : openai/gpt-oss-120b ; si indisponible, on essaie automatiquement les modèles de secours)
  */
 const BOT_ID = 'kalchat-ai';
 const BOT_FIRST_NAME = 'Kora';
@@ -19,7 +19,9 @@ const BOT_AVATAR = '/kora.png';
 const BOT_STATUS = 'Ton assistant intelligent sur Kalchat';
 
 const API_URL = process.env.AI_API_URL || 'https://api.groq.com/openai/v1/chat/completions';
-const MODEL = process.env.AI_MODEL || 'llama-3.3-70b-versatile';
+// Modèles essayés dans l'ordre : si l'un est refusé (introuvable / non autorisé), on passe au suivant.
+const MODELS = [...new Set([process.env.AI_MODEL, 'openai/gpt-oss-120b', 'openai/gpt-oss-20b', 'llama-3.3-70b-versatile', 'llama-3.1-8b-instant'].filter(Boolean))];
+let workingModel = null; // dernier modèle qui a fonctionné (évite de réessayer les autres à chaque message)
 
 const MAX_INPUT_CHARS = 1500; // longueur max d'un message envoyé à l'IA
 const MAX_REPLY_TOKENS = 600;
@@ -176,33 +178,63 @@ function allowed(userId) {
   return true;
 }
 
-async function callModel(history) {
+async function callOnce(model, history) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 25000);
+  const timer = setTimeout(() => controller.abort(), 30000);
   try {
+    const isReasoning = /gpt-oss/i.test(model);
+    const body = {
+      model,
+      messages: [{ role: 'system', content: `${SYSTEM_PROMPT}\n\nDate du jour : ${new Date().toLocaleDateString('fr-FR', { dateStyle: 'full' })}.` }, ...history],
+      // Les modèles « raisonnement » (gpt-oss) réfléchissent avant de répondre : on limite cette réflexion et on laisse plus de marge
+      max_tokens: isReasoning ? 1500 : MAX_REPLY_TOKENS,
+      temperature: 0.7,
+    };
+    if (isReasoning && /groq\.com/i.test(API_URL)) body.reasoning_effort = 'low';
+
     const res = await fetch(API_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.AI_API_KEY}` },
-      body: JSON.stringify({
-        model: MODEL,
-        messages: [{ role: 'system', content: `${SYSTEM_PROMPT}\n\nDate du jour : ${new Date().toLocaleDateString('fr-FR', { dateStyle: 'full' })}.` }, ...history],
-        max_tokens: MAX_REPLY_TOKENS,
-        temperature: 0.7,
-      }),
+      body: JSON.stringify(body),
       signal: controller.signal,
     });
     if (!res.ok) {
       // On n'affiche jamais la clé : seulement le statut et le début de la réponse d'erreur
       const detail = (await res.text().catch(() => '')).slice(0, 300);
-      throw new Error(`API IA ${res.status} : ${detail}`);
+      const err = new Error(`API IA ${res.status} (${model}) : ${detail}`);
+      err.status = res.status;
+      throw err;
     }
     const data = await res.json();
     const text = data?.choices?.[0]?.message?.content;
-    if (!text || !String(text).trim()) throw new Error('Réponse IA vide');
-    return String(text).trim().slice(0, 3000);
+    if (!text || !String(text).trim()) throw new Error(`Réponse IA vide (${model})`);
+    // Certains modèles laissent leur réflexion entre <think>…</think> : on la retire
+    return String(text).replace(/<think>[\s\S]*?<\/think>/gi, '').trim().slice(0, 3000);
   } finally {
     clearTimeout(timer);
   }
+}
+
+async function callModel(history) {
+  const order = workingModel ? [workingModel, ...MODELS.filter((m) => m !== workingModel)] : MODELS;
+  let lastErr;
+  for (const model of order) {
+    try {
+      const text = await callOnce(model, history);
+      if (workingModel !== model) {
+        workingModel = model;
+        console.log(`🤖 Kora utilise le modèle ${model}`);
+      }
+      return text;
+    } catch (err) {
+      lastErr = err;
+      console.error('Kora :', err.message);
+      // Modèle introuvable / non autorisé / paramètre refusé → on essaie le suivant. Clé invalide ou quota → inutile d'insister.
+      if (![400, 403, 404].includes(err.status)) break;
+      if (workingModel === model) workingModel = null;
+    }
+  }
+  throw lastErr;
 }
 
 async function say(io, conversationId, userId, content) {
