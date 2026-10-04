@@ -255,21 +255,6 @@ async function initSchema() {
     -- Demandes de message : NULL = discussion normale ; 'pending' = en attente de réponse ; 'declined' = refusée
     ALTER TABLE conversations ADD COLUMN IF NOT EXISTS request_status TEXT;
 
-    -- Adresse email vérifiée (n'est renseignée qu'une fois le code saisi) et invitation envoyée par Kora
-    ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT;
-    ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified_at TIMESTAMPTZ;
-    ALTER TABLE users ADD COLUMN IF NOT EXISTS email_prompted_at TIMESTAMPTZ;
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users (LOWER(email)) WHERE email IS NOT NULL;
-    CREATE TABLE IF NOT EXISTS email_codes (
-      id TEXT PRIMARY KEY,
-      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      email TEXT NOT NULL,
-      code_hash TEXT NOT NULL,
-      attempts INTEGER NOT NULL DEFAULT 0,
-      expires_at TIMESTAMPTZ NOT NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
-    CREATE INDEX IF NOT EXISTS idx_email_codes_user ON email_codes(user_id, created_at);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_conversations_invite_token ON conversations(invite_token) WHERE invite_token IS NOT NULL;
     CREATE TABLE IF NOT EXISTS muted_categories (
       user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

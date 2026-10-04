@@ -9,7 +9,6 @@ import { useAuth } from "@/lib/auth";
 import { fetchFeed, fetchPublicFeed } from "@/lib/social";
 import logo from "@/assets/kalchat-logo.png";
 import { ApkDownload } from "@/components/ApkDownload";
-import { EmailBanner } from "@/components/EmailBanner";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -46,7 +45,6 @@ function FeedPage() {
             <ApkDownload variant="button" />
           </section>
         )}
-        {user && <EmailBanner />}
         {user && <ApkDownload variant="banner" />}
         {user && (
           <Link to="/nouveau" className="mx-4 my-3 block rounded-2xl border border-border bg-card px-4 py-3 text-sm text-muted-foreground hover:bg-secondary/60">
