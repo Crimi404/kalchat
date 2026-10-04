@@ -79,6 +79,7 @@ function AdminPage() {
   const [closed, setClosed] = useState(false);
   const [storage, setStorage] = useState<StorageInfo | null>(null);
   const [storageBusy, setStorageBusy] = useState(false);
+  const [koraBusy, setKoraBusy] = useState(false);
 
   const online = useOnline();
 
@@ -209,6 +210,24 @@ function AdminPage() {
             </div>
           ))}
         </div>}
+        {tab === "members" && isAdmin && (
+          <div className="rounded-2xl border border-border bg-card p-3">
+            <p className="text-sm font-semibold">Kora IA</p>
+            <p className="mt-1 text-xs text-muted-foreground">Kora publie un post par jour. Tu peux en publier un tout de suite pour tester.</p>
+            <div className="mt-2">
+              <button
+                disabled={koraBusy}
+                className={btn}
+                onClick={async () => {
+                  setKoraBusy(true);
+                  try { await api("/admin/kora/post-now", { method: "POST" }); toast.success("Kora a publié un post"); void qc.invalidateQueries(); } catch (e) { toast.error((e as Error).message); } finally { setKoraBusy(false); }
+                }}
+              >
+                Publier un post de Kora maintenant
+              </button>
+            </div>
+          </div>
+        )}
         {tab === "members" && isAdmin && (
           <div className="rounded-2xl border border-border bg-card p-3">
             <p className="text-sm font-semibold">Stockage des médias</p>

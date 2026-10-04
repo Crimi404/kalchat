@@ -4,6 +4,7 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { RichText } from "@/components/RichText";
+import { KORA_ID, Markdown } from "@/components/Markdown";
 import { BadgeList } from "@/components/KalBadge";
 import { ReportSheet } from "@/components/ReportSheet";
 import { openGuestPrompt, type GuestReason } from "@/lib/guest";
@@ -124,7 +125,11 @@ function CommentItem({
               </div>
             </div>
           ) : (
-            <p className="whitespace-pre-line break-words text-xs text-foreground"><RichText text={c.content} /></p>
+            c.author_id === KORA_ID ? (
+              <div className="text-xs text-foreground"><Markdown text={c.content} /></div>
+            ) : (
+              <p className="whitespace-pre-line break-words text-xs text-foreground"><RichText text={c.content} /></p>
+            )
           )}
         </div>
         <div className="mt-1 flex items-center gap-4 px-2 text-[11px] text-muted-foreground">
@@ -289,6 +294,11 @@ export function PostCard({ post, detail = false }: { post: FeedPost; detail?: bo
       if (created.parentId) setExpanded((prev) => new Set(prev).add(created.parentId!));
       setReplyTo(null);
       invalidate();
+      if (created.koraWillReply) {
+        // Kora répond quelques secondes plus tard : on recharge les commentaires pour afficher sa réponse
+        toast("Kora est en train de te répondre… 💬");
+        for (const delay of [4000, 9000, 16000]) window.setTimeout(invalidate, delay);
+      }
     },
     onError: (e: Error) => toast.error(e.message),
   });

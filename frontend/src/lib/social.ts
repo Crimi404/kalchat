@@ -163,6 +163,8 @@ export interface CommentRow {
   likedByMe: boolean;
   author_id: string;
   author: AuthorRow | null;
+  /** Vrai juste après l'envoi si Kora IA va répondre à ce commentaire. */
+  koraWillReply?: boolean;
 }
 
 interface RawComment extends RawAuthor {
@@ -174,6 +176,7 @@ interface RawComment extends RawAuthor {
   like_count: number | string;
   liked_by_me: boolean;
   user_id: string;
+  kora_will_reply?: boolean;
 }
 
 function shapeComment(c: RawComment): CommentRow {
@@ -187,6 +190,7 @@ function shapeComment(c: RawComment): CommentRow {
     likedByMe: !!c.liked_by_me,
     author_id: c.user_id,
     author: toAuthor(c.user_id, c),
+    koraWillReply: !!c.kora_will_reply,
   };
 }
 

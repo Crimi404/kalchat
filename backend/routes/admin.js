@@ -1,6 +1,7 @@
 const express = require('express');
 const db = require('../db');
 const { sweepOrphanFiles } = require('../mediaCleanup');
+const ai = require('../ai');
 const authMiddleware = require('../middleware/auth');
 const staffMiddleware = require('../middleware/staff');
 const { notify } = require('../notify');
@@ -186,6 +187,17 @@ router.post('/storage/cleanup', async (req, res) => {
     res.json(await sweepOrphanFiles());
   } catch (err) {
     res.status(500).json({ error: `Nettoyage impossible : ${err.message}` });
+  }
+});
+
+// ---------- Kora IA : publier le post du jour tout de suite (administrateurs) ----------
+router.post('/kora/post-now', async (req, res) => {
+  if (!(await requireAdmin(req, res))) return;
+  try {
+    const id = await ai.postDaily({ force: true });
+    res.json({ id });
+  } catch (err) {
+    res.status(500).json({ error: `Publication impossible : ${err.message}` });
   }
 });
 

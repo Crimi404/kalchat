@@ -6,6 +6,7 @@ const { notify } = require('../notify');
 const { notifyMentions } = require('../mentions');
 const { CATEGORIES, DEFAULT_CATEGORY, normalizeCategory } = require('../categories');
 const { releaseMedia } = require('../mediaCleanup');
+const ai = require('../ai');
 const { THEMED_POST_MAX_CHARS, normalizeTheme, normalizeFont } = require('../themes');
 
 const router = express.Router();
@@ -206,8 +207,18 @@ router.post('/:id/comments', async (req, res) => {
   // Les personnes mentionnées sont prévenues (sauf celles déjà notifiées ci-dessus)
   await notifyMentions(io, { text: content, actorId: req.user.id, postId: post.id, where: 'comment', skipUserIds: skip });
 
+  // @kora (ou réponse à un commentaire de Kora) : Kora répond dans les commentaires quelques secondes plus tard
+  const koraWillReply = await ai.maybeReplyToComment(io, {
+    postId: post.id,
+    commentId: id,
+    rootId,
+    authorId: req.user.id,
+    text: content,
+    repliedToUserId: repliedTo?.user_id || null,
+  }).catch(() => false);
+
   const comment = await db.prepare(`${COMMENT_SELECT} WHERE c.id = ?`).get(req.user.id, id);
-  res.status(201).json(comment);
+  res.status(201).json({ ...comment, kora_will_reply: !!koraWillReply });
 });
 
 // ---------- Aimer / ne plus aimer un commentaire ----------
