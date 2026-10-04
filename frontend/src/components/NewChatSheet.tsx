@@ -100,7 +100,7 @@ export function NewChatSheet({ onClose }: { onClose: () => void }) {
               <span className="flex h-11 w-11 items-center justify-center rounded-full border border-border bg-secondary text-foreground"><UserPlus className="h-5 w-5" /></span>
               <span className="min-w-0 flex-1">
                 <span className="block text-sm font-bold text-foreground">Trouver des membres</span>
-                <span className="block text-xs text-muted-foreground">Abonne-toi pour pouvoir leur écrire</span>
+                <span className="block text-xs text-muted-foreground">Ouvre un profil pour leur écrire</span>
               </span>
               <ChevronRight className="h-4 w-4 text-muted-foreground" />
             </Link>

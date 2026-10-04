@@ -33,6 +33,29 @@ async function areFriends(a, b) {
   return !!row;
 }
 
+// ---------- Demandes de message ----------
+// Écrire à quelqu'un avec qui on n'est pas abonné crée une « demande » : un seul message est autorisé
+// tant que la personne n'a pas accepté. Elle peut accepter, refuser, bloquer ou signaler.
+const MAX_REQUEST_MESSAGES = 1;
+const MAX_REQUESTS_PER_DAY = 20;
+
+/**
+ * État d'une discussion privée vu par `meId` :
+ *  - 'accepted' : discussion normale
+ *  - 'pending'  : demande en attente (i_am_requester = je l'ai envoyée)
+ *  - 'declined' : demande refusée
+ * Si les deux personnes sont devenues amies entre-temps, la demande est automatiquement acceptée.
+ */
+async function requestState(conv, meId) {
+  if (conv.is_group || !conv.request_status) return { status: 'accepted', i_am_requester: false };
+  const peer = await db.prepare('SELECT user_id FROM conversation_members WHERE conversation_id = ? AND user_id != ?').get(conv.id, meId);
+  if (peer && (await areFriends(meId, peer.user_id))) {
+    await db.prepare('UPDATE conversations SET request_status = NULL WHERE id = ?').run(conv.id);
+    return { status: 'accepted', i_am_requester: false };
+  }
+  return { status: conv.request_status, i_am_requester: conv.created_by === meId };
+}
+
 async function nameOf(userId) {
   const u = await db.prepare('SELECT username, first_name, last_name FROM users WHERE id = ?').get(userId);
   if (!u) return 'Quelqu\'un';
@@ -100,7 +123,7 @@ router.get('/contacts', async (req, res) => {
 router.get('/conversations', async (req, res) => {
   const rows = await db
     .prepare(
-      `SELECT c.id, c.is_group, c.name, c.avatar_url, cm.is_favorite,
+      `SELECT c.id, c.is_group, c.name, c.avatar_url, c.created_by, c.request_status, cm.is_favorite,
               (SELECT COUNT(*) FROM conversation_members x WHERE x.conversation_id = c.id) AS member_count,
               (SELECT content FROM messages m WHERE m.conversation_id = c.id AND (m.expires_at IS NULL OR m.expires_at > NOW()) ORDER BY m.created_at DESC LIMIT 1) AS last_message,
               (SELECT media_type FROM messages m WHERE m.conversation_id = c.id AND (m.expires_at IS NULL OR m.expires_at > NOW()) ORDER BY m.created_at DESC LIMIT 1) AS last_media_type,
@@ -119,7 +142,7 @@ router.get('/conversations', async (req, res) => {
     .all(req.user.id, req.user.id, req.user.id);
 
   // Pour les discussions 1:1, on ajoute le nom/avatar de l'autre personne
-  const enriched = await Promise.all(
+  const enriched0 = await Promise.all(
     rows.map(async (c) => {
       if (!c.is_group) {
         const other = await db
@@ -135,6 +158,28 @@ router.get('/conversations', async (req, res) => {
     })
   );
 
+  // Demandes de message : 'incoming' (reçue), 'outgoing' (envoyée), 'declined' (refusée, côté demandeur)
+  const enriched = [];
+  for (const c of enriched0) {
+    const { created_by, request_status, ...row } = c;
+    let request = null;
+    if (!c.is_group && request_status) {
+      const st = await requestState({ id: c.id, is_group: 0, created_by, request_status }, req.user.id);
+      if (st.status === 'pending') request = st.i_am_requester ? 'outgoing' : 'incoming';
+      else if (st.status === 'declined') {
+        if (!st.i_am_requester) continue; // refusée par moi : elle disparaît de ma liste
+        request = 'declined';
+      }
+      if (request === 'incoming') {
+        // Pas de demande vide, et plus de demande d'une personne que j'ai bloquée
+        if (!row.last_message_at) continue;
+        const blocked = await db.prepare('SELECT 1 FROM user_blocks WHERE blocker_id = ? AND blocked_id = ?').get(req.user.id, row.other_user_id);
+        if (blocked) continue;
+      }
+    }
+    enriched.push({ ...row, request });
+  }
+
   res.json(enriched);
 });
 
@@ -142,6 +187,7 @@ router.get('/conversations', async (req, res) => {
 router.post('/conversations', async (req, res) => {
   try {
     const { is_group = false } = req.body;
+    let requestStatus = null;
     const name = typeof req.body.name === 'string' ? req.body.name.trim() : '';
     const avatar_url = req.body.avatar_url || null;
     // Sans doublons, sans soi-même
@@ -167,9 +213,9 @@ router.post('/conversations', async (req, res) => {
     if (!is_group) {
       const otherId = member_ids[0];
 
-      if (!(await areFriends(req.user.id, otherId))) {
-        return res.status(403).json({ error: 'Vous devez vous abonner (et être accepté) avant de pouvoir écrire à cette personne' });
-      }
+      const other = await db.prepare('SELECT id, is_blocked FROM users WHERE id = ?').get(otherId);
+      if (!other || other.is_blocked) return res.status(404).json({ error: 'Ce compte n\'existe pas ou est indisponible' });
+      if (await isBlockedEitherWay(req.user.id, otherId)) return res.status(403).json({ error: 'Tu ne peux pas écrire à ce compte' });
 
       const existing = await db
         .prepare(
@@ -182,6 +228,15 @@ router.post('/conversations', async (req, res) => {
       if (existing) {
         return res.json({ id: existing.id, already_existed: true });
       }
+
+      // Pas encore amis : la discussion démarre comme une demande de message (sauf avec Kora IA)
+      if (otherId !== ai.BOT_ID && !(await areFriends(req.user.id, otherId))) {
+        const today = await db
+          .prepare("SELECT COUNT(*) AS n FROM conversations WHERE created_by = ? AND is_group = 0 AND request_status IS NOT NULL AND created_at > NOW() - INTERVAL '24 hours'")
+          .get(req.user.id);
+        if (today.n >= MAX_REQUESTS_PER_DAY) return res.status(429).json({ error: 'Trop de demandes de message aujourd\'hui, réessaie demain' });
+        requestStatus = 'pending';
+      }
     }
 
     const id = uuid();
@@ -189,8 +244,8 @@ router.post('/conversations', async (req, res) => {
     const prefs = await db.prepare('SELECT default_ephemeral FROM users WHERE id = ?').get(req.user.id);
     const ephemeral = Number(prefs?.default_ephemeral) || 0;
     await db
-      .prepare('INSERT INTO conversations (id, is_group, name, avatar_url, created_by, ephemeral_seconds) VALUES (?, ?, ?, ?, ?, ?)')
-      .run(id, is_group ? 1 : 0, is_group ? name : null, is_group ? avatar_url : null, req.user.id, ephemeral);
+      .prepare('INSERT INTO conversations (id, is_group, name, avatar_url, created_by, ephemeral_seconds, request_status) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(id, is_group ? 1 : 0, is_group ? name : null, is_group ? avatar_url : null, req.user.id, ephemeral, requestStatus);
 
     const insertMember = db.prepare('INSERT INTO conversation_members (conversation_id, user_id, is_admin) VALUES (?, ?, ?)');
     await insertMember.run(id, req.user.id, 1);
@@ -212,7 +267,7 @@ router.post('/conversations', async (req, res) => {
       await pingMembers(io, id);
     }
 
-    res.status(201).json({ id });
+    res.status(201).json({ id, request: requestStatus === 'pending' });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Erreur serveur' });
@@ -224,7 +279,7 @@ router.get('/conversations/:id', async (req, res) => {
   const me = await getMembership(req.params.id, req.user.id);
   if (!me) return res.status(403).json({ error: 'Accès refusé' });
 
-  const conv = await db.prepare('SELECT id, is_group, name, avatar_url, created_by, created_at, ephemeral_seconds FROM conversations WHERE id = ?').get(req.params.id);
+  const conv = await db.prepare('SELECT id, is_group, name, avatar_url, created_by, created_at, ephemeral_seconds, request_status FROM conversations WHERE id = ?').get(req.params.id);
   if (!conv) return res.status(404).json({ error: 'Conversation introuvable' });
 
   const members = await db
@@ -256,7 +311,26 @@ router.get('/conversations/:id', async (req, res) => {
     }
   }
 
-  res.json({ ...conv, is_favorite: me.is_favorite, my_is_admin: me.is_admin, members, pinned, blocked_by_me: blockedByMe, blocked_me: blockedMe });
+  // Demande de message : 'incoming' / 'outgoing' / 'declined' / null, et peut-on encore écrire ?
+  let request = null;
+  let requestCanSend = true;
+  if (!conv.is_group && conv.request_status) {
+    const st = await requestState(conv, req.user.id);
+    if (st.status === 'pending' && st.i_am_requester) {
+      request = 'outgoing';
+      const sent = await db.prepare("SELECT COUNT(*) AS n FROM messages WHERE conversation_id = ? AND sender_id = ? AND COALESCE(media_type, '') != 'system'").get(conv.id, req.user.id);
+      requestCanSend = sent.n < MAX_REQUEST_MESSAGES;
+    } else if (st.status === 'pending') {
+      request = 'incoming';
+      requestCanSend = false;
+    } else if (st.status === 'declined') {
+      request = 'declined';
+      requestCanSend = false;
+    }
+  }
+
+  const { request_status: _rs, ...convOut } = conv;
+  res.json({ ...convOut, is_favorite: me.is_favorite, my_is_admin: me.is_admin, members, pinned, blocked_by_me: blockedByMe, blocked_me: blockedMe, request, request_can_send: requestCanSend });
 });
 
 // ---------- Modifier le nom / la photo d'un groupe (administrateurs du groupe) ----------
@@ -453,11 +527,23 @@ router.post('/conversations/:id/messages', async (req, res) => {
   }
 
   // Discussion privée : impossible d'écrire si l'un des deux a bloqué l'autre
-  const convRow = await db.prepare('SELECT is_group, ephemeral_seconds FROM conversations WHERE id = ?').get(req.params.id);
+  const convRow = await db.prepare('SELECT id, is_group, ephemeral_seconds, created_by, request_status FROM conversations WHERE id = ?').get(req.params.id);
   if (convRow && !convRow.is_group) {
     const peer = await db.prepare('SELECT user_id FROM conversation_members WHERE conversation_id = ? AND user_id != ?').get(req.params.id, req.user.id);
     if (peer && (await isBlockedEitherWay(req.user.id, peer.user_id))) {
       return res.status(403).json({ error: 'Tu ne peux pas envoyer de message à ce compte' });
+    }
+    // Demande de message : un seul message tant que la personne n'a pas accepté
+    const st = await requestState(convRow, req.user.id);
+    if (st.status === 'declined') {
+      return res.status(403).json({ error: st.i_am_requester ? 'Cette personne n\'a pas accepté ta demande de message' : 'Tu as refusé cette demande de message' });
+    }
+    if (st.status === 'pending') {
+      if (!st.i_am_requester) return res.status(403).json({ error: 'Accepte la demande de message pour pouvoir répondre' });
+      const sent = await db.prepare("SELECT COUNT(*) AS n FROM messages WHERE conversation_id = ? AND sender_id = ? AND COALESCE(media_type, '') != 'system'").get(req.params.id, req.user.id);
+      if (sent.n >= MAX_REQUEST_MESSAGES) {
+        return res.status(403).json({ error: 'Tu pourras continuer à écrire dès que cette personne aura accepté ta demande' });
+      }
     }
   }
   // Réponse à un message : il doit appartenir à la même conversation
@@ -513,6 +599,13 @@ router.post('/conversations/:id/read', async (req, res) => {
     .prepare('SELECT 1 FROM conversation_members WHERE conversation_id = ? AND user_id = ?')
     .get(req.params.id, req.user.id);
   if (!isMember) return res.status(403).json({ error: 'Accès refusé' });
+
+  // Une demande de message non acceptée se lit sans prévenir l'expéditeur (pas d'accusé de lecture)
+  const convForRead = await db.prepare('SELECT id, is_group, created_by, request_status FROM conversations WHERE id = ?').get(req.params.id);
+  if (convForRead && !convForRead.is_group && convForRead.request_status) {
+    const st = await requestState(convForRead, req.user.id);
+    if (st.status !== 'accepted' && !st.i_am_requester) return res.json({ ok: true, skipped: true });
+  }
 
   await db
     .prepare(
@@ -577,6 +670,37 @@ router.delete('/messages/:id', async (req, res) => {
   await db.prepare('DELETE FROM messages WHERE id = ?').run(req.params.id);
   await releaseMedia(m.media_url);
   req.app.get('io')?.to(m.conversation_id).emit('message_deleted', { conversation_id: m.conversation_id, message_id: m.id });
+  res.json({ ok: true });
+});
+
+// ---------- Demandes de message : accepter / refuser (la personne qui a reçu la demande) ----------
+async function loadIncomingRequest(req, res) {
+  const me = await getMembership(req.params.id, req.user.id);
+  if (!me) { res.status(403).json({ error: 'Accès refusé' }); return null; }
+  const conv = await db.prepare('SELECT id, is_group, created_by, request_status FROM conversations WHERE id = ?').get(req.params.id);
+  if (!conv || conv.is_group || !conv.request_status) { res.status(400).json({ error: 'Aucune demande de message en attente' }); return null; }
+  const st = await requestState(conv, req.user.id);
+  if (st.status !== 'pending' || st.i_am_requester) { res.status(400).json({ error: 'Aucune demande de message en attente' }); return null; }
+  return conv;
+}
+
+router.post('/conversations/:id/request/accept', async (req, res) => {
+  const conv = await loadIncomingRequest(req, res);
+  if (!conv) return;
+  const peer = await db.prepare('SELECT user_id FROM conversation_members WHERE conversation_id = ? AND user_id != ?').get(conv.id, req.user.id);
+  if (peer && (await isBlockedEitherWay(req.user.id, peer.user_id))) return res.status(403).json({ error: 'Débloque ce compte avant d\'accepter sa demande' });
+  await db.prepare('UPDATE conversations SET request_status = NULL WHERE id = ?').run(conv.id);
+  const io = req.app.get('io');
+  await addSystemMessage(io, conv.id, req.user.id, `${await nameOf(req.user.id)} a accepté la demande de message`);
+  await pingMembers(io, conv.id);
+  res.json({ ok: true });
+});
+
+router.post('/conversations/:id/request/decline', async (req, res) => {
+  const conv = await loadIncomingRequest(req, res);
+  if (!conv) return;
+  await db.prepare("UPDATE conversations SET request_status = 'declined' WHERE id = ?").run(conv.id);
+  await pingMembers(req.app.get('io'), conv.id);
   res.json({ ok: true });
 });
 

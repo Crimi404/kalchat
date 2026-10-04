@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { Fragment, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Check, CheckCheck, ImagePlus, Loader2, Mic, Ban, Flag, MoreVertical, Pencil, Pin, Reply, Send, Star, Timer, Trash2, Users, X } from "lucide-react";
@@ -19,7 +19,7 @@ import { ActionIcons, MessageActionSheet, type MessageAction } from "@/component
 import { ephemeralLabel } from "@/lib/settings";
 import { MAX_VOICE_SECONDS, formatDuration, useVoiceRecorder } from "@/lib/voice";
 import { MAX_UPLOAD_MB, uploadMedia } from "@/lib/media";
-import { EDIT_WINDOW_MS, deleteMessage, editMessage, fetchConversationDetail, fetchMessages, joinConversation, markRead, messageSnippet, sendMessage, setEphemeral, togglePinMessage, toggleFavoriteConversation, type MessageRow } from "@/lib/chat";
+import { EDIT_WINDOW_MS, deleteMessage, editMessage, fetchConversationDetail, fetchMessages, joinConversation, markRead, messageSnippet, sendMessage, setEphemeral, togglePinMessage, toggleFavoriteConversation, type MessageRow, acceptMessageRequest, declineMessageRequest } from "@/lib/chat";
 
 export const Route = createFileRoute("/_authenticated/messages/$id")({
   head: () => ({
@@ -80,6 +80,17 @@ function ChatPage() {
       void qc.invalidateQueries({ queryKey: ["conversation", id] });
       void qc.invalidateQueries({ queryKey: ["conversations"] });
       void qc.invalidateQueries({ queryKey: ["contacts"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const navigate = useNavigate();
+  const respond = useMutation({
+    mutationFn: (accept: boolean) => (accept ? acceptMessageRequest(id) : declineMessageRequest(id)),
+    onSuccess: (_d, accept) => {
+      toast.success(accept ? "Demande acceptée, vous pouvez discuter" : "Demande refusée");
+      void qc.invalidateQueries();
+      if (!accept) void navigate({ to: "/messages" });
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -394,7 +405,34 @@ function ChatPage() {
         <div ref={endRef} />
       </main>
 
-      {!isGroup && (detail.blockedByMe || detail.blockedMe) ? (
+      {!isGroup && detail.request === "incoming" && !detail.blockedByMe && !detail.blockedMe ? (
+        <div className="border-t border-border p-4 pb-[max(1rem,env(safe-area-inset-bottom))] text-center">
+          <p className="text-sm font-semibold text-foreground">{other?.display_name} veut t'écrire</p>
+          <p className="mx-auto mt-1 max-w-xs text-xs text-muted-foreground">Vous n'êtes pas abonnés l'un à l'autre. Cette personne ne verra pas que tu as lu son message tant que tu n'as pas accepté.</p>
+          <div className="mt-3 flex gap-2">
+            <button disabled={respond.isPending} onClick={() => respond.mutate(true)} className="brand-gradient flex-1 rounded-full py-2.5 text-sm font-bold text-primary-foreground disabled:opacity-60">Accepter</button>
+            <button disabled={respond.isPending} onClick={() => respond.mutate(false)} className="flex-1 rounded-full border border-border bg-card py-2.5 text-sm font-semibold text-foreground hover:bg-secondary disabled:opacity-60">Refuser</button>
+          </div>
+          <div className="mt-2 flex justify-center gap-5 text-xs font-semibold">
+            <button
+              disabled={block.isPending}
+              onClick={() => { if (window.confirm(`Bloquer @${other!.username} ? Cette personne ne pourra plus t'écrire.`)) block.mutate(false); }}
+              className="text-destructive hover:underline disabled:opacity-60"
+            >
+              Bloquer
+            </button>
+            <button onClick={() => setReporting({ type: "user", id: other!.id })} className="text-destructive hover:underline">Signaler</button>
+          </div>
+        </div>
+      ) : !isGroup && !detail.blockedByMe && !detail.blockedMe && (detail.request === "declined" || (detail.request === "outgoing" && !detail.requestCanSend)) ? (
+        <div className="border-t border-border p-4 pb-[max(1rem,env(safe-area-inset-bottom))] text-center">
+          <p className="mx-auto max-w-xs text-xs text-muted-foreground">
+            {detail.request === "declined"
+              ? `${other?.display_name} n'a pas accepté ta demande de message. Tu ne peux plus lui écrire.`
+              : `Ta demande a été envoyée. Tu pourras continuer à écrire dès que ${other?.display_name} l'aura acceptée.`}
+          </p>
+        </div>
+      ) : !isGroup && (detail.blockedByMe || detail.blockedMe) ? (
         <div className="border-t border-border p-4 pb-[max(1rem,env(safe-area-inset-bottom))] text-center">
           {detail.blockedByMe ? (
             <>
@@ -424,6 +462,11 @@ function ChatPage() {
         </div>
       ) : (
         <div className="border-t border-border">
+        {detail.request === "outgoing" && detail.requestCanSend && (
+          <p className="border-b border-border bg-secondary/40 px-4 py-2 text-center text-[11px] text-muted-foreground">
+            Vous n'êtes pas abonnés : ton message sera envoyé comme demande de message. Tu ne peux en envoyer qu'un seul tant que {other?.display_name} n'a pas accepté.
+          </p>
+        )}
         {(replyTo || editing) && (
           <div className="flex items-center gap-2 border-b border-border bg-secondary/40 px-3 py-2">
             {editing ? <Pencil className="h-4 w-4 shrink-0 text-primary" /> : <Reply className="h-4 w-4 shrink-0 text-primary" />}

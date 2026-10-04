@@ -2,7 +2,7 @@ import { createFileRoute, Link, Outlet, useRouterState } from "@tanstack/react-r
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Loader2, MessageSquarePlus, Search, Star } from "lucide-react";
+import { ArrowLeft, ChevronRight, Loader2, MailQuestion, MessageSquarePlus, Search, Star } from "lucide-react";
 import { TopBar } from "@/components/TopBar";
 import { BottomNav } from "@/components/BottomNav";
 import { useAuth } from "@/lib/auth";
@@ -74,9 +74,13 @@ function MessagesPage() {
   const [filter, setFilter] = useState<Filter>("all");
   const [term, setTerm] = useState("");
   const [newOpen, setNewOpen] = useState(false);
+  const [showRequests, setShowRequests] = useState(false);
   const q = useQuery({ queryKey: ["conversations", user?.id], queryFn: () => fetchConversations(), enabled: !!user });
 
-  const all = q.data ?? [];
+  // Les demandes de message reçues sont séparées des conversations
+  const incoming = useMemo(() => (q.data ?? []).filter((c) => c.request === "incoming"), [q.data]);
+  const all = useMemo(() => (q.data ?? []).filter((c) => c.request !== "incoming"), [q.data]);
+  const incomingUnread = incoming.filter((c) => c.unread > 0).length;
   const counts = useMemo(
     () => ({
       unread: all.filter((c) => c.unread > 0).length,
@@ -88,14 +92,15 @@ function MessagesPage() {
 
   const shown = useMemo(() => {
     const t = term.trim().toLowerCase();
-    return all.filter((c) => {
+    return (showRequests ? incoming : all).filter((c) => {
+      if (showRequests) return !t || c.name.toLowerCase().includes(t) || (c.other?.username ?? "").toLowerCase().includes(t);
       if (filter === "unread" && c.unread === 0) return false;
       if (filter === "favorites" && !c.isFavorite) return false;
       if (filter === "groups" && !c.isGroup) return false;
       if (!t) return true;
       return c.name.toLowerCase().includes(t) || (c.other?.username ?? "").toLowerCase().includes(t);
     });
-  }, [all, filter, term]);
+  }, [all, incoming, showRequests, filter, term]);
 
   const chips: { id: Filter; label: string; count?: number }[] = [
     { id: "all", label: "Toutes" },
@@ -115,7 +120,30 @@ function MessagesPage() {
     <div className="app-shell">
       <TopBar title="Messages" subtitle="Conversations" />
       <main className="pb-28">
-        <RequestsPanel />
+        {!showRequests && <RequestsPanel />}
+        {showRequests ? (
+          <div className="flex items-center gap-3 border-b border-border px-4 py-3">
+            <button aria-label="Retour" onClick={() => setShowRequests(false)} className="rounded-full p-2 hover:bg-secondary"><ArrowLeft className="h-5 w-5" /></button>
+            <div className="min-w-0">
+              <h2 className="text-base font-bold text-foreground">Demandes de message</h2>
+              <p className="text-xs text-muted-foreground">Ces personnes ne sont pas dans tes abonnés. Elles ne voient pas que tu as lu leur message tant que tu n'as pas accepté.</p>
+            </div>
+          </div>
+        ) : (
+          !!incoming.length && (
+            <button onClick={() => setShowRequests(true)} className="flex w-full items-center gap-3 border-b border-border px-4 py-3 text-left hover:bg-secondary/50">
+              <span className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-secondary text-foreground">
+                <MailQuestion className="h-5 w-5" />
+                {incomingUnread > 0 && <span className="absolute -right-0.5 -top-0.5 h-3 w-3 rounded-full bg-primary ring-2 ring-background" />}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-bold text-foreground">Demandes de message ({incoming.length})</span>
+                <span className="block truncate text-xs text-muted-foreground">{incomingUnread > 0 ? `${incomingUnread} nouvelle${incomingUnread > 1 ? "s" : ""} demande${incomingUnread > 1 ? "s" : ""}` : "Des personnes que tu ne suis pas t'ont écrit"}</span>
+              </span>
+              <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+            </button>
+          )
+        )}
 
         <div className="px-4 pt-3">
           <div className="flex items-center gap-2 rounded-full border border-border bg-secondary/60 px-3 py-2 focus-within:border-primary">
@@ -129,7 +157,7 @@ function MessagesPage() {
           </div>
         </div>
 
-        <div className="flex gap-2 overflow-x-auto px-4 py-3">
+        {!showRequests && <div className="flex gap-2 overflow-x-auto px-4 py-3">
           {chips.map((c) => {
             const active = filter === c.id;
             return (
@@ -143,17 +171,17 @@ function MessagesPage() {
               </button>
             );
           })}
-        </div>
+        </div>}
 
         {q.isLoading ? (
           <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
         ) : !shown.length ? (
           <div className="px-6 py-14 text-center">
-            <p className="font-semibold text-foreground">{term.trim() ? "Aucun résultat" : emptyText[filter].split(".")[0]}</p>
-            {!term.trim() && filter === "all" && (
-              <p className="mt-1 text-sm text-muted-foreground">Abonne-toi à un membre : dès qu'il accepte ta demande, vous pouvez vous écrire. Tu peux aussi créer un groupe avec le bouton +.</p>
+            <p className="font-semibold text-foreground">{term.trim() ? "Aucun résultat" : showRequests ? "Aucune demande de message" : emptyText[filter].split(".")[0]}</p>
+            {!term.trim() && !showRequests && filter === "all" && (
+              <p className="mt-1 text-sm text-muted-foreground">Ouvre le profil d'un membre pour lui écrire : s'il ne te suit pas encore, ton message arrive comme une demande. Tu peux aussi créer un groupe avec le bouton +.</p>
             )}
-            {!term.trim() && filter !== "all" && emptyText[filter].includes(".") && (
+            {!term.trim() && !showRequests && filter !== "all" && emptyText[filter].includes(".") && (
               <p className="mt-1 text-sm text-muted-foreground">{emptyText[filter].split(". ").slice(1).join(". ")}</p>
             )}
           </div>

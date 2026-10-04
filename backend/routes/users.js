@@ -309,7 +309,8 @@ router.get('/:username', async (req, res) => {
     relationship,
     blocked_by_me: blockedByMe,
     blocked_me: blockedMe,
-    can_message: isMe || blockedByMe || blockedMe ? false : await canMessage(req.user.id, user.id),
+    // Tout le monde peut écrire : sans abonnement accepté, c'est une demande de message (voir chat.js)
+    can_message: !(isMe || blockedByMe || blockedMe),
   });
 });
 

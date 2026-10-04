@@ -18,6 +18,8 @@ export interface ConversationItem {
   unread: number;
   isFavorite: boolean;
   memberCount: number;
+  /** Demande de message : « incoming » (reçue), « outgoing » (envoyée), « declined » (refusée), sinon null. */
+  request: "incoming" | "outgoing" | "declined" | null;
 }
 
 export interface MessageRow {
@@ -75,6 +77,7 @@ interface RawConversation extends RawUser {
   last_media_type: string | null;
   last_sender_id: string | null;
   last_sender_name: string | null;
+  request?: "incoming" | "outgoing" | "declined" | null;
 }
 
 interface RawMessage {
@@ -149,6 +152,7 @@ export async function fetchConversations(): Promise<ConversationItem[]> {
       unread: Number(c.unread) || 0,
       isFavorite: !!Number(c.is_favorite),
       memberCount: Number(c.member_count) || 0,
+      request: c.request ?? null,
     };
   });
 }
@@ -175,10 +179,11 @@ export function previewText(c: ConversationItem, myId?: string | null): string {
 
 export async function fetchUnreadTotal(): Promise<number> {
   const list = await fetchConversations();
-  return list.reduce((n, c) => n + c.unread, 0);
+  // Les demandes de message reçues ont leur propre compteur : elles ne comptent pas dans les messages non lus
+  return list.filter((c) => c.request !== "incoming").reduce((n, c) => n + c.unread, 0);
 }
 
-/** Ouvre (ou crée) la conversation privée. Le serveur refuse si l'abonnement n'a pas été accepté. */
+/** Ouvre (ou crée) la conversation privée. Sans abonnement accepté, elle démarre comme une demande de message. */
 export async function getOrCreateConversation(otherId: string): Promise<string> {
   const res = await api<{ id: string }>("/chat/conversations", { method: "POST", body: { member_ids: [otherId] } });
   return res.id;
@@ -206,6 +211,10 @@ export interface ConversationDetail {
   blockedByMe: boolean;
   /** Discussion privée : l'autre personne m'a bloqué. */
   blockedMe: boolean;
+  /** Demande de message : « incoming » (reçue), « outgoing » (envoyée), « declined » (refusée), sinon null. */
+  request: "incoming" | "outgoing" | "declined" | null;
+  /** Peut-on encore envoyer un message ? (faux pour une demande reçue, refusée, ou déjà utilisée) */
+  requestCanSend: boolean;
 }
 
 interface RawDetail {
@@ -219,6 +228,8 @@ interface RawDetail {
   pinned?: { id: string; content: string | null; media_type: string | null; sender_name: string }[];
   blocked_by_me?: boolean;
   blocked_me?: boolean;
+  request?: "incoming" | "outgoing" | "declined" | null;
+  request_can_send?: boolean;
   members: (RawUser & { id: string; avatar_url: string | null; is_admin: number | boolean })[];
 }
 
@@ -247,6 +258,8 @@ export async function fetchConversationDetail(id: string, myId?: string | null):
     other,
     blockedByMe: !!d.blocked_by_me,
     blockedMe: !!d.blocked_me,
+    request: d.request ?? null,
+    requestCanSend: d.request_can_send !== false,
   };
 }
 
@@ -360,4 +373,13 @@ export async function fetchInvitePreview(token: string): Promise<InvitePreview> 
 
 export async function joinGroupByInvite(token: string): Promise<{ conversation_id: string }> {
   return api<{ conversation_id: string }>(`/chat/invite/${encodeURIComponent(token)}/join`, { method: "POST" });
+}
+
+// ---------- Demandes de message ----------
+export async function acceptMessageRequest(conversationId: string) {
+  await api(`/chat/conversations/${conversationId}/request/accept`, { method: "POST" });
+}
+
+export async function declineMessageRequest(conversationId: string) {
+  await api(`/chat/conversations/${conversationId}/request/decline`, { method: "POST" });
 }
