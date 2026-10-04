@@ -1,9 +1,10 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Check, CheckCheck, ImagePlus, Loader2, Mic, Ban, Flag, MoreVertical, Pencil, Pin, Reply, Send, Star, Timer, Trash2, Users, X } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
+import { dayKey, dayLabel } from "@/lib/dateLabel";
 import { useOnline } from "@/lib/presence";
 import { BadgeList } from "@/components/KalBadge";
 import { GroupInfoSheet } from "@/components/GroupInfoSheet";
@@ -335,7 +336,10 @@ function ChatPage() {
 
       <main className="flex-1 space-y-2 overflow-y-auto px-3 py-4">
         <p className="mx-auto mb-4 max-w-xs text-center text-[11px] text-muted-foreground">{isGroup ? "Messages du groupe : visibles uniquement par ses membres. Ils ne sont pas chiffrés de bout en bout." : "Messages privés : visibles uniquement par vous deux. Ils ne sont pas chiffrés de bout en bout."}</p>
-        {msgs.data?.map((m) => {
+        {msgs.data?.map((m, i) => {
+          const prev = i > 0 ? msgs.data![i - 1] : null;
+          const newDay = !prev || dayKey(prev.created_at) !== dayKey(m.created_at);
+          const row = (() => {
           if (m.media_type === "system") {
             return (
               <p key={m.id} className="mx-auto my-2 w-fit max-w-[85%] rounded-full bg-secondary/70 px-3 py-1 text-center text-[11px] text-muted-foreground">{m.body}</p>
@@ -378,6 +382,13 @@ function ChatPage() {
                 </div>
               </SwipeableMessage>
             </div>
+          );
+          })();
+          return (
+            <Fragment key={m.id}>
+              {newDay && <p className="mx-auto my-3 w-fit rounded-full bg-secondary/80 px-3 py-1 text-center text-[11px] font-semibold text-muted-foreground">{dayLabel(m.created_at)}</p>}
+              {row}
+            </Fragment>
           );
         })}
         <div ref={endRef} />

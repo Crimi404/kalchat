@@ -94,6 +94,21 @@ app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
 // ---------- Frontend React (construit dans frontend/dist) servi par le même serveur ----------
 const FRONT_DIST = path.join(__dirname, '..', 'frontend', 'dist');
+
+// ---------- Téléchargement de l'APK Android (publié par le workflow « Build APK Android ») ----------
+// Un fichier absent donne une vraie 404 (et non la page d'accueil), pour que le site sache s'il peut proposer le bouton.
+app.use('/downloads', express.static(path.join(FRONT_DIST, 'downloads'), {
+  index: false,
+  setHeaders(res, filePath) {
+    if (filePath.endsWith('.apk')) {
+      res.setHeader('Content-Type', 'application/vnd.android.package-archive');
+      res.setHeader('Content-Disposition', 'attachment; filename="Kalchat.apk"');
+    }
+    res.setHeader('Cache-Control', 'no-cache');
+  },
+}));
+app.use('/downloads', (req, res) => res.status(404).json({ error: 'Fichier introuvable' }));
+
 app.use(express.static(FRONT_DIST));
 // Application monopage : toute adresse qui n'est pas /api ni /socket.io renvoie index.html
 app.get(/^\/(?!api\/|socket\.io\/).*/, (req, res, next) => {

@@ -8,6 +8,7 @@ import { BottomNav } from "@/components/BottomNav";
 import { useAuth } from "@/lib/auth";
 import { fetchFeed, fetchPublicFeed } from "@/lib/social";
 import logo from "@/assets/kalchat-logo.png";
+import { ApkDownload } from "@/components/ApkDownload";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -41,8 +42,10 @@ function FeedPage() {
               <Link to="/auth" className="brand-gradient glow-primary flex-1 rounded-xl py-2.5 text-sm font-bold text-primary-foreground">Créer un compte</Link>
               <Link to="/auth" className="flex-1 rounded-xl border border-border py-2.5 text-sm font-semibold text-foreground hover:bg-secondary">Se connecter</Link>
             </div>
+            <ApkDownload variant="button" />
           </section>
         )}
+        {user && <ApkDownload variant="banner" />}
         {user && (
           <Link to="/nouveau" className="mx-4 my-3 block rounded-2xl border border-border bg-card px-4 py-3 text-sm text-muted-foreground hover:bg-secondary/60">
             Quoi de neuf ?
