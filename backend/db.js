@@ -247,6 +247,12 @@ async function initSchema() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
     ALTER TABLE posts ADD COLUMN IF NOT EXISTS category TEXT;
+    ALTER TABLE posts ADD COLUMN IF NOT EXISTS theme TEXT;
+    ALTER TABLE posts ADD COLUMN IF NOT EXISTS font TEXT;
+    ALTER TABLE stories ADD COLUMN IF NOT EXISTS theme TEXT;
+    ALTER TABLE stories ADD COLUMN IF NOT EXISTS font TEXT;
+    ALTER TABLE conversations ADD COLUMN IF NOT EXISTS invite_token TEXT;
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_conversations_invite_token ON conversations(invite_token) WHERE invite_token IS NOT NULL;
     CREATE TABLE IF NOT EXISTS muted_categories (
       user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       category TEXT NOT NULL,

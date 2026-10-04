@@ -7,6 +7,8 @@ import { TopBar } from "@/components/TopBar";
 import { useAuth } from "@/lib/auth";
 import { MAX_UPLOAD_MB, uploadMedia } from "@/lib/media";
 import { createStory } from "@/lib/stories";
+import { ThemePicker } from "@/components/ThemePicker";
+import { DEFAULT_FONT, resolveFont, resolveTheme, themedTextSize } from "@/lib/themes";
 
 export const Route = createFileRoute("/_authenticated/story")({
   head: () => ({
@@ -27,6 +29,9 @@ function NewStory() {
   const [text, setText] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
+  const [theme, setTheme] = useState<string>("kalchat");
+  const [font, setFont] = useState(DEFAULT_FONT);
+  const themeStyle = resolveTheme(theme) ?? resolveTheme("kalchat")!;
 
   async function submit() {
     if (!user) return;
@@ -34,7 +39,7 @@ function NewStory() {
     setBusy(true);
     try {
       const media = file ? await uploadMedia(file) : null;
-      await createStory({ content: text.slice(0, 300), image_url: media?.url, media_type: media?.type });
+      await createStory({ content: text.slice(0, 300), image_url: media?.url, media_type: media?.type, theme: media ? null : theme, font: media ? null : font });
       await qc.invalidateQueries({ queryKey: ["stories"] });
       toast.success("Story publiée");
       nav({ to: "/" });
@@ -49,8 +54,26 @@ function NewStory() {
     <div className="app-shell">
       <TopBar title="Nouvelle story" subtitle="Visible pendant 24 h" />
       <main className="space-y-4 p-4 pb-28">
-        <textarea value={text} onChange={(e) => setText(e.target.value)} maxLength={300} rows={4}
-          placeholder="Écris quelque chose…" className="w-full rounded-2xl border border-border bg-card p-4 text-sm text-foreground outline-none focus:border-primary" />
+        {file ? (
+          <textarea value={text} onChange={(e) => setText(e.target.value)} maxLength={300} rows={3}
+            placeholder="Ajoute une légende (facultatif)…" className="w-full rounded-2xl border border-border bg-card p-4 text-sm text-foreground outline-none focus:border-primary" />
+        ) : (
+          <>
+            <div className="flex min-h-[18rem] items-center justify-center rounded-3xl p-6" style={{ background: themeStyle.background, color: themeStyle.color, fontFamily: resolveFont(font) }}>
+              <textarea
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                maxLength={300}
+                rows={5}
+                placeholder="Écris quelque chose…"
+                style={{ color: "inherit", fontFamily: "inherit" }}
+                className={`w-full resize-none bg-transparent text-center font-bold leading-snug outline-none placeholder:text-current placeholder:opacity-60 ${themedTextSize(text.length, true)}`}
+              />
+            </div>
+            <p className="-mt-2 text-right text-xs text-muted-foreground">{text.length}/300</p>
+            <ThemePicker theme={theme} font={font} onTheme={(t) => setTheme(t ?? "kalchat")} onFont={setFont} />
+          </>
+        )}
         {file ? (
           <div className="relative overflow-hidden rounded-2xl">
             {file.type.startsWith("video/") ? (

@@ -8,6 +8,8 @@ import { useAuth } from "@/lib/auth";
 import { MAX_UPLOAD_MB, uploadMedia } from "@/lib/media";
 import { createPost } from "@/lib/social";
 import { CATEGORIES, DEFAULT_CATEGORY } from "@/lib/categories";
+import { ThemePicker } from "@/components/ThemePicker";
+import { DEFAULT_FONT, THEME_MAX_CHARS, resolveFont, resolveTheme, themedTextSize } from "@/lib/themes";
 
 export const Route = createFileRoute("/_authenticated/nouveau")({
   head: () => ({
@@ -32,12 +34,25 @@ function NewPost() {
   const [preview, setPreview] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [category, setCategory] = useState(DEFAULT_CATEGORY);
+  const [theme, setTheme] = useState<string | null>(null);
+  const [font, setFont] = useState(DEFAULT_FONT);
+  const themeStyle = resolveTheme(theme);
+  const maxChars = themeStyle ? THEME_MAX_CHARS : MAX;
+
+  function chooseTheme(t: string | null) {
+    if (t && text.length > THEME_MAX_CHARS) {
+      toast.error(`Un post avec fond est limité à ${THEME_MAX_CHARS} caractères`);
+      return;
+    }
+    setTheme(t);
+  }
 
   function pick(f: File | undefined) {
     if (!f) return;
     if (!f.type.startsWith("image/") && !f.type.startsWith("video/")) { toast.error("Choisis une photo ou une vidéo"); return; }
     if (f.size > MAX_UPLOAD_MB * 1024 * 1024) { toast.error(`Fichier trop lourd (${MAX_UPLOAD_MB} Mo max)`); return; }
     setFile(f);
+    setTheme(null);
     setPreview(URL.createObjectURL(f));
   }
 
@@ -47,7 +62,7 @@ function NewPost() {
     setBusy(true);
     try {
       const media = file ? await uploadMedia(file) : null;
-      await createPost({ content: text.trim(), imageUrl: media?.url ?? null, mediaType: media?.type ?? null, category });
+      await createPost({ content: text.trim(), imageUrl: media?.url ?? null, mediaType: media?.type ?? null, category, theme: media ? null : theme, font: media || !theme ? null : font });
       await qc.invalidateQueries();
       toast.success("Publication partagée");
       navigate({ to: "/" });
@@ -62,16 +77,32 @@ function NewPost() {
     <div className="app-shell">
       <TopBar title="Nouvelle publication" />
       <main className="space-y-4 p-4">
-        <textarea
-          autoFocus
-          value={text}
-          maxLength={MAX}
-          onChange={(e) => setText(e.target.value)}
-          placeholder="Quoi de neuf ?"
-          rows={6}
-          className="w-full resize-none rounded-2xl border border-border bg-card p-4 text-foreground outline-none focus:border-primary"
-        />
-        <p className="text-right text-xs text-muted-foreground">{text.length}/{MAX}</p>
+        {themeStyle ? (
+          <div className="flex min-h-[15rem] items-center justify-center rounded-3xl p-6" style={{ background: themeStyle.background, color: themeStyle.color, fontFamily: resolveFont(font) }}>
+            <textarea
+              autoFocus
+              value={text}
+              maxLength={maxChars}
+              onChange={(e) => setText(e.target.value)}
+              placeholder="Quoi de neuf ?"
+              rows={5}
+              style={{ color: "inherit", fontFamily: "inherit" }}
+              className={`w-full resize-none bg-transparent text-center font-bold leading-snug outline-none placeholder:text-current placeholder:opacity-60 ${themedTextSize(text.length)}`}
+            />
+          </div>
+        ) : (
+          <textarea
+            autoFocus
+            value={text}
+            maxLength={MAX}
+            onChange={(e) => setText(e.target.value)}
+            placeholder="Quoi de neuf ?"
+            rows={6}
+            className="w-full resize-none rounded-2xl border border-border bg-card p-4 text-foreground outline-none focus:border-primary"
+          />
+        )}
+        <p className="text-right text-xs text-muted-foreground">{text.length}/{maxChars}</p>
+        {!file && <ThemePicker allowNone theme={theme} font={font} onTheme={chooseTheme} onFont={setFont} />}
         {preview ? (
           <div className="relative overflow-hidden rounded-2xl">
             {file?.type.startsWith("video/") ? (

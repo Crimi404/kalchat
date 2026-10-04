@@ -7,6 +7,8 @@ export interface StoryRow {
   content: string | null;
   image_url: string | null;
   media_type: string | null;
+  theme: string | null;
+  font: string | null;
   created_at: string;
   expires_at: string;
   seen: boolean;
@@ -24,6 +26,8 @@ interface RawStory {
   media_url: string;
   media_type: string | null;
   caption: string | null;
+  theme?: string | null;
+  font?: string | null;
   created_at: string;
   expires_at: string;
   viewed_by_me: boolean;
@@ -47,6 +51,8 @@ export async function fetchStoryGroups(uid: string): Promise<StoryGroup[]> {
         content: s.caption,
         image_url: s.media_url || null,
         media_type: s.media_type,
+        theme: s.theme || null,
+        font: s.font || null,
         created_at: s.created_at,
         expires_at: s.expires_at,
         seen: s.user_id === uid || !!s.viewed_by_me,
@@ -61,10 +67,10 @@ export async function fetchStoryGroups(uid: string): Promise<StoryGroup[]> {
   return shaped.sort((a, b) => (a.author.id === uid ? -1 : b.author.id === uid ? 1 : 0) || Number(a.allSeen) - Number(b.allSeen));
 }
 
-export async function createStory(input: { content?: string; image_url?: string | undefined; media_type?: string | undefined }) {
+export async function createStory(input: { content?: string; image_url?: string | undefined; media_type?: string | undefined; theme?: string | null; font?: string | null }) {
   await api("/stories", {
     method: "POST",
-    body: { caption: input.content?.trim() || null, media_url: input.image_url ?? null, media_type: input.media_type ?? null },
+    body: { caption: input.content?.trim() || null, media_url: input.image_url ?? null, media_type: input.media_type ?? null, theme: input.theme ?? null, font: input.font ?? null },
   });
 }
 

@@ -1,4 +1,5 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, useNavigate, useRouter } from "@tanstack/react-router";
+import { takeDestination } from "@/lib/share";
 import { useState } from "react";
 import { z } from "zod";
 import { toast } from "sonner";
@@ -48,7 +49,15 @@ const signInSchema = z.object({
 
 function AuthPage() {
   const navigate = useNavigate();
+  const router = useRouter();
   const { signIn, signUp } = useAuth();
+
+  // Après connexion : retour vers la page d'un lien partagé, sinon accueil
+  function goAfterAuth() {
+    const dest = takeDestination();
+    if (dest) router.history.replace(dest);
+    else navigate({ to: "/", replace: true });
+  }
   const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -82,7 +91,7 @@ function AuthPage() {
       if (photo instanceof File && photo.size > 0) avatar_url = (await uploadFile(photo)).url;
       const { first_name, last_name, username, password } = parsed.data;
       await signUp({ first_name, last_name, username, password, avatar_url });
-      navigate({ to: "/", replace: true });
+      goAfterAuth();
     } catch (err) {
       const message = (err as Error).message;
       if (/déjà pris/i.test(message)) setErrors({ username: message });
@@ -107,7 +116,7 @@ function AuthPage() {
     setLoading(true);
     try {
       await signIn(parsed.data.username, parsed.data.password);
-      navigate({ to: "/", replace: true });
+      goAfterAuth();
     } catch (err) {
       toast.error((err as Error).message);
     } finally {

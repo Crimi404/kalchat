@@ -7,6 +7,7 @@ import { useAuth } from "@/lib/auth";
 import { deleteStory, fetchStoryGroups, fetchStoryViewers, markStoryViewed, type StoryGroup } from "@/lib/stories";
 import { timeAgo } from "@/lib/social";
 import { BadgeList } from "@/components/KalBadge";
+import { resolveFont, resolveTheme, themedTextSize } from "@/lib/themes";
 
 function Avatar({ url, name, size = 56 }: { url: string | null; name: string; size?: number }) {
   return url ? (
@@ -125,9 +126,14 @@ function StoryViewer({ group, onClose }: { group: StoryGroup; onClose: () => voi
               {s.content && <p className="absolute inset-x-4 bottom-6 rounded-xl bg-background/70 p-3 text-center text-sm text-foreground backdrop-blur">{s.content}</p>}
             </div>
           ) : (
-            <div className="brand-gradient flex h-full w-full items-center justify-center p-8">
-              <p className="whitespace-pre-wrap text-center text-2xl font-bold text-primary-foreground">{s.content}</p>
-            </div>
+            (() => {
+              const t = resolveTheme(s.theme ?? "kalchat")!;
+              return (
+                <div className="flex h-full w-full items-center justify-center p-8" style={{ background: t.background, color: t.color, fontFamily: resolveFont(s.font) }}>
+                  <p className={`whitespace-pre-wrap break-words text-center font-bold leading-snug ${themedTextSize((s.content ?? "").length, true)}`}>{s.content}</p>
+                </div>
+              );
+            })()
           )}
         </div>
         {showViewers && (

@@ -1,12 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { ArrowLeft, Camera, Loader2, LogOut, UserMinus, UserPlus, X } from "lucide-react";
+import { ArrowLeft, Camera, Copy, Link2, Loader2, LogOut, RefreshCw, Share2, UserMinus, UserPlus, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { BadgeList } from "@/components/KalBadge";
 import { ContactPicker } from "@/components/ContactPicker";
 import { MiniAvatar } from "@/components/MiniAvatar";
-import { addGroupMembers, fetchContacts, removeGroupMember, updateGroup, type ConversationDetail } from "@/lib/chat";
+import { addGroupMembers, createGroupInvite, fetchContacts, fetchGroupInvite, removeGroupMember, revokeGroupInvite, updateGroup, type ConversationDetail } from "@/lib/chat";
+import { copyLink, publicUrl, shareLink } from "@/lib/share";
 import { uploadMedia } from "@/lib/media";
 import type { MiniProfile } from "@/lib/social";
 
@@ -21,6 +22,18 @@ export function GroupInfoSheet({ detail, myId, onClose }: { detail: Conversation
   const memberIds = useMemo(() => new Set(detail.members.map((m) => m.id)), [detail.members]);
   const pickedIds = useMemo(() => new Set(picked.map((p) => p.id)), [picked]);
   const contactsQ = useQuery({ queryKey: ["contacts"], queryFn: fetchContacts, enabled: adding });
+  const inviteQ = useQuery({ queryKey: ["groupInvite", detail.id], queryFn: () => fetchGroupInvite(detail.id), enabled: detail.myIsAdmin });
+  const inviteUrl = inviteQ.data ? publicUrl(`/groupe/${inviteQ.data}`) : null;
+  const makeInvite = useMutation({
+    mutationFn: () => createGroupInvite(detail.id),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: ["groupInvite", detail.id] }); toast.success("Lien d'invitation prêt"); },
+    onError: (e: Error) => toast.error(e.message),
+  });
+  const stopInvite = useMutation({
+    mutationFn: () => revokeGroupInvite(detail.id),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: ["groupInvite", detail.id] }); toast.success("Lien désactivé"); },
+    onError: (e: Error) => toast.error(e.message),
+  });
 
   function refresh() {
     void qc.invalidateQueries({ queryKey: ["conversation", detail.id] });
@@ -115,6 +128,32 @@ export function GroupInfoSheet({ detail, myId, onClose }: { detail: Conversation
                 <span className="brand-gradient flex h-11 w-11 items-center justify-center rounded-full text-primary-foreground"><UserPlus className="h-5 w-5" /></span>
                 <span className="text-sm font-bold text-foreground">Ajouter des membres</span>
               </button>
+            )}
+
+            {detail.myIsAdmin && (
+              <div className="mb-3 rounded-2xl border border-border p-3">
+                <div className="flex items-center gap-2 text-sm font-bold text-foreground"><Link2 className="h-4 w-4" /> Lien d'invitation</div>
+                {inviteQ.isLoading ? (
+                  <Loader2 className="mt-2 h-4 w-4 animate-spin text-primary" />
+                ) : inviteUrl ? (
+                  <>
+                    <p className="mt-2 break-all rounded-xl bg-secondary/60 px-3 py-2 text-xs text-muted-foreground">{inviteUrl}</p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <button onClick={() => void copyLink(inviteUrl)} className="flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs font-semibold hover:bg-secondary"><Copy className="h-3.5 w-3.5" /> Copier</button>
+                      <button onClick={() => void shareLink({ url: inviteUrl, title: detail.name, text: `Rejoins le groupe « ${detail.name} » sur Kalchat` })} className="flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs font-semibold hover:bg-secondary"><Share2 className="h-3.5 w-3.5" /> Partager</button>
+                      <button disabled={makeInvite.isPending} onClick={() => { if (window.confirm("Générer un nouveau lien ? L'ancien ne fonctionnera plus.")) makeInvite.mutate(); }} className="flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs font-semibold hover:bg-secondary disabled:opacity-60"><RefreshCw className="h-3.5 w-3.5" /> Nouveau lien</button>
+                      <button disabled={stopInvite.isPending} onClick={() => stopInvite.mutate()} className="rounded-full border border-border px-3 py-1.5 text-xs font-semibold text-destructive hover:bg-secondary disabled:opacity-60">Désactiver</button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <p className="mt-1 text-xs text-muted-foreground">Toute personne qui a le lien peut rejoindre le groupe (50 membres maximum).</p>
+                    <button disabled={makeInvite.isPending} onClick={() => makeInvite.mutate()} className="brand-gradient mt-2 flex items-center gap-2 rounded-full px-4 py-2 text-xs font-bold text-primary-foreground disabled:opacity-60">
+                      {makeInvite.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Créer un lien
+                    </button>
+                  </>
+                )}
+              </div>
             )}
 
             <div className="space-y-0.5">

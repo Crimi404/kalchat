@@ -5,6 +5,7 @@ const authMiddleware = require('../middleware/auth');
 const { notify } = require('../notify');
 const { notifyMentions } = require('../mentions');
 const { CATEGORIES, DEFAULT_CATEGORY, normalizeCategory } = require('../categories');
+const { THEMED_POST_MAX_CHARS, normalizeTheme, normalizeFont } = require('../themes');
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -16,10 +17,15 @@ router.post('/', async (req, res) => {
     return res.status(400).json({ error: 'Le post doit contenir du texte ou un média' });
   }
 
+  // Fond coloré : uniquement pour un post texte court, sans média
+  let theme = normalizeTheme(req.body.theme);
+  if (theme && (media_url || !content?.trim() || content.trim().length > THEMED_POST_MAX_CHARS)) theme = null;
+  const font = theme ? normalizeFont(req.body.font) : null;
+
   const id = uuid();
   await db
-    .prepare('INSERT INTO posts (id, user_id, content, media_url, media_type, category) VALUES (?, ?, ?, ?, ?, ?)')
-    .run(id, req.user.id, content?.trim() || null, media_url || null, media_type || null, normalizeCategory(req.body.category));
+    .prepare('INSERT INTO posts (id, user_id, content, media_url, media_type, category, theme, font) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(id, req.user.id, content?.trim() || null, media_url || null, media_type || null, normalizeCategory(req.body.category), theme, font);
 
   await notifyMentions(req.app.get('io'), { text: content, actorId: req.user.id, postId: id, where: 'post' });
 
@@ -33,8 +39,8 @@ router.post('/:id/share', async (req, res) => {
 
   const id = uuid();
   await db
-    .prepare('INSERT INTO posts (id, user_id, content, media_url, media_type, shared_from_id, category) VALUES (?, ?, ?, ?, ?, ?, ?)')
-    .run(id, req.user.id, original.content, original.media_url, original.media_type, original.id, normalizeCategory(original.category));
+    .prepare('INSERT INTO posts (id, user_id, content, media_url, media_type, shared_from_id, category, theme, font) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(id, req.user.id, original.content, original.media_url, original.media_type, original.id, normalizeCategory(original.category), original.theme || null, original.font || null);
 
   await notify(req.app.get('io'), { user_id: original.user_id, actor_id: req.user.id, type: 'share', post_id: original.id });
 
@@ -121,7 +127,7 @@ router.get('/bookmarks', async (req, res) => {
               (SELECT COUNT(*) FROM posts sp WHERE sp.shared_from_id = p.id) AS share_count,
               true AS bookmarked_by_me,
               su.username AS shared_from_username,
-              COALESCE(p.category, 'divers') AS category,
+              COALESCE(p.category, 'divers') AS category, p.theme, p.font,
               (SELECT f.status FROM follows f WHERE f.follower_id = ? AND f.followed_id = p.user_id) AS follow_status
        FROM post_bookmarks b
        JOIN posts p ON p.id = b.post_id
@@ -277,7 +283,7 @@ router.get('/', async (req, res) => {
               (SELECT COUNT(*) FROM posts sp WHERE sp.shared_from_id = p.id) AS share_count,
               EXISTS(SELECT 1 FROM post_bookmarks b WHERE b.post_id = p.id AND b.user_id = ?) AS bookmarked_by_me,
               su.username AS shared_from_username,
-              COALESCE(p.category, 'divers') AS category,
+              COALESCE(p.category, 'divers') AS category, p.theme, p.font,
               (SELECT f.status FROM follows f WHERE f.follower_id = ? AND f.followed_id = p.user_id) AS follow_status
        FROM posts p
        JOIN users u ON u.id = p.user_id
@@ -303,7 +309,7 @@ router.get('/:id', async (req, res) => {
               (SELECT COUNT(*) FROM posts sp WHERE sp.shared_from_id = p.id) AS share_count,
               EXISTS(SELECT 1 FROM post_bookmarks b WHERE b.post_id = p.id AND b.user_id = ?) AS bookmarked_by_me,
               su.username AS shared_from_username,
-              COALESCE(p.category, 'divers') AS category,
+              COALESCE(p.category, 'divers') AS category, p.theme, p.font,
               (SELECT f.status FROM follows f WHERE f.follower_id = ? AND f.followed_id = p.user_id) AS follow_status
        FROM posts p
        JOIN users u ON u.id = p.user_id
@@ -323,6 +329,9 @@ router.patch('/:id', async (req, res) => {
   if (post.user_id !== req.user.id) return res.status(403).json({ error: 'Non autorisé' });
   const content = (req.body.content || '').trim();
   if (!content && !post.media_url) return res.status(400).json({ error: 'Le post ne peut pas être vide' });
+  if (post.theme && content.length > THEMED_POST_MAX_CHARS) {
+    return res.status(400).json({ error: `Un post avec fond est limité à ${THEMED_POST_MAX_CHARS} caractères` });
+  }
   await db.prepare('UPDATE posts SET content = ? WHERE id = ?').run(content || null, req.params.id);
   res.json({ ok: true });
 });
@@ -359,7 +368,7 @@ async function getPostById(id) {
       `SELECT p.id, p.user_id, u.username, u.avatar_url, u.badge, u.role, u.first_name, u.last_name, p.content, p.media_url, p.media_type, p.created_at,
               0 AS like_count, false AS liked_by_me, 0 AS comment_count, 0 AS share_count,
               false AS bookmarked_by_me, su.username AS shared_from_username,
-              COALESCE(p.category, 'divers') AS category, NULL AS follow_status
+              COALESCE(p.category, 'divers') AS category, p.theme, p.font, NULL AS follow_status
        FROM posts p
        JOIN users u ON u.id = p.user_id
        LEFT JOIN posts so ON so.id = p.shared_from_id

@@ -24,6 +24,9 @@ export interface FeedPost {
   savedByMe: boolean;
   sharedFrom: string | null;
   category: string;
+  /** Fond coloré (post texte) : identifiant de thème ou couleur « #rrggbb ». */
+  theme: string | null;
+  font: string | null;
   /** Relation de l'auteur avec moi : « none », « pending » (demande envoyée) ou « accepted » (abonné). */
   followStatus: Relationship;
 }
@@ -56,6 +59,8 @@ interface RawPost extends RawAuthor {
   bookmarked_by_me: boolean;
   shared_from_username: string | null;
   category?: string | null;
+  theme?: string | null;
+  font?: string | null;
   follow_status?: string | null;
 }
 
@@ -75,6 +80,8 @@ function shape(r: RawPost): FeedPost {
     savedByMe: !!r.bookmarked_by_me,
     sharedFrom: r.shared_from_username,
     category: r.category || "divers",
+    theme: r.theme || null,
+    font: r.font || null,
     followStatus: r.follow_status === "accepted" || r.follow_status === "pending" ? r.follow_status : "none",
   };
 }
@@ -113,10 +120,10 @@ export async function fetchHashtagPosts(tag: string): Promise<FeedPost[]> {
   return (await api<RawPost[]>(`/posts?hashtag=${encodeURIComponent(tag.replace(/^#/, ""))}`)).map(shape);
 }
 
-export async function createPost(input: { content: string; imageUrl?: string | null; mediaType?: string | null; category?: string }) {
+export async function createPost(input: { content: string; imageUrl?: string | null; mediaType?: string | null; category?: string; theme?: string | null; font?: string | null }) {
   await api("/posts", {
     method: "POST",
-    body: { content: input.content, media_url: input.imageUrl ?? null, media_type: input.mediaType ?? null, category: input.category ?? "divers" },
+    body: { content: input.content, media_url: input.imageUrl ?? null, media_type: input.mediaType ?? null, category: input.category ?? "divers", theme: input.theme ?? null, font: input.font ?? null },
   });
 }
 

@@ -1,4 +1,4 @@
-import { Heart, MessageCircle, Repeat2, Bookmark, MoreHorizontal, Trash2, Pencil, Loader2, Send, X, EyeOff, Flag, Ban, UserPlus, UserMinus, UserCheck, ThumbsDown } from "lucide-react";
+import { Heart, MessageCircle, Repeat2, Bookmark, MoreHorizontal, Trash2, Pencil, Loader2, Send, X, EyeOff, Flag, Ban, Share2, Copy, UserPlus, UserMinus, UserCheck, ThumbsDown } from "lucide-react";
 import { useRef, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -6,6 +6,8 @@ import { toast } from "sonner";
 import { RichText } from "@/components/RichText";
 import { BadgeList } from "@/components/KalBadge";
 import { ReportSheet } from "@/components/ReportSheet";
+import { ThemedText } from "@/components/ThemedText";
+import { copyLink, publicUrl, shareLink } from "@/lib/share";
 import { hidePost, unhidePost, type ReportTarget } from "@/lib/reports";
 import { blockUser } from "@/lib/settings";
 import { categoryOf, DEFAULT_CATEGORY, muteCategory, unmuteCategory } from "@/lib/categories";
@@ -366,6 +368,24 @@ export function PostCard({ post, detail = false }: { post: FeedPost; detail?: bo
                   <>
                     <button aria-label="Fermer" className="fixed inset-0 z-40 cursor-default" onClick={() => setMenuOpen(false)} />
                     <div className="absolute right-0 z-50 mt-1 w-60 overflow-hidden rounded-xl border border-border bg-card shadow-xl">
+                      <button
+                        onClick={() => {
+                          setMenuOpen(false);
+                          void shareLink({ url: publicUrl(`/post/${post.id}`), title: `Publication de @${author?.username ?? "kalchat"}`, text: post.content?.slice(0, 100) || undefined });
+                        }}
+                        className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-foreground hover:bg-secondary"
+                      >
+                        <Share2 className="h-4 w-4" /> Partager le lien
+                      </button>
+                      <button
+                        onClick={() => {
+                          setMenuOpen(false);
+                          void copyLink(publicUrl(`/post/${post.id}`));
+                        }}
+                        className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-foreground hover:bg-secondary"
+                      >
+                        <Copy className="h-4 w-4" /> Copier le lien
+                      </button>
                       {isMine && (
                         <button
                           onClick={() => {
@@ -486,7 +506,9 @@ export function PostCard({ post, detail = false }: { post: FeedPost; detail?: bo
               </div>
             </div>
           ) : (
-            post.content && (() => {
+            post.content && post.theme && !post.image_url ? (
+              <div className="mt-2"><ThemedText text={post.content} theme={post.theme} font={post.font} /></div>
+            ) : post.content && (() => {
               const { text, truncated } = detail ? { text: post.content, truncated: false } : previewOf(post.content);
               return (
                 <p className={`mt-1.5 whitespace-pre-line break-words leading-relaxed text-foreground ${detail ? "text-base" : "text-sm"}`}>

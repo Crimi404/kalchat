@@ -331,3 +331,33 @@ export function joinConversation(id: string): () => void {
     socket?.emit("leave", id);
   };
 }
+
+// ---------- Lien d'invitation d'un groupe ----------
+export interface InvitePreview {
+  id: string;
+  name: string;
+  avatar_url: string | null;
+  member_count: number;
+  is_member: boolean;
+}
+
+export async function fetchGroupInvite(conversationId: string): Promise<string | null> {
+  return (await api<{ token: string | null }>(`/chat/conversations/${conversationId}/invite`)).token;
+}
+
+/** Crée le lien, ou en génère un nouveau (l'ancien cesse de fonctionner). */
+export async function createGroupInvite(conversationId: string): Promise<string> {
+  return (await api<{ token: string }>(`/chat/conversations/${conversationId}/invite`, { method: "POST" })).token;
+}
+
+export async function revokeGroupInvite(conversationId: string) {
+  await api(`/chat/conversations/${conversationId}/invite`, { method: "DELETE" });
+}
+
+export async function fetchInvitePreview(token: string): Promise<InvitePreview> {
+  return api<InvitePreview>(`/chat/invite/${encodeURIComponent(token)}`);
+}
+
+export async function joinGroupByInvite(token: string): Promise<{ conversation_id: string }> {
+  return api<{ conversation_id: string }>(`/chat/invite/${encodeURIComponent(token)}/join`, { method: "POST" });
+}

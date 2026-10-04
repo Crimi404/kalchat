@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const express = require('express');
 const { v4: uuid } = require('uuid');
 const db = require('../db');
@@ -573,6 +574,74 @@ router.delete('/messages/:id', async (req, res) => {
   await db.prepare('DELETE FROM messages WHERE id = ?').run(req.params.id);
   req.app.get('io')?.to(m.conversation_id).emit('message_deleted', { conversation_id: m.conversation_id, message_id: m.id });
   res.json({ ok: true });
+});
+
+// ---------- Lien d'invitation d'un groupe ----------
+function newInviteToken() {
+  return crypto.randomBytes(16).toString('base64url');
+}
+
+async function requireGroupAdmin(req, res) {
+  const me = await getMembership(req.params.id, req.user.id);
+  if (!me) { res.status(403).json({ error: 'Accès refusé' }); return null; }
+  const conv = await db.prepare('SELECT id, is_group, invite_token FROM conversations WHERE id = ?').get(req.params.id);
+  if (!conv || !conv.is_group) { res.status(404).json({ error: 'Groupe introuvable' }); return null; }
+  if (!me.is_admin) { res.status(403).json({ error: 'Seuls les administrateurs du groupe gèrent le lien d\'invitation' }); return null; }
+  return conv;
+}
+
+// Lire le lien actuel (null s'il n'existe pas)
+router.get('/conversations/:id/invite', async (req, res) => {
+  const conv = await requireGroupAdmin(req, res);
+  if (!conv) return;
+  res.json({ token: conv.invite_token || null });
+});
+
+// Créer le lien, ou en générer un nouveau (l'ancien cesse alors de fonctionner)
+router.post('/conversations/:id/invite', async (req, res) => {
+  const conv = await requireGroupAdmin(req, res);
+  if (!conv) return;
+  const token = newInviteToken();
+  await db.prepare('UPDATE conversations SET invite_token = ? WHERE id = ?').run(token, req.params.id);
+  res.json({ token });
+});
+
+// Désactiver le lien
+router.delete('/conversations/:id/invite', async (req, res) => {
+  const conv = await requireGroupAdmin(req, res);
+  if (!conv) return;
+  await db.prepare('UPDATE conversations SET invite_token = NULL WHERE id = ?').run(req.params.id);
+  res.json({ token: null });
+});
+
+// Aperçu d'un groupe à partir d'un lien (pour la page « Rejoindre »)
+router.get('/invite/:token', async (req, res) => {
+  const conv = await db
+    .prepare('SELECT id, name, avatar_url FROM conversations WHERE invite_token = ? AND is_group = 1')
+    .get(String(req.params.token || ''));
+  if (!conv) return res.status(404).json({ error: 'Ce lien d\'invitation n\'est plus valide' });
+  const count = await db.prepare('SELECT COUNT(*) AS n FROM conversation_members WHERE conversation_id = ?').get(conv.id);
+  const member = await getMembership(conv.id, req.user.id);
+  res.json({ id: conv.id, name: conv.name, avatar_url: conv.avatar_url, member_count: count.n, is_member: !!member });
+});
+
+// Rejoindre un groupe avec le lien
+router.post('/invite/:token/join', async (req, res) => {
+  const conv = await db
+    .prepare('SELECT id, name FROM conversations WHERE invite_token = ? AND is_group = 1')
+    .get(String(req.params.token || ''));
+  if (!conv) return res.status(404).json({ error: 'Ce lien d\'invitation n\'est plus valide' });
+
+  if (await getMembership(conv.id, req.user.id)) return res.json({ conversation_id: conv.id, already: true });
+
+  const count = await db.prepare('SELECT COUNT(*) AS n FROM conversation_members WHERE conversation_id = ?').get(conv.id);
+  if (count.n >= MAX_GROUP_MEMBERS) return res.status(400).json({ error: `Ce groupe est complet (${MAX_GROUP_MEMBERS} membres maximum)` });
+
+  const io = req.app.get('io');
+  await db.prepare('INSERT INTO conversation_members (conversation_id, user_id) VALUES (?, ?) ON CONFLICT DO NOTHING').run(conv.id, req.user.id);
+  await addSystemMessage(io, conv.id, req.user.id, `${await nameOf(req.user.id)} a rejoint le groupe via le lien d'invitation`);
+  await pingMembers(io, conv.id);
+  res.json({ conversation_id: conv.id });
 });
 
 module.exports = router;

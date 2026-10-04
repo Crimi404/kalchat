@@ -1,11 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Ban, Bookmark, CalendarDays, Flag, Grid3x3, Loader2, MapPin, Pencil, Settings } from "lucide-react";
+import { Ban, Bookmark, CalendarDays, Flag, Grid3x3, Loader2, MapPin, Pencil, Settings, Share2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { blockUser, unblockUser } from "@/lib/settings";
 import { BadgeList } from "@/components/KalBadge";
 import { PostCard } from "@/components/PostCard";
 import { ReportSheet } from "@/components/ReportSheet";
+import { publicUrl, shareLink } from "@/lib/share";
 import { useAuth } from "@/lib/auth";
 import { uploadMedia } from "@/lib/media";
 import { getOrCreateConversation } from "@/lib/chat";
@@ -115,7 +116,14 @@ export function ProfileView({ username }: { username: string }) {
               </span>
             )}
           </span>
-          <div className="pb-2">
+          <div className="flex items-center gap-2 pb-2">
+            <button
+              aria-label="Partager le profil"
+              onClick={() => void shareLink({ url: publicUrl(`/u/${p.username}`), title: `${p.display_name} sur Kalchat`, text: `Retrouve @${p.username} sur Kalchat` })}
+              className="rounded-full border border-border bg-card p-2 hover:bg-secondary"
+            >
+              <Share2 className="h-4 w-4" />
+            </button>
             {isMe ? (
               <div className="flex items-center gap-2">
                 <Link to="/parametres" aria-label="Paramètres" className="rounded-full border border-border bg-card p-2 hover:bg-secondary">

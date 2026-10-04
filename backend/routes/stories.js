@@ -3,6 +3,7 @@ const { v4: uuid } = require('uuid');
 const db = require('../db');
 const authMiddleware = require('../middleware/auth');
 const { deleteFileByUrl } = require('../storage');
+const { normalizeTheme, normalizeFont } = require('../themes');
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -14,13 +15,17 @@ router.post('/', async (req, res) => {
   const { media_url, media_type, caption, shared_from_id } = req.body;
   if (!media_url && !caption?.trim()) return res.status(400).json({ error: 'Une story doit contenir une photo, une vidéo ou du texte' });
 
+  // Fond et police : uniquement pour une story texte (sans photo ni vidéo)
+  const theme = media_url ? null : normalizeTheme(req.body.theme);
+  const font = media_url ? null : normalizeFont(req.body.font);
+
   const id = uuid();
   await db
     .prepare(
-      `INSERT INTO stories (id, user_id, media_url, media_type, caption, shared_from_id, expires_at)
-       VALUES (?, ?, ?, ?, ?, ?, NOW() + INTERVAL '${LIFETIME_HOURS} hours')`
+      `INSERT INTO stories (id, user_id, media_url, media_type, caption, shared_from_id, theme, font, expires_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW() + INTERVAL '${LIFETIME_HOURS} hours')`
     )
-    .run(id, req.user.id, media_url || '', media_type || null, caption?.trim() || null, shared_from_id || null);
+    .run(id, req.user.id, media_url || '', media_type || null, caption?.trim() || null, shared_from_id || null, theme, font);
 
   const story = await db.prepare('SELECT * FROM stories WHERE id = ?').get(id);
   res.status(201).json(story);
@@ -34,10 +39,10 @@ router.post('/:id/share', async (req, res) => {
   const id = uuid();
   await db
     .prepare(
-      `INSERT INTO stories (id, user_id, media_url, media_type, caption, shared_from_id, expires_at)
-       VALUES (?, ?, ?, ?, ?, ?, NOW() + INTERVAL '${LIFETIME_HOURS} hours')`
+      `INSERT INTO stories (id, user_id, media_url, media_type, caption, shared_from_id, theme, font, expires_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW() + INTERVAL '${LIFETIME_HOURS} hours')`
     )
-    .run(id, req.user.id, original.media_url, original.media_type, original.caption, original.id);
+    .run(id, req.user.id, original.media_url, original.media_type, original.caption, original.id, original.theme || null, original.font || null);
 
   const story = await db.prepare('SELECT * FROM stories WHERE id = ?').get(id);
   res.status(201).json(story);
@@ -106,7 +111,7 @@ router.get('/feed', async (req, res) => {
 
   const rows = await db
     .prepare(
-      `SELECT s.id, s.user_id, u.username, u.avatar_url, u.badge, u.role, u.first_name, u.last_name, s.media_url, s.media_type, s.caption, s.created_at, s.expires_at,
+      `SELECT s.id, s.user_id, u.username, u.avatar_url, u.badge, u.role, u.first_name, u.last_name, s.media_url, s.media_type, s.caption, s.theme, s.font, s.created_at, s.expires_at,
               EXISTS(SELECT 1 FROM story_views v WHERE v.story_id = s.id AND v.viewer_id = ?) AS viewed_by_me,
               (SELECT COUNT(*) FROM story_likes l WHERE l.story_id = s.id) AS like_count,
               EXISTS(SELECT 1 FROM story_likes l WHERE l.story_id = s.id AND l.user_id = ?) AS liked_by_me,
