@@ -5,6 +5,7 @@ import { AuthProvider } from "@/lib/auth";
 import { Toaster } from "@/components/ui/sonner";
 import { PresenceProvider } from "@/lib/presence";
 import { ThemeProvider } from "@/lib/theme";
+import { GuestPrompt } from "@/components/GuestPrompt";
 
 function NotFoundComponent() {
   return (
@@ -79,6 +80,7 @@ function RootComponent() {
           <PresenceProvider>
             {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
             <Outlet />
+            <GuestPrompt />
             <Toaster position="top-center" richColors />
           </PresenceProvider>
         </ThemeProvider>

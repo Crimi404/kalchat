@@ -63,4 +63,31 @@ async function deleteFileByUrl(url) {
   if (error) console.error('Erreur suppression fichier Supabase Storage:', error.message);
 }
 
-module.exports = { initStorage, uploadFile, mediaTypeFromMimetype, deleteFileByUrl };
+// ---------- Liste les fichiers à la racine du bucket (avec taille et date d'envoi) ----------
+async function listAllFiles() {
+  const files = [];
+  const PAGE = 1000;
+  for (let offset = 0; ; offset += PAGE) {
+    const { data, error } = await supabase.storage.from(BUCKET).list('', { limit: PAGE, offset, sortBy: { column: 'name', order: 'asc' } });
+    if (error) throw error;
+    for (const f of data || []) {
+      if (!f.id) continue; // dossiers / marqueurs
+      files.push({ name: f.name, size: Number(f.metadata?.size || 0), created_at: f.created_at ? new Date(f.created_at) : null });
+    }
+    if (!data || data.length < PAGE) break;
+  }
+  return files;
+}
+
+async function deleteFilesByName(names) {
+  let removed = 0;
+  for (let i = 0; i < names.length; i += 100) {
+    const batch = names.slice(i, i + 100);
+    const { error } = await supabase.storage.from(BUCKET).remove(batch);
+    if (error) console.error('Erreur suppression fichiers Supabase Storage:', error.message);
+    else removed += batch.length;
+  }
+  return removed;
+}
+
+module.exports = { initStorage, uploadFile, mediaTypeFromMimetype, deleteFileByUrl, extractFilenameFromUrl, listAllFiles, deleteFilesByName };

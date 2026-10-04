@@ -1,5 +1,6 @@
 const express = require('express');
 const db = require('../db');
+const { sweepOrphanFiles } = require('../mediaCleanup');
 const authMiddleware = require('../middleware/auth');
 const staffMiddleware = require('../middleware/staff');
 const { notify } = require('../notify');
@@ -161,6 +162,31 @@ router.patch('/reports/:id', async (req, res) => {
     .prepare("UPDATE reports SET status = ?, handled_by = ?, handled_at = NOW() WHERE target_type = ? AND target_id = ? AND status = 'open'")
     .run(status, req.user.id, report.target_type, report.target_id);
   res.json({ ok: true });
+});
+
+// ---------- Stockage : état du bucket et nettoyage des fichiers orphelins (administrateurs) ----------
+async function requireAdmin(req, res) {
+  const me = await db.prepare('SELECT is_admin FROM users WHERE id = ?').get(req.user.id);
+  if (!me?.is_admin) { res.status(403).json({ error: 'Réservé aux administrateurs' }); return false; }
+  return true;
+}
+
+router.get('/storage', async (req, res) => {
+  if (!(await requireAdmin(req, res))) return;
+  try {
+    res.json(await sweepOrphanFiles({ dryRun: true }));
+  } catch (err) {
+    res.status(500).json({ error: `Stockage inaccessible : ${err.message}` });
+  }
+});
+
+router.post('/storage/cleanup', async (req, res) => {
+  if (!(await requireAdmin(req, res))) return;
+  try {
+    res.json(await sweepOrphanFiles());
+  } catch (err) {
+    res.status(500).json({ error: `Nettoyage impossible : ${err.message}` });
+  }
 });
 
 module.exports = router;

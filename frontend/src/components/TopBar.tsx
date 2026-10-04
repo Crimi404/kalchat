@@ -8,6 +8,7 @@ import { useAuth } from "@/lib/auth";
 import { api } from "@/lib/api";
 import { searchUsers } from "@/lib/social";
 import { BadgeList } from "@/components/KalBadge";
+import { openGuestPrompt } from "@/lib/guest";
 
 function AccountMenu() {
   const { user, profile, loading, isStaff, signOut } = useAuth();
@@ -23,7 +24,7 @@ function AccountMenu() {
         to="/auth"
         className="brand-gradient rounded-full px-4 py-2 text-xs font-semibold text-primary-foreground"
       >
-        Connexion
+        Se connecter
       </Link>
     );
   }
@@ -166,6 +167,7 @@ function SearchPanel({ onClose }: { onClose: () => void }) {
 
 export function TopBar({ title, subtitle }: { title: string; subtitle?: string }) {
   const [searching, setSearching] = useState(false);
+  const { user } = useAuth();
   return (
     <header className="sticky top-0 z-30 flex items-center justify-between border-b border-border bg-background/90 px-4 py-3 backdrop-blur-xl">
       <div className="flex items-center gap-2">
@@ -176,7 +178,7 @@ export function TopBar({ title, subtitle }: { title: string; subtitle?: string }
         </div>
       </div>
       <div className="flex items-center gap-1">
-        <button aria-label="Rechercher" onClick={() => setSearching((v) => !v)} className="rounded-full p-2 text-foreground transition-colors hover:bg-secondary">
+        <button aria-label="Rechercher" onClick={() => (user ? setSearching((v) => !v) : openGuestPrompt("search"))} className="rounded-full p-2 text-foreground transition-colors hover:bg-secondary">
           <Search className="h-5 w-5" />
         </button>
         <NotifBell />

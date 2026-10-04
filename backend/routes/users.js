@@ -6,6 +6,7 @@ const authMiddleware = require('../middleware/auth');
 const { notify } = require('../notify');
 const { isBlockedEitherWay } = require('../blocks');
 const { USERNAME_RE, nextUsernameChangeAt } = require('../usernamePolicy');
+const { releaseMedia, releaseMany } = require('../mediaCleanup');
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -31,6 +32,7 @@ async function canMessage(aId, bId) {
 // ---------- Mon propre profil (édition) ----------
 router.patch('/me', async (req, res) => {
   const { bio, avatar_url, cover_url, location, status_text, first_name, last_name } = req.body;
+  const before = await db.prepare('SELECT avatar_url, cover_url FROM users WHERE id = ?').get(req.user.id);
   await db
     .prepare(
       `UPDATE users SET
@@ -44,6 +46,9 @@ router.patch('/me', async (req, res) => {
   const user = await db
     .prepare('SELECT id, username, avatar_url, cover_url, location, bio, status_text, badge, role, first_name, last_name, created_at FROM users WHERE id = ?')
     .get(req.user.id);
+  // Les anciennes photos remplacées ne servent plus : on les retire du stockage
+  if (before?.avatar_url && before.avatar_url !== user.avatar_url) await releaseMedia(before.avatar_url);
+  if (before?.cover_url && before.cover_url !== user.cover_url) await releaseMedia(before.cover_url);
   res.json(user);
 });
 
@@ -133,12 +138,22 @@ router.delete('/me', async (req, res) => {
       }
     }
 
+    // Fichiers de l'utilisateur à retirer du stockage une fois son compte supprimé
+    const ownUrls = [
+      ...(await db.prepare('SELECT media_url AS url FROM posts WHERE user_id = ? AND media_url IS NOT NULL').all(user.id)),
+      ...(await db.prepare("SELECT media_url AS url FROM stories WHERE user_id = ? AND media_url IS NOT NULL AND media_url != ''").all(user.id)),
+      ...(await db.prepare('SELECT media_url AS url FROM messages WHERE sender_id = ? AND media_url IS NOT NULL').all(user.id)),
+      ...(await db.prepare('SELECT avatar_url AS url FROM users WHERE id = ? AND avatar_url IS NOT NULL').all(user.id)),
+      ...(await db.prepare('SELECT cover_url AS url FROM users WHERE id = ? AND cover_url IS NOT NULL').all(user.id)),
+    ].map((r) => r.url);
+
     // Conversations privées supprimées ; les groupes créés par lui restent (sans créateur)
     await db.prepare('DELETE FROM conversations WHERE is_group = 0 AND id IN (SELECT conversation_id FROM conversation_members WHERE user_id = ?)').run(user.id);
     await db.prepare('UPDATE conversations SET created_by = NULL WHERE created_by = ?').run(user.id);
     await db.prepare('DELETE FROM users WHERE id = ?').run(user.id);
     // Groupes devenus vides
     await db.prepare('DELETE FROM conversations WHERE id NOT IN (SELECT DISTINCT conversation_id FROM conversation_members)').run();
+    await releaseMany(ownUrls);
 
     req.app.get('io')?.in(`user:${user.id}`).disconnectSockets(true);
     void req.app.get('broadcastPresence')?.();

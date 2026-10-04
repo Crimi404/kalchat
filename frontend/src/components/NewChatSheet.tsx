@@ -41,7 +41,7 @@ export function NewChatSheet({ onClose }: { onClose: () => void }) {
 
   const create = useMutation({
     mutationFn: async () => {
-      const avatarUrl = photo ? (await uploadMedia(photo)).url : null;
+      const avatarUrl = photo ? (await uploadMedia(photo, { maxSide: 640 })).url : null;
       return createGroup({ name: groupName.trim(), memberIds: selected.map((s) => s.id), avatarUrl });
     },
     onSuccess: (id) => {

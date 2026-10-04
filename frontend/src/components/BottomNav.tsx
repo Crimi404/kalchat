@@ -5,15 +5,16 @@ import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { fetchUnreadTotal } from "@/lib/chat";
 import { CreateMenu } from "./CreateMenu";
+import { openGuestPrompt, type GuestReason } from "@/lib/guest";
 
 const items = [
-  { to: "/", label: "Accueil", icon: Home },
-  { to: "/explorer", label: "Explorer", icon: Compass },
+  { to: "/", label: "Accueil", icon: Home, guest: null },
+  { to: "/explorer", label: "Explorer", icon: Compass, guest: "explore" },
 ] as const;
 
 const itemsRight = [
-  { to: "/messages", label: "Messages", icon: MessageCircle, badge: 0 },
-  { to: "/profil", label: "Profil", icon: User },
+  { to: "/messages", label: "Messages", icon: MessageCircle, badge: 0, guest: "message" },
+  { to: "/profil", label: "Profil", icon: User, guest: "profile" },
 ] as const;
 
 export function BottomNav() {
@@ -29,6 +30,13 @@ export function BottomNav() {
       <Link
         key={item.to}
         to={item.to}
+        onClick={(e) => {
+          // Visiteur non connecté : invitation à se connecter au lieu d'ouvrir la page
+          if (!user && item.guest) {
+            e.preventDefault();
+            openGuestPrompt(item.guest as GuestReason);
+          }
+        }}
         className="relative flex flex-col items-center gap-0.5 px-3 py-1"
       >
         <span className="relative">
@@ -58,7 +66,7 @@ export function BottomNav() {
         <div className="flex items-end justify-around px-2 pt-2">
           {items.map(renderItem)}
           <button
-            onClick={() => setCreateOpen(true)}
+            onClick={() => (user ? setCreateOpen(true) : openGuestPrompt("create"))}
             aria-label="Créer"
             className="brand-gradient glow-primary -mt-6 flex h-14 w-14 items-center justify-center rounded-full text-primary-foreground transition-transform active:scale-90"
           >

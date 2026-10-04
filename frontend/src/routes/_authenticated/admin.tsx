@@ -28,6 +28,12 @@ export const Route = createFileRoute("/_authenticated/admin")({
 
 type Member = { id: string; username: string; display_name: string; avatar_url: string | null; is_suspended: boolean; is_admin: boolean; role: string; badge: string | null; badges: BadgeRow[] };
 
+type StorageInfo = { total_files: number; total_bytes: number; orphan_files: number; orphan_bytes: number; removed: number };
+
+function mo(bytes: number) {
+  return `${(bytes / 1024 / 1024).toFixed(1)} Mo`;
+}
+
 type Stats = { users: number; online: number; messages: number; posts: number; comments: number; photos: number; videos: number; blocked: number; open_reports: number };
 
 type Report = {
@@ -71,6 +77,8 @@ function AdminPage() {
   const [warn, setWarn] = useState("");
   const [tab, setTab] = useState<"members" | "reports">("members");
   const [closed, setClosed] = useState(false);
+  const [storage, setStorage] = useState<StorageInfo | null>(null);
+  const [storageBusy, setStorageBusy] = useState(false);
 
   const online = useOnline();
 
@@ -201,6 +209,43 @@ function AdminPage() {
             </div>
           ))}
         </div>}
+        {tab === "members" && isAdmin && (
+          <div className="rounded-2xl border border-border bg-card p-3">
+            <p className="text-sm font-semibold">Stockage des médias</p>
+            {storage && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                {storage.total_files} fichier{storage.total_files > 1 ? "s" : ""} ({mo(storage.total_bytes)}) ·{" "}
+                {storage.removed > 0
+                  ? `${storage.removed} fichier(s) inutile(s) supprimé(s)`
+                  : storage.orphan_files > 0
+                    ? `${storage.orphan_files} fichier(s) inutile(s) (${mo(storage.orphan_bytes)})`
+                    : "aucun fichier inutile"}
+              </p>
+            )}
+            <div className="mt-2 flex gap-2">
+              <button
+                disabled={storageBusy}
+                className={btn}
+                onClick={async () => {
+                  setStorageBusy(true);
+                  try { setStorage(await api<StorageInfo>("/admin/storage")); } catch (e) { toast.error((e as Error).message); } finally { setStorageBusy(false); }
+                }}
+              >
+                Vérifier
+              </button>
+              <button
+                disabled={storageBusy || (storage !== null && storage.orphan_files === 0)}
+                className={btn}
+                onClick={async () => {
+                  setStorageBusy(true);
+                  try { setStorage(await api<StorageInfo>("/admin/storage/cleanup", { method: "POST" })); toast.success("Stockage nettoyé"); } catch (e) { toast.error((e as Error).message); } finally { setStorageBusy(false); }
+                }}
+              >
+                Nettoyer
+              </button>
+            </div>
+          </div>
+        )}
         {stats.isError && <p className="text-xs text-destructive">Statistiques indisponibles : {(stats.error as Error).message}</p>}
         {tab === "members" && members.isError && <p className="text-xs text-destructive">Impossible de charger les membres : {(members.error as Error).message}</p>}
         {tab === "members" && members.isSuccess && members.data.length === 0 && <p className="py-6 text-center text-sm text-muted-foreground">Aucun membre trouvé.</p>}

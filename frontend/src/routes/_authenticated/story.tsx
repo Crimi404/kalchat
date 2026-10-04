@@ -31,6 +31,7 @@ function NewStory() {
   const [busy, setBusy] = useState(false);
   const [theme, setTheme] = useState<string>("kalchat");
   const [font, setFont] = useState(DEFAULT_FONT);
+  const [hours, setHours] = useState(24);
   const themeStyle = resolveTheme(theme) ?? resolveTheme("kalchat")!;
 
   async function submit() {
@@ -39,7 +40,7 @@ function NewStory() {
     setBusy(true);
     try {
       const media = file ? await uploadMedia(file) : null;
-      await createStory({ content: text.slice(0, 300), image_url: media?.url, media_type: media?.type, theme: media ? null : theme, font: media ? null : font });
+      await createStory({ content: text.slice(0, 300), image_url: media?.url, media_type: media?.type, theme: media ? null : theme, font: media ? null : font, duration_hours: hours });
       await qc.invalidateQueries({ queryKey: ["stories"] });
       toast.success("Story publiée");
       nav({ to: "/" });
@@ -52,7 +53,7 @@ function NewStory() {
 
   return (
     <div className="app-shell">
-      <TopBar title="Nouvelle story" subtitle="Visible pendant 24 h" />
+      <TopBar title="Nouvelle story" subtitle={`Visible pendant ${hours} h`} />
       <main className="space-y-4 p-4 pb-28">
         {file ? (
           <textarea value={text} onChange={(e) => setText(e.target.value)} maxLength={300} rows={3}
@@ -93,6 +94,22 @@ function NewStory() {
             }} />
           </label>
         )}
+        <div>
+          <p className="mb-2 text-xs font-semibold text-muted-foreground">Durée de la story</p>
+          <div className="grid grid-cols-3 gap-2">
+            {[6, 12, 24].map((h) => (
+              <button
+                key={h}
+                type="button"
+                onClick={() => setHours(h)}
+                aria-pressed={hours === h}
+                className={`rounded-xl border py-2 text-sm font-semibold ${hours === h ? "border-primary bg-primary/15 text-foreground" : "border-border bg-secondary/40 text-muted-foreground hover:bg-secondary"}`}
+              >
+                {h} h
+              </button>
+            ))}
+          </div>
+        </div>
         <button disabled={busy} onClick={submit} className="brand-gradient glow-primary flex w-full items-center justify-center gap-2 rounded-xl py-3 text-sm font-bold text-primary-foreground disabled:opacity-60">
           {busy && <Loader2 className="h-4 w-4 animate-spin" />} Publier la story
         </button>

@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { RichText } from "@/components/RichText";
 import { BadgeList } from "@/components/KalBadge";
 import { ReportSheet } from "@/components/ReportSheet";
+import { openGuestPrompt, type GuestReason } from "@/lib/guest";
 import { ThemedText } from "@/components/ThemedText";
 import { copyLink, publicUrl, shareLink } from "@/lib/share";
 import { hidePost, unhidePost, type ReportTarget } from "@/lib/reports";
@@ -171,10 +172,9 @@ export function PostCard({ post, detail = false }: { post: FeedPost; detail?: bo
 
   const invalidate = () => queryClient.invalidateQueries();
 
-  function requireAuth() {
+  function requireAuth(reason: GuestReason = "generic") {
     if (user) return true;
-    toast.info("Connecte-toi pour interagir");
-    navigate({ to: "/auth" });
+    openGuestPrompt(reason);
     return false;
   }
 
@@ -309,7 +309,7 @@ export function PostCard({ post, detail = false }: { post: FeedPost; detail?: bo
   });
 
   function startReply(c: CommentRow) {
-    if (!requireAuth()) return;
+    if (!requireAuth("comment")) return;
     const username = c.author?.username;
     // Les réponses sont toujours rattachées au commentaire racine ; on mentionne la personne à qui l'on répond
     setReplyTo({ id: c.id, username: username ?? "" });
@@ -559,7 +559,7 @@ export function PostCard({ post, detail = false }: { post: FeedPost; detail?: bo
 
           <div className={`mt-3 flex items-center justify-between text-muted-foreground ${detail ? "border-y border-border py-2.5" : ""}`}>
             <button
-              onClick={() => requireAuth() && likeMutation.mutate()}
+              onClick={() => requireAuth("like") && likeMutation.mutate()}
               className={`flex items-center gap-1.5 text-xs transition-colors ${post.likedByMe ? "text-like" : "hover:text-like"}`}
             >
               <Heart className="h-[18px] w-[18px]" fill={post.likedByMe ? "currentColor" : "none"} />
@@ -567,6 +567,7 @@ export function PostCard({ post, detail = false }: { post: FeedPost; detail?: bo
             </button>
             <button
               onClick={() => {
+                if (!requireAuth("comment")) return;
                 if (detail) commentInputRef.current?.focus();
                 else void navigate({ to: "/post/$id", params: { id: post.id } });
               }}
@@ -576,14 +577,14 @@ export function PostCard({ post, detail = false }: { post: FeedPost; detail?: bo
               {post.commentCount}
             </button>
             <button
-              onClick={() => requireAuth() && repostMutation.mutate()}
+              onClick={() => requireAuth("share") && repostMutation.mutate()}
               className="flex items-center gap-1.5 text-xs transition-colors hover:text-emerald-400"
             >
               <Repeat2 className="h-[18px] w-[18px]" />
               {post.shareCount > 0 ? post.shareCount : null}
             </button>
             <button
-              onClick={() => requireAuth() && saveMutation.mutate()}
+              onClick={() => requireAuth("save") && saveMutation.mutate()}
               aria-label="Enregistrer"
               className={`transition-colors ${post.savedByMe ? "text-primary" : "hover:text-primary"}`}
             >
@@ -607,7 +608,7 @@ export function PostCard({ post, detail = false }: { post: FeedPost; detail?: bo
                     isMine={user?.id === c.author_id}
                     canDelete={user?.id === c.author_id || isMine || isStaff}
                     onReply={() => startReply(c)}
-                    onLike={() => requireAuth() && likeCommentMutation.mutate(c.id)}
+                    onLike={() => requireAuth("like") && likeCommentMutation.mutate(c.id)}
                     onDelete={() => deleteCommentMutation.mutate(c.id)}
                     onSave={(text) => editCommentMutation.mutate({ id: c.id, text })}
                     onReport={user && user.id !== c.author_id ? () => setReporting({ type: "comment", id: c.id }) : undefined}

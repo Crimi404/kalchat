@@ -47,7 +47,7 @@ export function GroupInfoSheet({ detail, myId, onClose }: { detail: Conversation
     onError: (e: Error) => toast.error(e.message),
   });
   const changePhoto = useMutation({
-    mutationFn: async (f: File) => updateGroup(detail.id, { avatar_url: (await uploadMedia(f)).url }),
+    mutationFn: async (f: File) => updateGroup(detail.id, { avatar_url: (await uploadMedia(f, { maxSide: 640 })).url }),
     onSuccess: () => { toast.success("Photo du groupe mise à jour"); refresh(); },
     onError: (e: Error) => toast.error(e.message),
   });

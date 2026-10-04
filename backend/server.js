@@ -18,6 +18,7 @@ const reportsRoutes = require('./routes/reports');
 const db = require('./db');
 const storage = require('./storage');
 const { cleanupOldMedia, cleanupExpiredMessages } = require('./cleanup');
+const { cleanupExpiredStories, sweepOrphanFiles } = require('./mediaCleanup');
 const ai = require('./ai');
 
 const app = express();
@@ -62,6 +63,21 @@ app.post('/api/upload', handleUpload, async (req, res) => {
     console.error('Erreur upload Supabase Storage:', err.message, err);
     res.status(500).json({ error: `Échec de l'upload : ${err.message || 'erreur inconnue'}` });
   }
+});
+
+// ---------- Fil public (visiteurs non connectés) : lecture seule, sans personnalisation ----------
+// Un faux identifiant est utilisé : aucun like, favori, abonnement ni blocage ne lui correspond.
+const guestHits = new Map();
+app.get('/api/public/feed', (req, res, next) => {
+  const ip = String(req.headers['x-forwarded-for'] || req.ip || 'unknown').split(',')[0].trim();
+  const now = Date.now();
+  const recent = (guestHits.get(ip) || []).filter((t) => now - t < 60 * 1000);
+  if (recent.length >= 40) return res.status(429).json({ error: 'Trop de requêtes, réessaie dans une minute' });
+  recent.push(now);
+  guestHits.set(ip, recent);
+  if (guestHits.size > 5000) guestHits.clear();
+  req.user = { id: '__guest__' };
+  postsRoutes.listPosts(req, res).catch(next);
 });
 
 // ---------- Routes API ----------
@@ -189,6 +205,14 @@ db.initSchema()
     setInterval(() => {
       cleanupOldMedia().catch((err) => console.error('Erreur nettoyage médias:', err.message));
     }, 24 * 60 * 60 * 1000);
+    // Stories expirées : supprimées toutes les 10 minutes (avant, il fallait que quelqu'un ouvre l'appli)
+    const purgeStories = () => cleanupExpiredStories().catch((err) => console.error('Erreur stories expirées:', err.message));
+    purgeStories();
+    setInterval(purgeStories, 10 * 60 * 1000);
+    // Balayage du stockage : fichiers qui ne sont plus utilisés nulle part (anciennes suppressions, photos remplacées…)
+    const sweepStorage = () => sweepOrphanFiles().catch((err) => console.error('Erreur balayage stockage:', err.message));
+    setTimeout(sweepStorage, 2 * 60 * 1000);
+    setInterval(sweepStorage, 24 * 60 * 60 * 1000);
     // Messages éphémères : on supprime ceux dont la durée est écoulée, toutes les 5 minutes
     const purgeEphemeral = () => cleanupExpiredMessages(io).catch((err) => console.error('Erreur messages éphémères:', err.message));
     purgeEphemeral();

@@ -5,6 +5,7 @@ const authMiddleware = require('../middleware/auth');
 const { notify } = require('../notify');
 const { notifyMentions } = require('../mentions');
 const { CATEGORIES, DEFAULT_CATEGORY, normalizeCategory } = require('../categories');
+const { releaseMedia } = require('../mediaCleanup');
 const { THEMED_POST_MAX_CHARS, normalizeTheme, normalizeFont } = require('../themes');
 
 const router = express.Router();
@@ -241,7 +242,7 @@ router.patch('/comments/:commentId', async (req, res) => {
 });
 
 // ---------- Fil de publications (le plus récent en premier) ----------
-router.get('/', async (req, res) => {
+async function listPosts(req, res) {
   const { user_id, hashtag, category } = req.query;
 
   // On ne voit jamais les publications d'un compte qu'on a bloqué (ni de quelqu'un qui nous a bloqué)
@@ -295,7 +296,9 @@ router.get('/', async (req, res) => {
     )
     .all(req.user.id, req.user.id, req.user.id, ...extraParams);
   res.json(rows);
-});
+}
+router.get('/', listPosts);
+router.listPosts = listPosts; // réutilisé par le fil public (visiteurs non connectés)
 
 // ---------- Une publication (page « Post ») ----------
 router.get('/:id', async (req, res) => {
@@ -359,6 +362,7 @@ router.delete('/:id', async (req, res) => {
   }
 
   await db.prepare('DELETE FROM posts WHERE id = ?').run(req.params.id);
+  await releaseMedia(post.media_url);
   res.json({ ok: true });
 });
 

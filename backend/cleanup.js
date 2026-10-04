@@ -1,5 +1,5 @@
 const db = require('./db');
-const { deleteFileByUrl } = require('./storage');
+const { releaseMedia } = require('./mediaCleanup');
 
 // ---------- Durées de conservation (en jours) ----------
 const VIDEO_RETENTION_DAYS = 60;
@@ -19,8 +19,8 @@ async function cleanupTable(table, mediaType, days) {
     .all(mediaType, days);
 
   for (const row of rows) {
-    await deleteFileByUrl(row.media_url).catch((err) => console.error(`Erreur suppression média ${table}#${row.id}:`, err.message));
     await db.prepare(`UPDATE ${table} SET media_url = NULL, media_type = ? WHERE id = ?`).run(`${mediaType}_expired`, row.id);
+    await releaseMedia(row.media_url);
   }
 
   if (rows.length > 0) {
@@ -40,8 +40,8 @@ async function cleanupExpiredMessages(io) {
     .prepare('SELECT id, conversation_id, media_url FROM messages WHERE expires_at IS NOT NULL AND expires_at < NOW() LIMIT 500')
     .all();
   for (const row of rows) {
-    if (row.media_url) await deleteFileByUrl(row.media_url).catch(() => {});
     await db.prepare('DELETE FROM messages WHERE id = ?').run(row.id);
+    await releaseMedia(row.media_url);
     io?.to(row.conversation_id).emit('message_deleted', { conversation_id: row.conversation_id, message_id: row.id });
   }
 }

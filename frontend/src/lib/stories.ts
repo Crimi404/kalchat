@@ -67,10 +67,10 @@ export async function fetchStoryGroups(uid: string): Promise<StoryGroup[]> {
   return shaped.sort((a, b) => (a.author.id === uid ? -1 : b.author.id === uid ? 1 : 0) || Number(a.allSeen) - Number(b.allSeen));
 }
 
-export async function createStory(input: { content?: string; image_url?: string | undefined; media_type?: string | undefined; theme?: string | null; font?: string | null }) {
+export async function createStory(input: { content?: string; image_url?: string | undefined; media_type?: string | undefined; theme?: string | null; font?: string | null; duration_hours?: number }) {
   await api("/stories", {
     method: "POST",
-    body: { caption: input.content?.trim() || null, media_url: input.image_url ?? null, media_type: input.media_type ?? null, theme: input.theme ?? null, font: input.font ?? null },
+    body: { caption: input.content?.trim() || null, media_url: input.image_url ?? null, media_type: input.media_type ?? null, theme: input.theme ?? null, font: input.font ?? null, duration_hours: input.duration_hours ?? 24 },
   });
 }
 

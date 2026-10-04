@@ -90,6 +90,11 @@ export async function fetchFeed(_uid?: string | null): Promise<FeedPost[]> {
   return (await api<RawPost[]>("/posts")).map(shape);
 }
 
+/** Fil public pour les visiteurs non connectés (lecture seule). */
+export async function fetchPublicFeed(): Promise<FeedPost[]> {
+  return (await api<RawPost[]>("/public/feed")).map(shape);
+}
+
 export async function fetchUserPosts(authorId: string, _uid?: string | null): Promise<FeedPost[]> {
   return (await api<RawPost[]>(`/posts?user_id=${encodeURIComponent(authorId)}`)).map(shape);
 }

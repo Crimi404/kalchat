@@ -275,7 +275,7 @@ function EditProfile({
     setSaving(true);
     try {
       const patch: ProfileUpdate = { first_name: firstName.trim(), last_name: lastName.trim(), bio, location: location.trim() };
-      if (avatar) patch.avatar_url = (await uploadMedia(avatar)).url;
+      if (avatar) patch.avatar_url = (await uploadMedia(avatar, { maxSide: 640 })).url;
       if (cover) patch.cover_url = (await uploadMedia(cover)).url;
       await updateMyProfile(patch);
       toast.success("Profil mis à jour");

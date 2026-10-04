@@ -6,6 +6,7 @@ const authMiddleware = require('../middleware/auth');
 const { notify } = require('../notify');
 const { isBlockedEitherWay } = require('../blocks');
 const ai = require('../ai');
+const { releaseMedia } = require('../mediaCleanup');
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -277,7 +278,9 @@ router.patch('/conversations/:id', async (req, res) => {
     }
   }
   if (typeof req.body.avatar_url === 'string') {
+    const before = await db.prepare('SELECT avatar_url FROM conversations WHERE id = ?').get(req.params.id);
     await db.prepare('UPDATE conversations SET avatar_url = ? WHERE id = ?').run(req.body.avatar_url || null, req.params.id);
+    if (before?.avatar_url && before.avatar_url !== (req.body.avatar_url || null)) await releaseMedia(before.avatar_url);
   }
   await pingMembers(io, req.params.id);
   res.json({ ok: true });
@@ -568,10 +571,11 @@ router.post('/messages/:id/pin', async (req, res) => {
 
 // ---------- Supprimer son propre message ----------
 router.delete('/messages/:id', async (req, res) => {
-  const m = await db.prepare('SELECT id, sender_id, conversation_id, media_type FROM messages WHERE id = ?').get(req.params.id);
+  const m = await db.prepare('SELECT id, sender_id, conversation_id, media_type, media_url FROM messages WHERE id = ?').get(req.params.id);
   if (!m) return res.status(404).json({ error: 'Message introuvable' });
   if (m.sender_id !== req.user.id || m.media_type === 'system') return res.status(403).json({ error: 'Non autorisé' });
   await db.prepare('DELETE FROM messages WHERE id = ?').run(req.params.id);
+  await releaseMedia(m.media_url);
   req.app.get('io')?.to(m.conversation_id).emit('message_deleted', { conversation_id: m.conversation_id, message_id: m.id });
   res.json({ ok: true });
 });
