@@ -5,6 +5,7 @@ import { ArrowLeft, Check, CheckCheck, ImagePlus, Loader2, Mic, Ban, Flag, MoreV
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
 import { dayKey, dayLabel } from "@/lib/dateLabel";
+import { KORA_ID, LinkifiedText, Markdown } from "@/components/Markdown";
 import { useOnline } from "@/lib/presence";
 import { BadgeList } from "@/components/KalBadge";
 import { GroupInfoSheet } from "@/components/GroupInfoSheet";
@@ -382,7 +383,7 @@ function ChatPage() {
                     ) : (
                       <img src={m.media_url} alt="" draggable={false} className="mb-1 max-h-64 rounded-xl object-cover" />
                     ))}
-                    {m.body && <p className="whitespace-pre-wrap break-words">{m.body}</p>}
+                    {m.body && (m.sender_id === KORA_ID ? <Markdown text={m.body} /> : <p className="whitespace-pre-wrap break-words"><LinkifiedText text={m.body} own={mine} /></p>)}
                     <span className={`mt-0.5 flex items-center justify-end gap-1 text-[10px] ${mine ? "text-primary-foreground/70" : "text-muted-foreground"}`}>
                       {m.pinned && <Pin className="h-3 w-3" />}
                       {m.edited && <span className="italic">modifié</span>}

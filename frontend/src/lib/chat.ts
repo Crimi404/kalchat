@@ -1,5 +1,6 @@
 import { api, displayName, getSocket, toBadges, type RawUser } from "@/lib/api";
 import type { MiniProfile } from "@/lib/social";
+import { KORA_ID, stripMarkdown } from "@/components/Markdown";
 
 export type { MiniProfile };
 
@@ -162,6 +163,7 @@ export function previewText(c: ConversationItem, myId?: string | null): string {
   if (c.lastMessage === null && !c.lastMediaType) return "Nouvelle conversation";
   if (c.lastMediaType === "system") return c.lastMessage ?? "";
   let body = (c.lastMessage ?? "").trim();
+  if (c.lastSenderId === KORA_ID) body = stripMarkdown(body);
   if (!body) {
     const labels: Record<string, string> = {
       video: "🎥 Vidéo",
