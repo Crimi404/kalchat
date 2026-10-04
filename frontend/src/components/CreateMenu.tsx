@@ -1,5 +1,6 @@
 import { Image, CircleDot, Type, X } from "lucide-react";
 import { useNavigate } from "@tanstack/react-router";
+import { useBackHandler } from "@/lib/back";
 
 const options = [
   { icon: Image, label: "Photo", sub: "Publier", soon: false },
@@ -8,6 +9,7 @@ const options = [
 ];
 
 export function CreateMenu({ open, onClose }: { open: boolean; onClose: () => void }) {
+  useBackHandler(onClose, open);
   const navigate = useNavigate();
   if (!open) return null;
 

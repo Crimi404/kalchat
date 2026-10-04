@@ -21,6 +21,7 @@ import { ephemeralLabel } from "@/lib/settings";
 import { MAX_VOICE_SECONDS, formatDuration, useVoiceRecorder } from "@/lib/voice";
 import { MAX_UPLOAD_MB, uploadMedia } from "@/lib/media";
 import { EDIT_WINDOW_MS, deleteMessage, editMessage, fetchConversationDetail, fetchMessages, joinConversation, markRead, messageSnippet, sendMessage, setEphemeral, togglePinMessage, toggleFavoriteConversation, type MessageRow, acceptMessageRequest, declineMessageRequest } from "@/lib/chat";
+import { useBackHandler } from "@/lib/back";
 
 export const Route = createFileRoute("/_authenticated/messages/$id")({
   head: () => ({
@@ -44,6 +45,7 @@ function ChatPage() {
   const endRef = useRef<HTMLDivElement>(null);
 
   const [menuOpen, setMenuOpen] = useState(false);
+  useBackHandler(() => setMenuOpen(false), menuOpen);
   const [infoOpen, setInfoOpen] = useState(false);
   const [ephOpen, setEphOpen] = useState(false);
   const [replyTo, setReplyTo] = useState<MessageRow | null>(null);

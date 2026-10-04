@@ -6,6 +6,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { PresenceProvider } from "@/lib/presence";
 import { ThemeProvider } from "@/lib/theme";
 import { GuestPrompt } from "@/components/GuestPrompt";
+import { BackButtonHandler } from "@/components/BackButtonHandler";
 
 function NotFoundComponent() {
   return (
@@ -81,6 +82,7 @@ function RootComponent() {
             {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
             <Outlet />
             <GuestPrompt />
+            <BackButtonHandler />
             <Toaster position="top-center" richColors />
           </PresenceProvider>
         </ThemeProvider>

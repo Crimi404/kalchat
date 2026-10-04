@@ -8,6 +8,7 @@ import { deleteStory, fetchStoryGroups, fetchStoryViewers, markStoryViewed, type
 import { timeAgo } from "@/lib/social";
 import { BadgeList } from "@/components/KalBadge";
 import { resolveFont, resolveTheme, themedTextSize } from "@/lib/themes";
+import { useBackHandler } from "@/lib/back";
 
 function Avatar({ url, name, size = 56 }: { url: string | null; name: string; size?: number }) {
   return url ? (
@@ -20,6 +21,7 @@ function Avatar({ url, name, size = 56 }: { url: string | null; name: string; si
 }
 
 function StoryViewer({ group, onClose }: { group: StoryGroup; onClose: () => void }) {
+  useBackHandler(onClose);
   const { user } = useAuth();
   const qc = useQueryClient();
   const [i, setI] = useState(0);

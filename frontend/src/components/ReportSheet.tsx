@@ -3,6 +3,7 @@ import { useMutation } from "@tanstack/react-query";
 import { Check, Loader2, X } from "lucide-react";
 import { toast } from "sonner";
 import { REPORT_REASONS, sendReport, type ReportTarget } from "@/lib/reports";
+import { useBackHandler } from "@/lib/back";
 
 const TITLES: Record<ReportTarget, string> = {
   post: "Signaler cette publication",
@@ -24,6 +25,7 @@ export function ReportSheet({
   /** Appelé après l'envoi (ex. proposer de bloquer le compte). */
   onDone?: () => void;
 }) {
+  useBackHandler(onClose);
   const [reason, setReason] = useState<string | null>(null);
   const [details, setDetails] = useState("");
 

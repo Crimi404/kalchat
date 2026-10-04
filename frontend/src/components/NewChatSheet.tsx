@@ -8,6 +8,7 @@ import { MiniAvatar } from "@/components/MiniAvatar";
 import { createGroup, fetchContacts, getOrCreateConversation } from "@/lib/chat";
 import { uploadMedia } from "@/lib/media";
 import type { MiniProfile } from "@/lib/social";
+import { useBackHandler } from "@/lib/back";
 
 type Step = "menu" | "chat" | "members" | "name";
 
@@ -15,6 +16,7 @@ const MAX_GROUP_MEMBERS = 50;
 
 /** Feuille du bouton « + » de la messagerie : nouvelle discussion, nouveau groupe, trouver des membres. */
 export function NewChatSheet({ onClose }: { onClose: () => void }) {
+  useBackHandler(onClose);
   const navigate = useNavigate();
   const qc = useQueryClient();
   const [step, setStep] = useState<Step>("menu");

@@ -30,6 +30,7 @@ import {
   type CommentRow,
   type FeedPost,
 } from "@/lib/social";
+import { useBackHandler } from "@/lib/back";
 
 // Au-delà de cette limite, le texte est coupé avec « Voir plus » (la page de la publication affiche tout)
 const PREVIEW_CHARS = 280;
@@ -165,6 +166,7 @@ export function PostCard({ post, detail = false }: { post: FeedPost; detail?: bo
   const commentInputRef = useRef<HTMLInputElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [reporting, setReporting] = useState<{ type: ReportTarget; id: string } | null>(null);
+  useBackHandler(() => setMenuOpen(false), menuOpen);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(post.content);
   const [commentText, setCommentText] = useState("");

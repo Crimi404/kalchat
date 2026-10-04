@@ -1,5 +1,6 @@
 import { Copy, Flag, Pencil, Pin, PinOff, Reply, Trash2, X } from "lucide-react";
 import type { ReactNode } from "react";
+import { useBackHandler } from "@/lib/back";
 
 export interface MessageAction {
   id: string;
@@ -11,6 +12,7 @@ export interface MessageAction {
 
 /** Menu qui s'ouvre après un appui long sur un message : répondre, copier, épingler, modifier, supprimer. */
 export function MessageActionSheet({ preview, actions, onClose }: { preview: string; actions: MessageAction[]; onClose: () => void }) {
+  useBackHandler(onClose);
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-background/70 backdrop-blur-sm sm:items-center" onClick={onClose}>
       <div className="animate-fade-in w-full max-w-md rounded-t-3xl border border-border bg-card pb-3 sm:rounded-3xl" onClick={(e) => e.stopPropagation()}>

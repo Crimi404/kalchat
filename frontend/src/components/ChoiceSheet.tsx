@@ -1,4 +1,5 @@
 import { Check, X } from "lucide-react";
+import { useBackHandler } from "@/lib/back";
 
 /** Feuille de choix (boutons radio) : sert pour la présence en ligne, les messages éphémères… */
 export function ChoiceSheet<T extends string | number>({
@@ -18,6 +19,7 @@ export function ChoiceSheet<T extends string | number>({
   onSelect: (v: T) => void;
   onClose: () => void;
 }) {
+  useBackHandler(onClose);
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-background/70 backdrop-blur-sm sm:items-center" onClick={onClose}>
       <div className="animate-fade-in w-full max-w-md rounded-t-3xl border border-border bg-card pb-4 sm:rounded-3xl" onClick={(e) => e.stopPropagation()}>

@@ -10,6 +10,7 @@ import { addGroupMembers, createGroupInvite, fetchContacts, fetchGroupInvite, re
 import { copyLink, publicUrl, shareLink } from "@/lib/share";
 import { uploadMedia } from "@/lib/media";
 import type { MiniProfile } from "@/lib/social";
+import { useBackHandler } from "@/lib/back";
 
 /** Infos d'un groupe : membres, ajout / retrait (administrateurs), nom, photo, quitter. */
 export function GroupInfoSheet({ detail, myId, onClose }: { detail: ConversationDetail; myId: string; onClose: () => void }) {
@@ -21,6 +22,7 @@ export function GroupInfoSheet({ detail, myId, onClose }: { detail: Conversation
 
   const memberIds = useMemo(() => new Set(detail.members.map((m) => m.id)), [detail.members]);
   const pickedIds = useMemo(() => new Set(picked.map((p) => p.id)), [picked]);
+  useBackHandler(() => (adding ? (setAdding(false), setPicked([])) : onClose()));
   const contactsQ = useQuery({ queryKey: ["contacts"], queryFn: fetchContacts, enabled: adding });
   const inviteQ = useQuery({ queryKey: ["groupInvite", detail.id], queryFn: () => fetchGroupInvite(detail.id), enabled: detail.myIsAdmin });
   const inviteUrl = inviteQ.data ? publicUrl(`/groupe/${inviteQ.data}`) : null;

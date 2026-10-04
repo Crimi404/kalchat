@@ -4,6 +4,7 @@ import { X } from "lucide-react";
 import logo from "@/assets/kalchat-logo.png";
 import { GUEST_PROMPT_EVENT, type GuestReason } from "@/lib/guest";
 import { rememberDestination } from "@/lib/share";
+import { useBackHandler } from "@/lib/back";
 
 const MESSAGES: Record<GuestReason, { title: string; text: string }> = {
   like: { title: "Tu aimes cette publication ?", text: "Connecte-toi pour liker, et dire à son auteur que tu as apprécié." },
@@ -29,6 +30,7 @@ export function GuestPrompt() {
     return () => window.removeEventListener(GUEST_PROMPT_EVENT, onOpen);
   }, []);
 
+  useBackHandler(() => setReason(null), reason !== null);
   if (!reason) return null;
   const m = MESSAGES[reason];
   const goAuth = () => {
