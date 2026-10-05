@@ -6,6 +6,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # nécessaire pour publier l'APK dans le dépôt (téléchargement depuis le site)
     defaults:
       run:
         working-directory: mobile
@@ -34,8 +36,25 @@ jobs:
       - name: Installer les dépendances
         run: npm install
 
+      - name: Ajouter les notifications push (si Firebase est configuré)
+        run: |
+          if [ -f google-services.json ]; then
+            npm install @capacitor/push-notifications@^6.0.3
+            echo "FIREBASE=1" >> "$GITHUB_ENV"
+            echo "Firebase détecté : l'APK aura les notifications push."
+          else
+            echo "::warning::mobile/google-services.json est absent : l'APK est compilée SANS notifications push."
+          fi
+
       - name: Créer le projet Android
         run: npx cap add android
+
+      - name: Configurer Firebase et l'icône des notifications
+        if: env.FIREBASE == '1'
+        run: |
+          cp google-services.json android/app/google-services.json
+          mkdir -p android/app/src/main/res/drawable
+          cp notification-icon.png android/app/src/main/res/drawable/ic_stat_kalchat.png
 
       - name: Générer les icônes et l'écran de démarrage
         run: npx capacitor-assets generate --android
@@ -89,3 +108,17 @@ jobs:
           name: Kalchat-APK
           path: mobile/Kalchat.apk
           retention-days: 30
+
+      - name: Publier l'APK sur le site (page d'accueil, bouton « Télécharger l'APK »)
+        working-directory: ${{ github.workspace }}
+        run: |
+          mkdir -p frontend/public/downloads
+          cp mobile/Kalchat.apk frontend/public/downloads/Kalchat.apk
+          SIZE=$(stat -c%s mobile/Kalchat.apk)
+          printf '{"version":"1.0.%s","size":%s,"built_at":"%s"}\n' "${{ github.run_number }}" "$SIZE" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > frontend/public/downloads/latest.json
+          git config user.name "kalchat-bot"
+          git config user.email "kalchat-bot@users.noreply.github.com"
+          git add frontend/public/downloads
+          git commit -m "APK Kalchat 1.0.${{ github.run_number }}" || exit 0
+          git pull --rebase origin "${{ github.ref_name }}"
+          git push origin "HEAD:${{ github.ref_name }}"
