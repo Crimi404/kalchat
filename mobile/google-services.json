@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "960985083965",
+    "project_id": "kalchat-61e48",
+    "storage_bucket": "kalchat-61e48.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:960985083965:android:38e151ef197455a93dba54",
+        "android_client_info": {
+          "package_name": "com.kalchat.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCyoYVsolcqvwUcfI7D2FYQU_wz3iEXxLk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
