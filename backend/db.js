@@ -255,6 +255,15 @@ async function initSchema() {
     -- Demandes de message : NULL = discussion normale ; 'pending' = en attente de réponse ; 'declined' = refusée
     ALTER TABLE conversations ADD COLUMN IF NOT EXISTS request_status TEXT;
 
+    -- Appareils Android enregistrés pour les notifications push (jeton Firebase)
+    CREATE TABLE IF NOT EXISTS push_tokens (
+      token TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_push_tokens_user ON push_tokens(user_id);
+
     CREATE UNIQUE INDEX IF NOT EXISTS idx_conversations_invite_token ON conversations(invite_token) WHERE invite_token IS NOT NULL;
     CREATE TABLE IF NOT EXISTS muted_categories (
       user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

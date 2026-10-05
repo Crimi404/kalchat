@@ -15,6 +15,7 @@ const notificationsRoutes = require('./routes/notifications');
 const usersRoutes = require('./routes/users');
 const adminRoutes = require('./routes/admin');
 const reportsRoutes = require('./routes/reports');
+const pushRoutes = require('./routes/push');
 const db = require('./db');
 const storage = require('./storage');
 const { cleanupOldMedia, cleanupExpiredMessages } = require('./cleanup');
@@ -89,6 +90,7 @@ app.use('/api/notifications', notificationsRoutes);
 app.use('/api/users', usersRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/reports', reportsRoutes);
+app.use('/api/push', pushRoutes);
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 

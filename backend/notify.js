@@ -1,6 +1,7 @@
 const { v4: uuid } = require('uuid');
 const db = require('./db');
 const { isBlockedEitherWay } = require('./blocks');
+const { pushForNotification } = require('./push');
 
 /**
  * Crée une notification pour `user_id` et la pousse en temps réel si l'utilisateur est connecté.
@@ -30,6 +31,8 @@ async function notify(io, { user_id, actor_id, type, post_id = null, conversatio
     .get(id);
 
   io?.to(`user:${user_id}`).emit('notification', full);
+  // Notification push sur le téléphone (sans bloquer ni faire échouer l'action de l'utilisateur)
+  pushForNotification(full, user_id).catch((err) => console.error('Push :', err.message));
   return full;
 }
 

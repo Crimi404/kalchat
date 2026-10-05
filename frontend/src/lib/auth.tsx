@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { api, closeSocket, displayName, getToken, setToken, toBadges } from "@/lib/api";
+import { unregisterPush } from "@/lib/push";
 import type { BadgeRow } from "@/components/KalBadge";
 
 export type AppRole = "admin" | "moderator" | "user";
@@ -156,6 +157,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await load();
     },
     signOut: async () => {
+      void unregisterPush(); // cet appareil ne reçoit plus les notifications de ce compte
       setToken(null);
       closeSocket();
       setProfile(null);

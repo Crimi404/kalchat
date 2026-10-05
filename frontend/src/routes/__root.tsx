@@ -7,6 +7,7 @@ import { PresenceProvider } from "@/lib/presence";
 import { ThemeProvider } from "@/lib/theme";
 import { GuestPrompt } from "@/components/GuestPrompt";
 import { BackButtonHandler } from "@/components/BackButtonHandler";
+import { PushHandler } from "@/components/PushHandler";
 
 function NotFoundComponent() {
   return (
@@ -83,6 +84,7 @@ function RootComponent() {
             <Outlet />
             <GuestPrompt />
             <BackButtonHandler />
+            <PushHandler />
             <Toaster position="top-center" richColors />
           </PresenceProvider>
         </ThemeProvider>
