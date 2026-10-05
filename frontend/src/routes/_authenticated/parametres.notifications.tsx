@@ -14,7 +14,7 @@ export const Route = createFileRoute("/_authenticated/parametres/notifications")
 
 function NotificationsPage() {
   const inApp = pushAvailable();
-  const server = useQuery({ queryKey: ["pushStatus"], queryFn: () => api<{ enabled: boolean; devices: number }>("/push/status") });
+  const server = useQuery({ queryKey: ["pushStatus"], queryFn: () => api<{ enabled: boolean; devices: number; config_error?: string | null }>("/push/status") });
   const [permission, setPermission] = useState<string>("unavailable");
   const [active, setActive] = useState(!!storedPushToken());
   const [busy, setBusy] = useState(false);
@@ -45,7 +45,10 @@ function NotificationsPage() {
       ) : server.isLoading ? (
         <div className="flex justify-center py-10"><Loader2 className="h-5 w-5 animate-spin text-primary" /></div>
       ) : !server.data?.enabled ? (
-        <p className="rounded-2xl border border-border bg-card p-4 text-sm text-muted-foreground">Les notifications ne sont pas encore activées sur le serveur. Reviens bientôt !</p>
+        <div className="space-y-2 rounded-2xl border border-border bg-card p-4 text-sm text-muted-foreground">
+          <p>Les notifications ne sont pas encore activées sur le serveur. Reviens bientôt !</p>
+          {server.data?.config_error && <p className="text-xs text-destructive">{server.data.config_error}</p>}
+        </div>
       ) : (
         <section className="space-y-3 rounded-2xl border border-border bg-card p-4">
           <div className="flex items-center gap-3">

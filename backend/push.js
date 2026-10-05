@@ -7,6 +7,18 @@ const crypto = require('crypto');
 const db = require('./db');
 
 let serviceAccount; // undefined = pas encore lu ; null = absent ou invalide
+let configError = null;
+
+// Remet la clé privée au format PEM attendu, même si le collage dans Render a abîmé les retours à la ligne
+// (espaces à la place des sauts de ligne, « \n » littéraux, guillemets autour…).
+function normalizePem(key) {
+  const k = String(key).replace(/\\n/g, '\n').replace(/\r/g, '');
+  const m = k.match(/-----BEGIN ([A-Z ]+)-----([\s\S]*?)-----END \1-----/);
+  if (!m) return k;
+  const body = m[2].replace(/[^A-Za-z0-9+/=]/g, '');
+  return `-----BEGIN ${m[1]}-----\n${(body.match(/.{1,64}/g) || []).join('\n')}\n-----END ${m[1]}-----\n`;
+}
+
 function loadServiceAccount() {
   if (serviceAccount !== undefined) return serviceAccount;
   serviceAccount = null;
@@ -16,10 +28,16 @@ function loadServiceAccount() {
     const json = raw.startsWith('{') ? raw : Buffer.from(raw, 'base64').toString('utf8'); // JSON brut ou encodé en base64
     const sa = JSON.parse(json);
     if (!sa.client_email || !sa.private_key || !sa.project_id) throw new Error('champs client_email, private_key ou project_id manquants');
-    sa.private_key = String(sa.private_key).replace(/\\n/g, '\n');
+    sa.private_key = normalizePem(sa.private_key);
+    try {
+      crypto.createPrivateKey(sa.private_key);
+    } catch {
+      throw new Error('la clé privée est illisible ou incomplète : recopie le contenu ENTIER du fichier JSON (ou encode-le en base64)');
+    }
     serviceAccount = sa;
   } catch (err) {
-    console.error('⚠️ FIREBASE_SERVICE_ACCOUNT illisible, notifications push désactivées :', err.message);
+    configError = `FIREBASE_SERVICE_ACCOUNT invalide : ${err.message}`;
+    console.error(`⚠️ ${configError}. Notifications push désactivées.`);
   }
   return serviceAccount;
 }
@@ -162,4 +180,9 @@ async function pushForNotification(full, userId) {
   await sendPushToUser(userId, { title, body, url, tag, type: full.type, priority });
 }
 
-module.exports = { isPushEnabled, sendPushToUser, pushForNotification };
+function pushConfigError() {
+  loadServiceAccount();
+  return configError;
+}
+
+module.exports = { isPushEnabled, pushConfigError, sendPushToUser, pushForNotification };
