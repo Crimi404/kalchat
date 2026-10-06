@@ -1,12 +1,12 @@
 import { toast } from "sonner";
 
 // Adresse publique de l'application, utilisée si l'app tourne depuis un contexte sans adresse web (ex. fichier local)
-const PUBLIC_URL = "https://kalchat.onrender.com";
+const PUBLIC_URL = "https://kalchat.site";
 
 export function publicUrl(path: string): string {
   const origin = typeof window !== "undefined" ? window.location.origin : "";
   const usable = /^https?:\/\//.test(origin) && !/localhost|127\.0\.0\.1/.test(origin);
-  return `${usable ? origin : PUBLIC_URL}${path}`;
+  return ${usable ? origin : PUBLIC_URL}${path};
 }
 
 async function copyText(text: string): Promise<boolean> {
