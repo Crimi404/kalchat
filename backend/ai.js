@@ -564,4 +564,11 @@ function startDailyPosts() {
   console.log(`🤖 Kora publie chaque jour dès ${POST_HOUR} h (${POST_TZ}).`);
 }
 
-module.exports = { BOT_ID, init, ensureConversationFor, scheduleReply, maybeReplyToComment, postDaily };
+/** Message de Kora dans sa discussion avec un membre (crée la discussion si besoin) + notification (et push). */
+async function sendBotMessage(io, userId, text) {
+  const conversationId = await ensureConversationFor(userId);
+  if (!conversationId) return;
+  await say(io, conversationId, userId, text);
+}
+
+module.exports = { BOT_ID, init, ensureConversationFor, scheduleReply, maybeReplyToComment, postDaily, sendBotMessage };

@@ -15,6 +15,8 @@ const notificationsRoutes = require('./routes/notifications');
 const usersRoutes = require('./routes/users');
 const adminRoutes = require('./routes/admin');
 const reportsRoutes = require('./routes/reports');
+const emailRoutes = require('./routes/email');
+const { startEmailPrompts } = require('./emailPrompt');
 const pushRoutes = require('./routes/push');
 const db = require('./db');
 const storage = require('./storage');
@@ -90,6 +92,7 @@ app.use('/api/notifications', notificationsRoutes);
 app.use('/api/users', usersRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/reports', reportsRoutes);
+app.use('/api/email', emailRoutes);
 app.use('/api/push', pushRoutes);
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
@@ -210,6 +213,7 @@ db.initSchema()
   .then(() => storage.initStorage())
   // Kora IA : une erreur ici ne doit jamais empêcher le site de démarrer
   .then(() => ai.init().catch((err) => console.error('Kora : initialisation impossible:', err.message)))
+  .then(() => startEmailPrompts(io))
   .then(() => {
     server.listen(PORT, () => {
       console.log(`Kalchat backend démarré sur http://localhost:${PORT}`);

@@ -71,6 +71,8 @@ interface AuthValue {
   refresh: () => Promise<void>;
   signIn: (username: string, password: string) => Promise<void>;
   signUp: (input: SignUpInput) => Promise<void>;
+  /** Ouvre la session avec un jeton déjà reçu du serveur (après validation d'un code par email). */
+  signInWithToken: (token: string) => Promise<void>;
   signOut: () => Promise<void>;
 }
 
@@ -154,6 +156,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     signUp: async (input) => {
       const res = await api<{ token: string }>("/auth/register", { method: "POST", body: input });
       setToken(res.token);
+      await load();
+    },
+    signInWithToken: async (token) => {
+      setToken(token);
       await load();
     },
     signOut: async () => {

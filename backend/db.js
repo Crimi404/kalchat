@@ -255,6 +255,26 @@ async function initSchema() {
     -- Demandes de message : NULL = discussion normale ; 'pending' = en attente de réponse ; 'declined' = refusée
     ALTER TABLE conversations ADD COLUMN IF NOT EXISTS request_status TEXT;
 
+    -- Email : adresse vérifiée (n'est renseignée qu'une fois le code saisi), invitation envoyée par Kora, date du dernier changement de mot de passe
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified_at TIMESTAMPTZ;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS email_prompted_at TIMESTAMPTZ;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS password_changed_at TIMESTAMPTZ;
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users (LOWER(email)) WHERE email IS NOT NULL;
+    -- Codes à usage unique (inscription, vérification d'adresse, mot de passe oublié)
+    CREATE TABLE IF NOT EXISTS email_otps (
+      id TEXT PRIMARY KEY,
+      purpose TEXT NOT NULL,
+      email TEXT NOT NULL,
+      user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+      code_hash TEXT NOT NULL,
+      payload TEXT,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      expires_at TIMESTAMPTZ NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_email_otps_lookup ON email_otps(email, purpose, created_at);
+
     -- Appareils Android enregistrés pour les notifications push (jeton Firebase)
     CREATE TABLE IF NOT EXISTS push_tokens (
       token TEXT PRIMARY KEY,

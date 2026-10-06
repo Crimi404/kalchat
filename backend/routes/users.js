@@ -7,6 +7,7 @@ const { notify } = require('../notify');
 const { isBlockedEitherWay } = require('../blocks');
 const { USERNAME_RE, nextUsernameChangeAt } = require('../usernamePolicy');
 const { releaseMedia, releaseMany } = require('../mediaCleanup');
+const { isMailEnabled, sendMail, passwordChangedEmail } = require('../mailer');
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -102,6 +103,13 @@ router.post('/me/password', async (req, res) => {
     if (!(await bcrypt.compare(current, user.password_hash))) return res.status(403).json({ error: 'Mot de passe actuel incorrect' });
 
     await db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(await bcrypt.hash(next, 10), req.user.id);
+    // Alerte de sécurité par email si l'adresse est vérifiée
+    if (isMailEnabled()) {
+      const me = await db.prepare('SELECT email, email_verified_at, first_name FROM users WHERE id = ?').get(req.user.id);
+      if (me?.email && me.email_verified_at) {
+        sendMail({ to: me.email, ...passwordChangedEmail({ firstName: me.first_name }) }).catch((err) => console.error('Email de confirmation non envoyé :', err.message));
+      }
+    }
     res.json({ ok: true });
   } catch (err) {
     console.error(err);
