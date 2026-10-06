@@ -4,7 +4,7 @@
   "webDir": "www",
   "backgroundColor": "#0d0a1f",
   "server": {
-    "url": "https://kalchat.onrender.com",
+    "url": "https://kalchat.site",
     "cleartext": false
   },
   "android": {
