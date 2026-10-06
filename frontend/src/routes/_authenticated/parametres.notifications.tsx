@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
-import { BellRing, Loader2 } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Bell, BellRing, Heart, Loader2, MessageCircle, UserPlus, type LucideIcon } from "lucide-react";
 import { toast } from "sonner";
 import { SettingsShell } from "@/components/SettingsShell";
+import { Switch } from "@/components/ui/switch";
 import { api } from "@/lib/api";
 import { disablePush, enablePush, pushAvailable, pushPermission, storedPushToken } from "@/lib/push";
 
@@ -12,9 +13,47 @@ export const Route = createFileRoute("/_authenticated/parametres/notifications")
   component: NotificationsPage,
 });
 
+type Prefs = { messages: boolean; publications: boolean; abonnements: boolean };
+type PrefKey = keyof Prefs;
+
+const CATEGORIES: { key: PrefKey; title: string; description: string; icon: LucideIcon }[] = [
+  { key: "messages", title: "Messages", description: "Nouveaux messages, demandes de message et ajouts à un groupe", icon: MessageCircle },
+  { key: "publications", title: "Publications", description: "Likes, commentaires, réponses, mentions et repartages", icon: Heart },
+  { key: "abonnements", title: "Abonnements", description: "Demandes d'abonnement et demandes acceptées", icon: UserPlus },
+];
+
+function ToggleRow({
+  icon: Icon,
+  title,
+  description,
+  checked,
+  disabled,
+  onChange,
+}: {
+  icon: LucideIcon;
+  title: string;
+  description: string;
+  checked: boolean;
+  disabled?: boolean;
+  onChange: (value: boolean) => void;
+}) {
+  return (
+    <div className="flex items-center gap-4 px-2 py-3.5">
+      <Icon className="h-6 w-6 shrink-0 text-muted-foreground" />
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-semibold text-foreground">{title}</p>
+        <p className="mt-0.5 text-xs leading-snug text-muted-foreground">{description}</p>
+      </div>
+      <Switch checked={checked} disabled={disabled} onCheckedChange={onChange} aria-label={title} />
+    </div>
+  );
+}
+
 function NotificationsPage() {
+  const qc = useQueryClient();
   const inApp = pushAvailable();
   const server = useQuery({ queryKey: ["pushStatus"], queryFn: () => api<{ enabled: boolean; devices: number; config_error?: string | null }>("/push/status") });
+  const prefsQ = useQuery({ queryKey: ["pushPrefs"], queryFn: () => api<Prefs>("/push/prefs"), enabled: inApp });
   const [permission, setPermission] = useState<string>("unavailable");
   const [active, setActive] = useState(!!storedPushToken());
   const [busy, setBusy] = useState(false);
@@ -34,7 +73,40 @@ function NotificationsPage() {
     try { await task(); } catch (e) { toast.error((e as Error).message); } finally { setBusy(false); void refresh(); }
   }
 
+  const savePrefs = useMutation({
+    mutationFn: (patch: Partial<Prefs>) => api<Prefs>("/push/prefs", { method: "PATCH", body: patch }),
+    onMutate: async (patch) => {
+      await qc.cancelQueries({ queryKey: ["pushPrefs"] });
+      const previous = qc.getQueryData<Prefs>(["pushPrefs"]);
+      if (previous) qc.setQueryData<Prefs>(["pushPrefs"], { ...previous, ...patch });
+      return { previous };
+    },
+    onError: (e: Error, _patch, ctx) => {
+      if (ctx?.previous) qc.setQueryData(["pushPrefs"], ctx.previous);
+      toast.error(e.message);
+    },
+    onSuccess: (data) => qc.setQueryData(["pushPrefs"], data),
+  });
+
   const on = active && permission === "granted";
+  const prefs = prefsQ.data;
+  const all = !!prefs && prefs.messages && prefs.publications && prefs.abonnements;
+  const typesDisabled = !on || !prefs;
+
+  function toggleDevice(next: boolean) {
+    if (next) {
+      void run(async () => {
+        const r = await enablePush();
+        if (r === "granted") toast.success("Notifications activées 🔔");
+        else toast.error("Autorisation refusée");
+      });
+    } else {
+      void run(async () => {
+        await disablePush();
+        toast.success("Notifications désactivées sur cet appareil");
+      });
+    }
+  }
 
   return (
     <SettingsShell title="Notifications">
@@ -50,46 +122,72 @@ function NotificationsPage() {
           {server.data?.config_error && <p className="text-xs text-destructive">{server.data.config_error}</p>}
         </div>
       ) : (
-        <section className="space-y-3 rounded-2xl border border-border bg-card p-4">
-          <div className="flex items-center gap-3">
-            <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${on ? "brand-gradient text-primary-foreground" : "bg-secondary text-muted-foreground"}`}><BellRing className="h-5 w-5" /></span>
-            <div className="min-w-0">
-              <p className="text-sm font-bold text-foreground">{on ? "Activées sur cet appareil" : "Désactivées sur cet appareil"}</p>
-              <p className="text-xs text-muted-foreground">Messages, mentions, commentaires, likes et abonnements.</p>
+        <>
+          <section className="rounded-2xl border border-border bg-card p-2">
+            <div className="flex items-center gap-4 px-2 py-3.5">
+              <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${on ? "brand-gradient text-primary-foreground" : "bg-secondary text-muted-foreground"}`}>
+                <Bell className="h-5 w-5" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-bold text-foreground">Activer les notifications</p>
+                <p className="mt-0.5 text-xs leading-snug text-muted-foreground">
+                  {on ? "Activées sur cet appareil" : "Désactivées sur cet appareil"}
+                </p>
+              </div>
+              {busy ? (
+                <Loader2 className="h-5 w-5 animate-spin text-primary" />
+              ) : (
+                <Switch checked={on} disabled={permission === "denied" && !on} onCheckedChange={toggleDevice} aria-label="Activer les notifications" />
+              )}
             </div>
-          </div>
+            {permission === "denied" && (
+              <p className="mx-2 mb-2 rounded-xl bg-secondary/60 p-3 text-xs text-muted-foreground">
+                Tu as refusé les notifications. Pour les réactiver : Paramètres Android › Applications › Kalchat › Notifications.
+              </p>
+            )}
+          </section>
 
-          {permission === "denied" && (
-            <p className="rounded-xl bg-secondary/60 p-3 text-xs text-muted-foreground">
-              Tu as refusé les notifications. Pour les réactiver : Paramètres Android › Applications › Kalchat › Notifications.
-            </p>
-          )}
+          <p className="px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Types de notifications</p>
+          <section className={`divide-y divide-border rounded-2xl border border-border bg-card p-2 transition-opacity ${typesDisabled ? "opacity-60" : ""}`}>
+            <ToggleRow
+              icon={BellRing}
+              title="Tout"
+              description="Active ou désactive tous les types ci-dessous"
+              checked={all}
+              disabled={typesDisabled}
+              onChange={(v) => savePrefs.mutate({ messages: v, publications: v, abonnements: v })}
+            />
+            {CATEGORIES.map((c) => (
+              <ToggleRow
+                key={c.key}
+                icon={c.icon}
+                title={c.title}
+                description={c.description}
+                checked={prefs ? prefs[c.key] : true}
+                disabled={typesDisabled}
+                onChange={(v) => savePrefs.mutate({ [c.key]: v })}
+              />
+            ))}
+          </section>
 
-          {on ? (
-            <div className="flex flex-wrap gap-2">
-              <button
-                disabled={busy}
-                onClick={() => run(async () => { const r = await api<{ sent: number }>("/push/test", { method: "POST" }); if (r.sent > 0) toast.success("Notification de test envoyée"); else toast.error("Aucun appareil joignable, réactive les notifications"); })}
-                className="brand-gradient rounded-full px-4 py-2 text-xs font-bold text-primary-foreground disabled:opacity-60"
-              >
-                Envoyer un test
-              </button>
-              <button disabled={busy} onClick={() => run(async () => { await disablePush(); toast.success("Notifications désactivées sur cet appareil"); })} className="rounded-full border border-border px-4 py-2 text-xs font-semibold text-foreground hover:bg-secondary disabled:opacity-60">
-                Désactiver
-              </button>
-            </div>
-          ) : (
-            permission !== "denied" && (
-              <button
-                disabled={busy}
-                onClick={() => run(async () => { const r = await enablePush(); if (r === "granted") toast.success("Notifications activées 🔔"); else toast.error("Autorisation refusée"); })}
-                className="brand-gradient flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-bold text-primary-foreground disabled:opacity-60"
-              >
-                {busy && <Loader2 className="h-4 w-4 animate-spin" />} Activer les notifications
-              </button>
-            )
+          <p className="px-1 text-xs leading-snug text-muted-foreground">
+            Ces réglages concernent les notifications sur ton téléphone. Tu retrouves toujours toutes tes notifications dans l'onglet Notifications de l'appli. Les avertissements de la modération sont toujours envoyés.
+          </p>
+
+          {on && (
+            <button
+              disabled={busy}
+              onClick={() => run(async () => {
+                const r = await api<{ sent: number }>("/push/test", { method: "POST" });
+                if (r.sent > 0) toast.success("Notification de test envoyée");
+                else toast.error("Aucun appareil joignable, réactive les notifications");
+              })}
+              className="rounded-full border border-border px-4 py-2 text-xs font-semibold text-foreground hover:bg-secondary disabled:opacity-60"
+            >
+              Envoyer une notification de test
+            </button>
           )}
-        </section>
+        </>
       )}
     </SettingsShell>
   );

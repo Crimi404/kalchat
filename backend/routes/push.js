@@ -1,7 +1,7 @@
 const express = require('express');
 const db = require('../db');
 const authMiddleware = require('../middleware/auth');
-const { isPushEnabled, pushConfigError, sendPushToUser } = require('../push');
+const { isPushEnabled, pushConfigError, sendPushToUser, getPushPrefs, savePushPrefs } = require('../push');
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -12,6 +12,15 @@ const MAX_DEVICES_PER_USER = 10;
 router.get('/status', async (req, res) => {
   const n = await db.prepare('SELECT COUNT(*) AS n FROM push_tokens WHERE user_id = ?').get(req.user.id);
   res.json({ enabled: isPushEnabled(), devices: n.n, config_error: pushConfigError() });
+});
+
+// ---------- Réglages : types de notifications que je veux recevoir ----------
+router.get('/prefs', async (req, res) => {
+  res.json(await getPushPrefs(req.user.id));
+});
+
+router.patch('/prefs', async (req, res) => {
+  res.json(await savePushPrefs(req.user.id, req.body));
 });
 
 // ---------- Enregistrer l'appareil (jeton Firebase) ----------

@@ -211,6 +211,7 @@ async function initSchema() {
     ALTER TABLE conversations ADD COLUMN IF NOT EXISTS ephemeral_seconds INTEGER NOT NULL DEFAULT 0;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS privacy_online TEXT NOT NULL DEFAULT 'everyone';
     ALTER TABLE users ADD COLUMN IF NOT EXISTS read_receipts INTEGER NOT NULL DEFAULT 1;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS push_prefs TEXT;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS default_ephemeral INTEGER NOT NULL DEFAULT 0;
     ALTER TABLE post_comments ADD COLUMN IF NOT EXISTS parent_id TEXT REFERENCES post_comments(id) ON DELETE CASCADE;
     ALTER TABLE post_comments ADD COLUMN IF NOT EXISTS edited_at TIMESTAMPTZ;

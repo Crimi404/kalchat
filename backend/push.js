@@ -129,11 +129,52 @@ const ACTIONS = {
   group_add: "t'a ajouté à un groupe",
 };
 
+// ---------- Réglages : quels types de notifications push le membre veut recevoir ----------
+// Catégories : messages, publications (likes, commentaires, mentions, repartages), abonnements.
+// Les avertissements de la modération (type « moderation ») sont toujours envoyés.
+const PUSH_CATEGORIES = ['messages', 'publications', 'abonnements'];
+const PUSH_CATEGORY_OF = {
+  message: 'messages',
+  group_add: 'messages',
+  like: 'publications',
+  comment: 'publications',
+  reply: 'publications',
+  comment_like: 'publications',
+  share: 'publications',
+  mention: 'publications',
+  follow_request: 'abonnements',
+  follow_accept: 'abonnements',
+};
+
+async function getPushPrefs(userId) {
+  const row = await db.prepare('SELECT push_prefs FROM users WHERE id = ?').get(userId);
+  let saved = {};
+  try {
+    saved = row?.push_prefs ? JSON.parse(row.push_prefs) : {};
+  } catch {
+    saved = {};
+  }
+  const prefs = {};
+  for (const k of PUSH_CATEGORIES) prefs[k] = saved[k] !== false; // tout est activé par défaut
+  return prefs;
+}
+
+async function savePushPrefs(userId, patch) {
+  const prefs = await getPushPrefs(userId);
+  for (const k of PUSH_CATEGORIES) if (typeof patch?.[k] === 'boolean') prefs[k] = patch[k];
+  await db.prepare('UPDATE users SET push_prefs = ? WHERE id = ?').run(JSON.stringify(prefs), userId);
+  return prefs;
+}
+
 /** Construit et envoie la notification push correspondant à une notification enregistrée (`full`, voir notify.js). */
 async function pushForNotification(full, userId) {
   if (!isPushEnabled()) return;
   const has = await db.prepare('SELECT 1 FROM push_tokens WHERE user_id = ? LIMIT 1').get(userId);
   if (!has) return;
+
+  // Le membre a-t-il désactivé ce type de notification ? (la modération passe toujours)
+  const category = PUSH_CATEGORY_OF[full.type];
+  if (category && !(await getPushPrefs(userId))[category]) return;
 
   const actor = await db.prepare('SELECT first_name, last_name, username FROM users WHERE id = ?').get(full.actor_id);
   const name = [actor?.first_name, actor?.last_name].filter(Boolean).join(' ') || actor?.username || 'Kalchat';
@@ -185,4 +226,4 @@ function pushConfigError() {
   return configError;
 }
 
-module.exports = { isPushEnabled, pushConfigError, sendPushToUser, pushForNotification };
+module.exports = { isPushEnabled, pushConfigError, sendPushToUser, pushForNotification, getPushPrefs, savePushPrefs };
