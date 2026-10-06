@@ -37,6 +37,22 @@ export async function copyLink(url: string) {
 
 /** Ouvre le partage du téléphone s'il existe, sinon copie le lien. */
 export async function shareLink(input: { url: string; title?: string; text?: string }) {
+  // Dans l'appli Android (Capacitor) : vrai menu de partage du téléphone (WhatsApp, Telegram, etc.)
+  type SharePlugin = { share: (o: { title?: string; text?: string; url?: string; dialogTitle?: string }) => Promise<unknown> };
+  const cap = (typeof window !== "undefined"
+    ? (window as unknown as { Capacitor?: { isNativePlatform?: () => boolean; Plugins?: { Share?: SharePlugin }; registerPlugin?: (n: string) => SharePlugin } }).Capacitor
+    : undefined);
+  if (cap?.isNativePlatform?.()) {
+    try {
+      const plugin = cap.Plugins?.Share ?? cap.registerPlugin?.("Share");
+      if (plugin) {
+        await plugin.share({ title: input.title, text: input.text, url: input.url, dialogTitle: "Partager" });
+        return;
+      }
+    } catch (e) {
+      if (/cancel/i.test(String((e as Error)?.message ?? e))) return; // l'utilisateur a fermé le partage
+    }
+  }
   if (typeof navigator !== "undefined" && typeof navigator.share === "function") {
     try {
       await navigator.share({ url: input.url, title: input.title, text: input.text });
