@@ -1,11 +1,12 @@
 import { createFileRoute, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import { Bell, Check, EyeOff, Lock, Mail, LogOut, Moon, ShieldCheck, Sun, UserRound } from "lucide-react";
+import { Bell, Check, EyeOff, FileText, LifeBuoy, Lock, Mail, LogOut, Moon, ScrollText, ShieldCheck, Sun, UserRound } from "lucide-react";
 import { TopBar } from "@/components/TopBar";
 import { BottomNav } from "@/components/BottomNav";
 import { useAuth } from "@/lib/auth";
 import { SettingRow } from "@/components/SettingsShell";
 import { useTheme, type Theme } from "@/lib/theme";
+import { SUPPORT_EMAIL } from "@/lib/legal";
 
 export const Route = createFileRoute("/_authenticated/parametres")({
   head: () => ({
@@ -88,6 +89,12 @@ function ParametresPage() {
           <SettingRow icon={Lock} title="Changer de mot de passe" description="Change de mot de passe à tout moment" onClick={() => navigate({ to: "/parametres/mot-de-passe" })} />
           <SettingRow icon={ShieldCheck} title="Confidentialité" description="Présence en ligne, accusés de lecture, messages éphémères et comptes bloqués" onClick={() => navigate({ to: "/parametres/confidentialite" })} />
         </section>
+
+        <Section title="Aide et informations">
+          <SettingRow icon={LifeBuoy} title="Contacter le support" description={SUPPORT_EMAIL} onClick={() => { window.location.href = "mailto:" + SUPPORT_EMAIL; }} />
+          <SettingRow icon={FileText} title="Conditions d'utilisation" description="Les règles à respecter sur Kalchat" onClick={() => navigate({ to: "/conditions" })} />
+          <SettingRow icon={ScrollText} title="Politique de confidentialité" description="Comment tes données sont utilisées et protégées" onClick={() => navigate({ to: "/confidentialite" })} />
+        </Section>
 
         <button
           onClick={handleSignOut}
