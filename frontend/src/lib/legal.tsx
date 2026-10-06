@@ -46,6 +46,7 @@ const TERMS: Section[] = [
     paras: [
       "Tu restes propriétaire de ce que tu publies (textes, photos, vidéos, messages vocaux). En le publiant, tu nous autorises à l'héberger, l'afficher et le diffuser dans Kalchat, selon tes réglages de confidentialité, uniquement pour faire fonctionner le service.",
       "Tu garantis avoir les droits nécessaires sur ce que tu publies et tu en es seul responsable.",
+      "Les vidéos et les messages vocaux sont supprimés automatiquement de nos serveurs après 60 jours. Garde une copie de ce qui compte pour toi.",
     ],
   },
   {
@@ -148,8 +149,11 @@ const PRIVACY: Section[] = [
   },
   {
     title: "Durée de conservation",
-    paras: [
-      "Nous gardons tes données tant que ton compte existe. Les stories disparaissent après la durée choisie. Quand tu supprimes ton compte, tes données sont supprimées dans un délai raisonnable, sauf obligation légale ou copie de sauvegarde temporaire.",
+    paras: ["Nous gardons tes données tant que ton compte existe, avec ces règles :"],
+    bullets: [
+      "Les vidéos et les messages vocaux sont supprimés automatiquement de nos serveurs après 60 jours, dans les publications comme dans les conversations. Le texte reste, avec une indication que le média a expiré. Pense à enregistrer sur ton téléphone ce que tu veux garder.",
+      "Les stories disparaissent après la durée que tu as choisie.",
+      "Quand tu supprimes ton compte, tes données sont supprimées dans un délai raisonnable, sauf obligation légale ou copie de sauvegarde temporaire.",
     ],
   },
   {
