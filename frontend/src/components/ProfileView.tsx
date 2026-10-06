@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Ban, Bookmark, CalendarDays, Flag, Grid3x3, Loader2, MapPin, Pencil, Settings, Share2 } from "lucide-react";
+import { Ban, Bookmark, CalendarDays, Flag, Grid3x3, Loader2, MapPin, MoreHorizontal, Pencil, Settings, Share2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { blockUser, unblockUser } from "@/lib/settings";
 import { BadgeList } from "@/components/KalBadge";
 import { PostCard } from "@/components/PostCard";
@@ -97,6 +98,9 @@ export function ProfileView({ username }: { username: string }) {
 
   const isMe = user?.id === p.id;
   const stats = p.stats;
+  // Menu "⋯" (partager / bloquer / signaler) affiché seulement sur le profil d'un autre compte non bloqué
+  const showMenu = !!user && !isMe && !p.blockedByMe && !p.blockedMe;
+  const shareProfile = () => void shareLink({ url: publicUrl(`/u/${p.username}`), title: `${p.display_name} sur Kalchat`, text: `Retrouve @${p.username} sur Kalchat` });
 
   return (
     <div>
@@ -117,13 +121,15 @@ export function ProfileView({ username }: { username: string }) {
             )}
           </span>
           <div className="flex items-center gap-2 pb-2">
-            <button
-              aria-label="Partager le profil"
-              onClick={() => void shareLink({ url: publicUrl(`/u/${p.username}`), title: `${p.display_name} sur Kalchat`, text: `Retrouve @${p.username} sur Kalchat` })}
-              className="rounded-full border border-border bg-card p-2 hover:bg-secondary"
-            >
-              <Share2 className="h-4 w-4" />
-            </button>
+            {!showMenu && (
+              <button
+                aria-label="Partager le profil"
+                onClick={shareProfile}
+                className="rounded-full border border-border bg-card p-2 hover:bg-secondary"
+              >
+                <Share2 className="h-4 w-4" />
+              </button>
+            )}
             {isMe ? (
               <div className="flex items-center gap-2">
                 <Link to="/parametres" aria-label="Paramètres" className="rounded-full border border-border bg-card p-2 hover:bg-secondary">
@@ -143,21 +149,32 @@ export function ProfileView({ username }: { username: string }) {
               </button>
             ) : user && p.blockedMe ? null : user ? (
               <div className="flex items-center gap-2">
-                <button
-                  aria-label={`Bloquer @${p.username}`}
-                  disabled={block.isPending}
-                  onClick={() => { if (window.confirm(`Bloquer @${p.username} ? Cette personne ne pourra plus te suivre, t'écrire ni te notifier, et vos abonnements seront supprimés.`)) block.mutate(false); }}
-                  className="rounded-full border border-border bg-card p-2 text-muted-foreground hover:bg-secondary hover:text-destructive disabled:opacity-60"
-                >
-                  <Ban className="h-4 w-4" />
-                </button>
-                <button
-                  aria-label={`Signaler @${p.username}`}
-                  onClick={() => setReportOpen(true)}
-                  className="rounded-full border border-border bg-card p-2 text-muted-foreground hover:bg-secondary hover:text-destructive"
-                >
-                  <Flag className="h-4 w-4" />
-                </button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      aria-label="Plus d'options"
+                      className="rounded-full border border-border bg-card p-2 text-muted-foreground hover:bg-secondary hover:text-foreground"
+                    >
+                      <MoreHorizontal className="h-4 w-4" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="min-w-[11rem]">
+                    <DropdownMenuItem onSelect={shareProfile} className="gap-2">
+                      <Share2 className="h-4 w-4" /> Partager le profil
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      disabled={block.isPending}
+                      onSelect={() => { if (window.confirm(`Bloquer @${p.username} ? Cette personne ne pourra plus te suivre, t'écrire ni te notifier, et vos abonnements seront supprimés.`)) block.mutate(false); }}
+                      className="gap-2 text-destructive focus:text-destructive"
+                    >
+                      <Ban className="h-4 w-4" /> Bloquer
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => setReportOpen(true)} className="gap-2 text-destructive focus:text-destructive">
+                      <Flag className="h-4 w-4" /> Signaler
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
                 {p.canMessage && (
                   <button
                     disabled={openChat.isPending}
