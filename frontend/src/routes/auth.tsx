@@ -2,13 +2,16 @@ import { createFileRoute, useNavigate, useRouter } from "@tanstack/react-router"
 import { takeDestination } from "@/lib/share";
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { createPortal } from "react-dom";
 import { z } from "zod";
 import { toast } from "sonner";
-import { Eye, EyeOff, Loader2 } from "lucide-react";
+import { Eye, EyeOff, Loader2, X } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { uploadFile } from "@/lib/api";
 import { fetchAuthConfig, forgotPassword, registerResend, registerStart, registerVerify, resetPassword } from "@/lib/email";
 import { AuthShell, fieldClass, primaryButtonClass } from "@/components/AuthShell";
+import { PrivacyContent, TermsContent } from "@/lib/legal";
+import { useBackHandler } from "@/lib/back";
 
 export const Route = createFileRoute("/auth")({
   head: () => ({
@@ -86,6 +89,10 @@ function AuthPage() {
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  // Acceptation des conditions : cochée par défaut, mais l'inscription est bloquée si on la décoche
+  const [accepted, setAccepted] = useState(true);
+  const [legalOpen, setLegalOpen] = useState<"terms" | "privacy" | null>(null);
+  useBackHandler(() => setLegalOpen(null), legalOpen !== null);
 
   function collectErrors(issues: { path: PropertyKey[]; message: string }[]) {
     const map: Record<string, string> = {};
@@ -105,6 +112,10 @@ function AuthPage() {
     });
     if (!parsed.success) {
       collectErrors(parsed.error.issues);
+      return;
+    }
+    if (!accepted) {
+      setErrors({ terms: "Tu dois accepter les conditions d'utilisation et la politique de confidentialité pour t'inscrire." });
       return;
     }
     let email = "";
@@ -462,6 +473,24 @@ function AuthPage() {
               </label>
               <input id="avatar" name="avatar" type="file" accept="image/*" className="block w-full text-xs text-muted-foreground" />
             </div>
+            <div>
+              <label className="flex items-start gap-2.5 text-xs leading-snug text-muted-foreground">
+                <input
+                  type="checkbox"
+                  name="terms"
+                  checked={accepted}
+                  onChange={(e) => { setAccepted(e.target.checked); if (e.target.checked) setErrors((er) => ({ ...er, terms: "" })); }}
+                  className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
+                />
+                <span>
+                  J'accepte les{" "}
+                  <button type="button" onClick={() => setLegalOpen("terms")} className="font-semibold text-primary underline">conditions d'utilisation</button>
+                  {" "}et la{" "}
+                  <button type="button" onClick={() => setLegalOpen("privacy")} className="font-semibold text-primary underline">politique de confidentialité</button>.
+                </span>
+              </label>
+              {!accepted && <p className="mt-1 text-xs text-destructive">Coche cette case pour pouvoir créer ton compte.</p>}
+            </div>
           </>
         )}
 
@@ -475,7 +504,7 @@ function AuthPage() {
           )
         )}
 
-        <button type="submit" disabled={loading || (mode === "signup" && cfg.isLoading)} className={primaryButtonClass}>
+        <button type="submit" disabled={loading || (mode === "signup" && (cfg.isLoading || !accepted))} className={primaryButtonClass}>
           {loading ? (
             <span className="inline-flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" /> Un instant…</span>
           ) : mode === "signin" ? (
@@ -487,6 +516,20 @@ function AuthPage() {
           )}
         </button>
       </form>
+      )}
+      {legalOpen && typeof document !== "undefined" && createPortal(
+        <div className="fixed inset-0 z-[70] flex items-end justify-center bg-background/70 backdrop-blur-sm sm:items-center" onClick={() => setLegalOpen(null)}>
+          <div className="animate-fade-in flex max-h-[85vh] w-full max-w-md flex-col rounded-t-3xl border border-border bg-card sm:rounded-3xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between border-b border-border px-4 py-3">
+              <h3 className="font-bold text-foreground">{legalOpen === "terms" ? "Conditions d'utilisation" : "Politique de confidentialité"}</h3>
+              <button type="button" aria-label="Fermer" onClick={() => setLegalOpen(null)} className="rounded-full p-1.5 hover:bg-secondary"><X className="h-4 w-4" /></button>
+            </div>
+            <div className="overflow-y-auto px-4 py-4">
+              {legalOpen === "terms" ? <TermsContent /> : <PrivacyContent />}
+            </div>
+          </div>
+        </div>,
+        document.body,
       )}
     </AuthShell>
   );
