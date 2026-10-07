@@ -89,6 +89,8 @@ Variables à définir dans Render (Environment) :
 
 Les images sont stockées dans le bucket Supabase et supprimées automatiquement après 60 jours.
 
+Kora peut aussi **voir** les images qu'on lui envoie en discussion privée (Gemini, même clé `GEMINI_API_KEY`). Variables facultatives : `GEMINI_VISION_MODEL` (défaut `gemini-2.5-flash`) et `VISION_HOURLY_LIMIT` (images analysées par membre et par heure, défaut 10).
+
 ## Pistes d'amélioration
 
 - Mot de passe oublié / réinitialisation

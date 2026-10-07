@@ -4,7 +4,7 @@ const { v4: uuid } = require('uuid');
 const db = require('./db');
 const { notify } = require('./notify');
 const imageGen = require('./imageGen');
-const { uploadFile } = require('./storage');
+const { uploadFile, extractFilenameFromUrl } = require('./storage');
 
 /**
  * Kora IA — l'IA officielle de Kalchat.
@@ -32,6 +32,9 @@ const RATE_LIMIT = 25; // messages à l'IA par membre...
 const RATE_WINDOW_MS = 60 * 60 * 1000; // ...par heure (protège le quota gratuit de l'API)
 const IMAGE_DAILY_LIMIT = Math.max(1, Number(process.env.IMAGE_DAILY_LIMIT) || 5); // images par membre et par 24 h
 const IMAGE_GLOBAL_DAILY_LIMIT = Math.max(1, Number(process.env.IMAGE_GLOBAL_DAILY_LIMIT) || 150); // images pour toute la plateforme par 24 h (protège les quotas gratuits)
+const VISION_RATE_LIMIT = Math.max(1, Number(process.env.VISION_HOURLY_LIMIT) || 10); // images analysées par membre et par heure
+const VISION_MAX_BYTES = 5 * 1024 * 1024; // image analysée : 5 Mo maximum
+const VISION_MODELS = [...new Set([process.env.GEMINI_VISION_MODEL, 'gemini-2.5-flash', 'gemini-2.5-flash-lite'].filter(Boolean))];
 const IMAGE_MAX_PROMPT = 400; // longueur max de la description
 const REPLY_DELAY_MS = 1200; // si le membre envoie plusieurs messages d'affilée, on répond une seule fois
 
@@ -56,7 +59,7 @@ Ce que tu sais de Kalchat (n'invente rien au-delà) :
 - Abonnements avec demande à accepter. On peut écrire à n'importe quel membre : si vous n'êtes pas abonnés, le message arrive comme une « demande de message » (un seul message tant que la personne n'a pas accepté) ; elle peut accepter, refuser, bloquer ou signaler. Les groupes ne se font qu'avec des abonnés acceptés.
 - Chaque publication peut avoir une catégorie (Info, Économie, Crypto, Musique, Sport, Gaming, Anime, Tech, Humour, Éducation, Lifestyle, Divers) et, pour un texte court, un fond coloré. Dans le menu « ⋯ » d'une publication : partager ou copier le lien, s'abonner, masquer, « ce sujet ne m'intéresse pas », signaler, bloquer. Les sujets masqués se gèrent dans Paramètres.
 - Un lien d'invitation permet de rejoindre un groupe (les administrateurs du groupe le créent dans les infos du groupe).
-- Je peux créer des images : en discussion privée avec moi, le membre appuie sur le bouton 🎨 (ou écrit /image suivi de sa description) ; limite de ${IMAGE_DAILY_LIMIT} images par jour et par membre. Je ne vois pas les images qu'on m'envoie et je ne peux pas modifier une image existante.
+- Je peux créer des images : en discussion privée avec moi, le membre appuie sur le bouton 🎨 (ou écrit /image suivi de sa description) ; limite de ${IMAGE_DAILY_LIMIT} images par jour et par membre. Je peux aussi voir les images qu'on m'envoie en discussion privée (je les commente, les décris ou réponds aux questions dessus) ; je ne les vois pas dans les commentaires de publications, et je ne peux pas modifier une image existante.
 - Les membres peuvent me mentionner avec @kora sous une publication : je réponds dans les commentaires (je ne vois pas les photos ni les vidéos). Je publie aussi un post par jour sur mon compte.
 - Un visiteur non connecté peut parcourir le fil, mais doit se connecter pour liker, commenter, écrire ou voir les profils.
 - Messagerie : discussions privées et groupes, messages vocaux jusqu'à 2 minutes, photos/vidéos, répondre à un message (glisser), modifier / supprimer / épingler (appui long), messages éphémères.
@@ -401,6 +404,162 @@ async function imageReply(io, conversationId, userId, rawPrompt) {
   }
 }
 
+// =====================================================================================
+// Vision : Kora regarde les images envoyées en discussion privée (Gemini)
+// =====================================================================================
+const VISION_SYSTEM = `${SYSTEM_PROMPT}
+
+Contexte actuel : le membre vient de t'envoyer une image en discussion privée.
+- Réagis à l'image de façon naturelle, chaleureuse et drôle quand c'est approprié (1 à 4 phrases, quelques emojis). S'il pose une question ou donne une consigne avec l'image, réponds-y d'abord.
+- Ne dis jamais qui est une personne d'après son visage ; tu peux décrire ce que tu vois (tenue, expression, décor), mais pas deviner une identité.
+- Si l'image montre de la nudité, de la violence graphique ou un contenu illégal, refuse poliment de la commenter, sans la décrire.
+- Si elle contient des informations sensibles (carte bancaire, pièce d'identité, mot de passe), conseille gentiment de ne pas les partager et ne les recopie pas.`;
+
+const visionAsks = new Map(); // userId -> horodatages (limite par membre)
+function allowedVision(userId) {
+  const now = Date.now();
+  const list = (visionAsks.get(userId) || []).filter((t) => now - t < RATE_WINDOW_MS);
+  if (list.length >= VISION_RATE_LIMIT) {
+    visionAsks.set(userId, list);
+    return false;
+  }
+  list.push(now);
+  visionAsks.set(userId, list);
+  return true;
+}
+
+/** Télécharge l'image depuis NOTRE stockage uniquement (jamais une adresse arbitraire). */
+async function loadStoredImage(url) {
+  let host = '';
+  try {
+    host = new URL(process.env.SUPABASE_URL || '').host;
+  } catch {
+    /* SUPABASE_URL absent */
+  }
+  let parsed;
+  try {
+    parsed = new URL(String(url));
+  } catch {
+    throw new Error('adresse invalide');
+  }
+  if (!host || parsed.host !== host || !extractFilenameFromUrl(parsed.href)) throw new Error('image hors stockage Kalchat');
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 20000);
+  try {
+    const res = await fetch(parsed.href, { signal: controller.signal });
+    if (!res.ok) throw new Error(`téléchargement ${res.status}`);
+    const mime = (res.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+    if (!['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'].includes(mime)) {
+      const err = new Error(`format non pris en charge (${mime || 'inconnu'})`);
+      err.unsupported = true;
+      throw err;
+    }
+    const buffer = Buffer.from(await res.arrayBuffer());
+    if (!buffer.length || buffer.length > VISION_MAX_BYTES) {
+      const err = new Error('image trop lourde');
+      err.unsupported = true;
+      throw err;
+    }
+    return { mime, data: buffer.toString('base64') };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function callGeminiVision(model, contents) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 40000);
+  try {
+    const generationConfig = { maxOutputTokens: 1200, temperature: 0.8 };
+    if (/2\.5-flash/.test(model)) generationConfig.thinkingConfig = { thinkingBudget: 0 }; // pas de « réflexion » coûteuse pour commenter une photo
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': process.env.GEMINI_API_KEY },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: `${VISION_SYSTEM}\n\nDate du jour : ${new Date().toLocaleDateString('fr-FR', { dateStyle: 'full' })}.` }] },
+        contents,
+        generationConfig,
+      }),
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      const detail = (await res.text().catch(() => '')).slice(0, 300);
+      const err = new Error(`Gemini vision ${res.status} (${model}) : ${detail}`);
+      err.status = res.status;
+      throw err;
+    }
+    const data = await res.json();
+    const text = (data?.candidates?.[0]?.content?.parts || []).map((p) => p.text || '').join('').trim();
+    if (!text) throw new Error(`Gemini vision (${model}) : réponse vide (image refusée ?)`);
+    return text.slice(0, 3000);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function visionReply(io, conversationId, userId, { media_url, content }) {
+  const username = await botUsername();
+  try {
+    if (!allowed(userId) || !allowedVision(userId)) {
+      await say(io, conversationId, userId, "Tu m'as envoyé beaucoup d'images, je dois reposer mes yeux 😅 Reviens dans quelques minutes !");
+      return;
+    }
+    if (!process.env.GEMINI_API_KEY) {
+      await say(io, conversationId, userId, "Je ne peux pas encore regarder les images, l'équipe de Kalchat finalise ça. Écris-moi en texte en attendant 😊");
+      return;
+    }
+    setTyping(io, conversationId, true, username);
+
+    const img = await loadStoredImage(media_url);
+
+    // Contexte : quelques derniers messages texte, puis l'image du membre
+    const rows = await db
+      .prepare(
+        `SELECT sender_id, content, media_type FROM messages
+         WHERE conversation_id = ? AND (expires_at IS NULL OR expires_at > NOW())
+         ORDER BY created_at DESC LIMIT 8`
+      )
+      .all(conversationId);
+    const contents = [];
+    for (const m of rows.reverse().slice(0, -1)) {
+      if (!m.content || !m.content.trim() || m.media_type === 'system') continue;
+      const role = m.sender_id === BOT_ID ? 'model' : 'user';
+      const text = m.content.slice(0, MAX_INPUT_CHARS);
+      const last = contents[contents.length - 1];
+      if (last && last.role === role) last.parts[0].text += `\n${text}`;
+      else contents.push({ role, parts: [{ text }] });
+    }
+    while (contents.length && contents[0].role !== 'user') contents.shift();
+    const caption = (content || '').trim().slice(0, MAX_INPUT_CHARS) || "Regarde cette image et réagis-y.";
+    const finalParts = [{ inlineData: { mimeType: img.mime, data: img.data } }, { text: caption }];
+    if (contents.length && contents[contents.length - 1].role === 'user') contents[contents.length - 1].parts.push(...finalParts);
+    else contents.push({ role: 'user', parts: finalParts });
+
+    let answer;
+    let lastErr;
+    for (const model of VISION_MODELS) {
+      try {
+        answer = await callGeminiVision(model, contents);
+        break;
+      } catch (err) {
+        lastErr = err;
+        console.error('Kora (vision) :', err.message);
+        if (![400, 403, 404].includes(err.status)) break;
+      }
+    }
+    if (!answer) throw lastErr || new Error('vision indisponible');
+    setTyping(io, conversationId, false, username);
+    await say(io, conversationId, userId, answer);
+  } catch (err) {
+    console.error('Kora (vision) :', err.message);
+    setTyping(io, conversationId, false, username);
+    const msg = err.unsupported
+      ? "Je n'arrive pas à lire cette image (format ou taille non pris en charge). Essaie avec une photo JPG ou PNG un peu plus légère 🙏"
+      : "Oups, je n'arrive pas à regarder cette image pour l'instant. Réessaie dans un petit moment 🙏";
+    await say(io, conversationId, userId, msg).catch(() => undefined);
+  }
+}
+
 const timers = new Map();
 
 /**
@@ -415,10 +574,16 @@ function scheduleReply(io, conversationId, userId, message = {}) {
     void imageReply(io, conversationId, userId, imagePrompt);
     return;
   }
+  if (message.media_type === 'image' && message.media_url) {
+    clearTimeout(timers.get(conversationId));
+    timers.delete(conversationId);
+    void visionReply(io, conversationId, userId, { media_url: message.media_url, content: message.content });
+    return;
+  }
   if (message.media_type && message.media_type !== 'text') {
     clearTimeout(timers.get(conversationId));
     timers.delete(conversationId);
-    void say(io, conversationId, userId, "Pour l'instant, je comprends seulement les messages écrits. Écris-moi ta question en texte 😊").catch(() => undefined);
+    void say(io, conversationId, userId, "Je comprends les messages écrits et les images, mais pas encore les vidéos ni les vocaux. Écris-moi ta question en texte ou envoie-moi une photo 😊").catch(() => undefined);
     return;
   }
   clearTimeout(timers.get(conversationId));

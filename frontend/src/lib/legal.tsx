@@ -69,7 +69,7 @@ const TERMS: Section[] = [
   {
     title: "Kora IA",
     paras: [
-      "Kora IA est un assistant basé sur l'intelligence artificielle. Ses réponses peuvent contenir des erreurs et ne remplacent pas l'avis d'un professionnel (médecin, avocat, etc.). N'envoie pas d'informations sensibles à Kora : tes messages à Kora sont traités par un prestataire d'IA externe pour générer les réponses.",
+      "Kora IA est un assistant basé sur l'intelligence artificielle. Ses réponses peuvent contenir des erreurs et ne remplacent pas l'avis d'un professionnel (médecin, avocat, etc.). N'envoie pas d'informations sensibles à Kora : tes messages et les images que tu lui envoies sont traités par des prestataires d'IA externes pour générer les réponses. Les images que Kora crée pour toi sont supprimées après 60 jours.",
     ],
   },
   {
@@ -138,7 +138,7 @@ const PRIVACY: Section[] = [
       "Base de données et stockage des fichiers : Supabase.",
       "Envoi des emails : Resend.",
       "Notifications push sur Android : Firebase (Google).",
-      "Assistant Kora IA : un fournisseur d'IA externe, qui reçoit uniquement les messages que tu envoies à Kora.",
+      "Assistant Kora IA : des fournisseurs d'IA externes (texte, analyse et création d'images), qui reçoivent uniquement les messages, les images et les descriptions d'images que tu envoies à Kora.",
     ],
   },
   {

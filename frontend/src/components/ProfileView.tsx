@@ -10,6 +10,7 @@ import { ReportSheet } from "@/components/ReportSheet";
 import { publicUrl, shareLink } from "@/lib/share";
 import { useAuth } from "@/lib/auth";
 import { uploadMedia } from "@/lib/media";
+import { useMediaViewer } from "@/components/MediaViewer";
 import { getOrCreateConversation } from "@/lib/chat";
 import {
   fetchFollowList,
@@ -53,6 +54,7 @@ function FollowList({ username, kind, onClose }: { username: string; kind: "foll
 }
 
 export function ProfileView({ username }: { username: string }) {
+  const mv = useMediaViewer();
   const { user, refresh } = useAuth();
   const qc = useQueryClient();
   const [editing, setEditing] = useState(false);
@@ -104,16 +106,17 @@ export function ProfileView({ username }: { username: string }) {
 
   return (
     <div>
+      {mv.viewer}
       {reportOpen && <ReportSheet type="user" targetId={p.id} onClose={() => setReportOpen(false)} />}
       <div className="relative h-36 bg-secondary">
-        {p.cover_url ? <img src={p.cover_url} alt="Couverture" className="h-full w-full object-cover" /> : <div className="brand-gradient h-full w-full opacity-40" />}
+        {p.cover_url ? <img src={p.cover_url} alt="Couverture" onClick={() => mv.open(p.cover_url!, "image")} className="h-full w-full cursor-zoom-in object-cover" /> : <div className="brand-gradient h-full w-full opacity-40" />}
         <div className="absolute inset-0 bg-gradient-to-t from-background to-transparent" />
       </div>
       <div className="-mt-12 px-4">
         <div className="flex items-end justify-between">
           <span className="story-ring relative z-10 rounded-full p-[3px]">
             {p.avatar_url ? (
-              <img src={p.avatar_url} alt={p.display_name} className="h-24 w-24 rounded-full border-4 border-background object-cover" />
+              <button type="button" aria-label="Voir la photo de profil" onClick={() => mv.open(p.avatar_url!, "image")} className="block rounded-full"><img src={p.avatar_url} alt={p.display_name} className="h-24 w-24 cursor-zoom-in rounded-full border-4 border-background object-cover" /></button>
             ) : (
               <span className="brand-gradient flex h-24 w-24 items-center justify-center rounded-full border-4 border-background text-3xl font-bold text-primary-foreground">
                 {p.display_name.slice(0, 1).toUpperCase()}

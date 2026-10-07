@@ -1,9 +1,10 @@
-import { Heart, MessageCircle, Repeat2, Bookmark, MoreHorizontal, Trash2, Pencil, Loader2, Send, X, EyeOff, Flag, Ban, Share2, Copy, UserPlus, UserMinus, UserCheck, ThumbsDown } from "lucide-react";
+import { Heart, MessageCircle, Repeat2, Bookmark, MoreHorizontal, Trash2, Pencil, Loader2, Send, X, EyeOff, Flag, Ban, Share2, Copy, UserPlus, UserMinus, UserCheck, ThumbsDown, Maximize2 } from "lucide-react";
 import { useRef, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { RichText } from "@/components/RichText";
+import { useMediaViewer } from "@/components/MediaViewer";
 import { KORA_ID, Markdown } from "@/components/Markdown";
 import { BadgeList } from "@/components/KalBadge";
 import { ReportSheet } from "@/components/ReportSheet";
@@ -159,6 +160,7 @@ function CommentItem({
  * Dans le fil, un appui sur la publication (hors boutons, liens et vidéo) l'ouvre.
  */
 export function PostCard({ post, detail = false }: { post: FeedPost; detail?: boolean }) {
+  const mv = useMediaViewer();
   const { user, isStaff } = useAuth();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -547,13 +549,14 @@ export function PostCard({ post, detail = false }: { post: FeedPost; detail?: bo
           )}
 
           {post.image_url && (post.media_type === "video" ? (
-            <video src={post.image_url} controls preload="metadata" className="mt-3 max-h-[28rem] w-full rounded-2xl border border-border bg-black" />
+            <div className="relative mt-3"><video src={post.image_url} controls preload="metadata" playsInline className="max-h-[28rem] w-full rounded-2xl border border-border bg-black" /><button type="button" aria-label="Ouvrir la vidéo en plein écran" onClick={(e) => { e.stopPropagation(); mv.open(post.image_url!, "video"); }} className="absolute right-2 top-2 rounded-full bg-black/55 p-1.5 text-white"><Maximize2 className="h-4 w-4" /></button></div>
           ) : (
             <img
               src={post.image_url}
               alt="Publication"
               loading="lazy"
-              className="mt-3 w-full rounded-2xl border border-border object-cover"
+              onClick={(e) => { e.stopPropagation(); mv.open(post.image_url!, "image"); }}
+              className="mt-3 w-full cursor-zoom-in rounded-2xl border border-border object-cover"
             />
           ))}
 
@@ -688,6 +691,7 @@ export function PostCard({ post, detail = false }: { post: FeedPost; detail?: bo
           )}
         </div>
       </div>
+      {mv.viewer}
       {reporting && <ReportSheet type={reporting.type} targetId={reporting.id} onClose={() => setReporting(null)} />}
     </article>
   );
