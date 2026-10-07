@@ -1,7 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { Fragment, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Check, CheckCheck, ImagePlus, Loader2, Mic, Ban, Flag, MoreVertical, Pencil, Pin, Reply, Send, Star, Timer, Trash2, Users, X } from "lucide-react";
+import { ArrowLeft, Check, CheckCheck, ImagePlus, Loader2, Mic, Ban, Flag, MoreVertical, Palette, Pencil, Pin, Reply, Send, Star, Timer, Trash2, Users, X } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
 import { dayKey, dayLabel } from "@/lib/dateLabel";
@@ -64,6 +64,23 @@ function ChatPage() {
   const msgs = useQuery({ queryKey: ["messages", id], queryFn: () => fetchMessages(id), refetchInterval: ephemeralSeconds > 0 ? 30000 : false });
   const other = detail?.other ?? null;
   const isGroup = !!detail?.isGroup;
+  const isKora = !isGroup && other?.id === KORA_ID;
+
+  // ---------- Images avec Kora IA : bouton 🎨 (ou commande /image) ----------
+  const [imageMode, setImageMode] = useState(false);
+  const [drawingFrom, setDrawingFrom] = useState<number | null>(null); // nombre de messages de Kora au moment de la demande
+  const koraMsgCount = (msgs.data ?? []).filter((m) => m.sender_id === KORA_ID).length;
+  useEffect(() => {
+    if (drawingFrom !== null && koraMsgCount > drawingFrom) setDrawingFrom(null);
+  }, [koraMsgCount, drawingFrom]);
+  useEffect(() => {
+    if (drawingFrom === null) return;
+    const t = window.setTimeout(() => setDrawingFrom(null), 120000);
+    return () => window.clearTimeout(t);
+  }, [drawingFrom]);
+  useEffect(() => {
+    if (drawingFrom !== null) endRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [drawingFrom]);
 
   const ephemeral = useMutation({
     mutationFn: (seconds: number) => setEphemeral(id, seconds),
@@ -217,8 +234,16 @@ function ChatPage() {
   function submitText() {
     const t = text.trim();
     if (!t) return;
-    if (editing) edit.mutate({ messageId: editing.id, content: t });
-    else send.mutate(t);
+    if (editing) { edit.mutate({ messageId: editing.id, content: t }); return; }
+    const asksImage = isKora && (imageMode || /^\/(?:image|img|dessine)(?:\s|$)/i.test(t));
+    if (asksImage) {
+      const body = /^\/(?:image|img|dessine)(?:\s|$)/i.test(t) ? t : `/image ${t}`;
+      setDrawingFrom(koraMsgCount);
+      setImageMode(false);
+      send.mutate(body, { onError: () => setDrawingFrom(null) });
+      return;
+    }
+    send.mutate(t);
   }
   /** Fait défiler jusqu'à un message (réponse citée, message épinglé) et le met brièvement en évidence. */
   function jumpTo(messageId: string) {
@@ -377,6 +402,7 @@ function ChatPage() {
                       </button>
                     )}
                     {m.media_type === "audio_expired" && <p className="mb-1 text-xs italic opacity-80">🎤 Message vocal expiré (supprimé après 60 jours)</p>}
+                    {m.media_type === "image_expired" && <p className="mb-1 text-xs italic opacity-80">🖼️ Image supprimée (après 60 jours)</p>}
                     {m.media_type === "video_expired" && <p className="mb-1 text-xs italic opacity-80">🎥 Vidéo indisponible (supprimée après 60 jours)</p>}
                     {m.media_url && (m.media_type === "video" ? (
                       <video src={m.media_url} controls className="mb-1 max-h-64 rounded-xl" />
@@ -405,6 +431,13 @@ function ChatPage() {
             </Fragment>
           );
         })}
+        {drawingFrom !== null && (
+          <div className="flex justify-start px-3 pb-2">
+            <div className="flex items-center gap-2 rounded-2xl bg-card px-3 py-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" /> Kora dessine… 🎨
+            </div>
+          </div>
+        )}
         <div ref={endRef} />
       </main>
 
@@ -487,7 +520,12 @@ function ChatPage() {
           <button type="button" disabled={sendingFile} onClick={() => fileRef.current?.click()} aria-label="Envoyer une photo ou une vidéo" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-border bg-card text-muted-foreground hover:bg-secondary disabled:opacity-60">
             {sendingFile ? <Loader2 className="h-5 w-5 animate-spin" /> : <ImagePlus className="h-5 w-5" />}
           </button>
-          <input ref={inputRef} value={text} onChange={(e) => setText(e.target.value)} maxLength={2000} placeholder={editing ? "Modifie ton message…" : "Écris un message…"} className="flex-1 rounded-full border border-border bg-card px-4 py-2.5 text-sm text-foreground outline-none focus:border-primary" />
+          {isKora && !editing && (
+            <button type="button" onClick={() => { setImageMode((v) => !v); inputRef.current?.focus(); }} aria-pressed={imageMode} aria-label="Demander une image à Kora" className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full border ${imageMode ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card text-muted-foreground hover:bg-secondary"}`}>
+              <Palette className="h-5 w-5" />
+            </button>
+          )}
+          <input ref={inputRef} value={text} onChange={(e) => setText(e.target.value)} maxLength={imageMode ? 400 : 2000} placeholder={editing ? "Modifie ton message…" : imageMode ? "Décris l'image à créer… 🎨" : "Écris un message…"} className="flex-1 rounded-full border border-border bg-card px-4 py-2.5 text-sm text-foreground outline-none focus:border-primary" />
           {text.trim() ? (
             <button disabled={send.isPending || edit.isPending} aria-label={editing ? "Enregistrer la modification" : "Envoyer"} className="brand-gradient flex h-10 w-10 items-center justify-center rounded-full text-primary-foreground disabled:opacity-50"><Send className="h-4 w-4" /></button>
           ) : (

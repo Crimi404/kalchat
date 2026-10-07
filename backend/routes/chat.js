@@ -587,7 +587,7 @@ router.post('/conversations/:id/messages', async (req, res) => {
 
   // Discussion privée avec Kora IA (l'IA de Kalchat) : elle répond
   if (convRow && !convRow.is_group && otherMembers.some((m) => m.user_id === ai.BOT_ID)) {
-    ai.scheduleReply(io, req.params.id, req.user.id, { media_type });
+    ai.scheduleReply(io, req.params.id, req.user.id, { media_type, content });
   }
 
   res.status(201).json(message);

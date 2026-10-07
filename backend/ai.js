@@ -3,6 +3,8 @@ const bcrypt = require('bcryptjs');
 const { v4: uuid } = require('uuid');
 const db = require('./db');
 const { notify } = require('./notify');
+const imageGen = require('./imageGen');
+const { uploadFile } = require('./storage');
 
 /**
  * Kora IA — l'IA officielle de Kalchat.
@@ -28,6 +30,9 @@ const MAX_REPLY_TOKENS = 600;
 const HISTORY_MESSAGES = 12; // contexte : les derniers messages de la discussion
 const RATE_LIMIT = 25; // messages à l'IA par membre...
 const RATE_WINDOW_MS = 60 * 60 * 1000; // ...par heure (protège le quota gratuit de l'API)
+const IMAGE_DAILY_LIMIT = Math.max(1, Number(process.env.IMAGE_DAILY_LIMIT) || 5); // images par membre et par 24 h
+const IMAGE_GLOBAL_DAILY_LIMIT = Math.max(1, Number(process.env.IMAGE_GLOBAL_DAILY_LIMIT) || 150); // images pour toute la plateforme par 24 h (protège les quotas gratuits)
+const IMAGE_MAX_PROMPT = 400; // longueur max de la description
 const REPLY_DELAY_MS = 1200; // si le membre envoie plusieurs messages d'affilée, on répond une seule fois
 
 const OLD_WELCOME =
@@ -51,6 +56,7 @@ Ce que tu sais de Kalchat (n'invente rien au-delà) :
 - Abonnements avec demande à accepter. On peut écrire à n'importe quel membre : si vous n'êtes pas abonnés, le message arrive comme une « demande de message » (un seul message tant que la personne n'a pas accepté) ; elle peut accepter, refuser, bloquer ou signaler. Les groupes ne se font qu'avec des abonnés acceptés.
 - Chaque publication peut avoir une catégorie (Info, Économie, Crypto, Musique, Sport, Gaming, Anime, Tech, Humour, Éducation, Lifestyle, Divers) et, pour un texte court, un fond coloré. Dans le menu « ⋯ » d'une publication : partager ou copier le lien, s'abonner, masquer, « ce sujet ne m'intéresse pas », signaler, bloquer. Les sujets masqués se gèrent dans Paramètres.
 - Un lien d'invitation permet de rejoindre un groupe (les administrateurs du groupe le créent dans les infos du groupe).
+- Je peux créer des images : en discussion privée avec moi, le membre appuie sur le bouton 🎨 (ou écrit /image suivi de sa description) ; limite de ${IMAGE_DAILY_LIMIT} images par jour et par membre. Je ne vois pas les images qu'on m'envoie et je ne peux pas modifier une image existante.
 - Les membres peuvent me mentionner avec @kora sous une publication : je réponds dans les commentaires (je ne vois pas les photos ni les vidéos). Je publie aussi un post par jour sur mon compte.
 - Un visiteur non connecté peut parcourir le fil, mais doit se connecter pour liker, commenter, écrire ou voir les profils.
 - Messagerie : discussions privées et groupes, messages vocaux jusqu'à 2 minutes, photos/vidéos, répondre à un message (glisser), modifier / supprimer / épingler (appui long), messages éphémères.
@@ -94,11 +100,17 @@ async function botUsername() {
   return row?.username || 'kora';
 }
 
-async function insertBotMessage(conversationId, content) {
+async function insertBotMessage(conversationId, content, media = null) {
   const id = uuid();
-  await db
-    .prepare('INSERT INTO messages (id, conversation_id, sender_id, content) VALUES (?, ?, ?, ?)')
-    .run(id, conversationId, BOT_ID, content);
+  if (media?.url) {
+    await db
+      .prepare('INSERT INTO messages (id, conversation_id, sender_id, content, media_url, media_type) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(id, conversationId, BOT_ID, content, media.url, media.type || 'image');
+  } else {
+    await db
+      .prepare('INSERT INTO messages (id, conversation_id, sender_id, content) VALUES (?, ?, ?, ?)')
+      .run(id, conversationId, BOT_ID, content);
+  }
   return id;
 }
 
@@ -243,8 +255,8 @@ async function callModel(history, system = SYSTEM_PROMPT) {
   throw lastErr;
 }
 
-async function say(io, conversationId, userId, content) {
-  const id = await insertBotMessage(conversationId, content);
+async function say(io, conversationId, userId, content, media = null) {
+  const id = await insertBotMessage(conversationId, content, media);
   const message = await getMessage(id);
   io?.to(conversationId).emit('new_message', { conversation_id: conversationId, message });
   io?.to(`user:${userId}`).emit('conversation_changed', { conversation_id: conversationId });
@@ -297,6 +309,98 @@ async function reply(io, conversationId, userId) {
   }
 }
 
+// =====================================================================================
+// Images : bouton 🎨 ou commande /image dans la discussion avec Kora
+// =====================================================================================
+const IMAGE_CMD = /^\s*\/(?:image|img|dessine)(?:\s+|$)/i;
+const imageBusy = new Set(); // un seul dessin à la fois par membre
+
+/** Renvoie la description demandée si le message est une demande d'image (« /image … »), sinon null. */
+function imageRequestPrompt(content) {
+  if (!content || !IMAGE_CMD.test(content)) return null;
+  return content.replace(IMAGE_CMD, '').trim();
+}
+
+const IMAGE_PROMPT_SYSTEM = `Tu prépares des demandes pour un générateur d'images.
+Réponds UNIQUEMENT par une description en anglais (1 à 2 phrases, visuelle et précise) de l'image demandée, sans guillemets ni commentaire.
+Si la demande est interdite (nudité ou contenu sexuel, violence graphique, haine, mineurs dans un contexte inapproprié, personne réelle identifiable ou célébrité, contenu illégal) ou si ce n'est pas une description d'image exploitable, réponds exactement : REFUSE`;
+
+/** Traduit / précise la demande (meilleurs résultats) et sert de second filtre. En cas de panne de l'IA texte, on garde la demande telle quelle. */
+async function refineImagePrompt(userPrompt) {
+  try {
+    const out = await callModel([{ role: 'user', content: userPrompt.slice(0, IMAGE_MAX_PROMPT) }], IMAGE_PROMPT_SYSTEM);
+    if (/^\s*REFUSE\b/i.test(out)) return { refused: true };
+    const cleaned = out.replace(/^["'«»\s]+|["'«»\s]+$/g, '').slice(0, 600);
+    return { prompt: cleaned || userPrompt };
+  } catch {
+    return { prompt: userPrompt };
+  }
+}
+
+async function imageUsage(userId) {
+  const mine = await db.prepare("SELECT COUNT(*) AS n FROM image_generations WHERE user_id = ? AND created_at > NOW() - INTERVAL '24 hours'").get(userId);
+  const all = await db.prepare("SELECT COUNT(*) AS n FROM image_generations WHERE created_at > NOW() - INTERVAL '24 hours'").get();
+  return { user: Number(mine?.n || 0), global: Number(all?.n || 0) };
+}
+
+async function imageReply(io, conversationId, userId, rawPrompt) {
+  const username = await botUsername();
+  if (imageBusy.has(userId)) {
+    await say(io, conversationId, userId, 'Je suis déjà en train de dessiner ton image, patiente un instant 🎨').catch(() => undefined);
+    return;
+  }
+  imageBusy.add(userId);
+  try {
+    if (!rawPrompt) {
+      await say(io, conversationId, userId, "Dis-moi ce que tu veux que je dessine ! Appuie sur 🎨 puis décris ton image, par exemple : *un chat astronaute sur la lune* 🚀");
+      return;
+    }
+    if (rawPrompt.length > IMAGE_MAX_PROMPT) {
+      await say(io, conversationId, userId, `Ta description est un peu longue (${IMAGE_MAX_PROMPT} caractères maximum). Résume-la et je me mets au travail 😊`);
+      return;
+    }
+    if (!imageGen.isConfigured()) {
+      await say(io, conversationId, userId, "La création d'images n'est pas encore activée, l'équipe de Kalchat finalise ça. Reviens bientôt 🎨");
+      return;
+    }
+    if (imageGen.isBlockedPrompt(rawPrompt)) {
+      await say(io, conversationId, userId, "Désolée, je ne peux pas créer ce genre d'image. Essaie une autre idée 🙂");
+      return;
+    }
+    const usage = await imageUsage(userId);
+    if (usage.user >= IMAGE_DAILY_LIMIT) {
+      await say(io, conversationId, userId, `Tu as utilisé tes ${IMAGE_DAILY_LIMIT} images du jour 🎨 Reviens demain, ton quota se renouvelle toutes les 24 h !`);
+      return;
+    }
+    if (usage.global >= IMAGE_GLOBAL_DAILY_LIMIT) {
+      await say(io, conversationId, userId, "Je reçois énormément de demandes d'images aujourd'hui et mon atelier est complet 😅 Réessaie un peu plus tard !");
+      return;
+    }
+
+    setTyping(io, conversationId, true, username);
+    const refined = await refineImagePrompt(rawPrompt);
+    if (refined.refused) {
+      await say(io, conversationId, userId, "Désolée, je ne peux pas créer cette image. Essaie une autre idée 🙂");
+      return;
+    }
+
+    const img = await imageGen.generateImage(refined.prompt);
+    const url = await uploadFile(`kora-${uuid()}.${imageGen.extensionFor(img.mime)}`, img.buffer, img.mime);
+    await db.prepare('INSERT INTO image_generations (id, user_id, provider) VALUES (?, ?, ?)').run(uuid(), userId, img.provider);
+
+    const left = Math.max(0, IMAGE_DAILY_LIMIT - usage.user - 1);
+    const caption = `Voilà ton image 🎨 Il te reste ${left} image${left > 1 ? 's' : ''} aujourd'hui.`;
+    setTyping(io, conversationId, false, username);
+    await say(io, conversationId, userId, caption, { url, type: 'image' });
+  } catch (err) {
+    console.error('Kora (image) :', err.message);
+    await say(io, conversationId, userId, "Oups, je n'ai pas réussi à dessiner cette image pour l'instant. Réessaie dans un petit moment 🙏 (ça ne compte pas dans ton quota)").catch(() => undefined);
+  } finally {
+    setTyping(io, conversationId, false, username);
+    imageBusy.delete(userId);
+  }
+}
+
 const timers = new Map();
 
 /**
@@ -304,6 +408,13 @@ const timers = new Map();
  * `message` = { content, media_type } pour répondre autrement aux photos / vocaux (texte uniquement pour le moment).
  */
 function scheduleReply(io, conversationId, userId, message = {}) {
+  const imagePrompt = !message.media_type || message.media_type === 'text' ? imageRequestPrompt(message.content) : null;
+  if (imagePrompt !== null) {
+    clearTimeout(timers.get(conversationId));
+    timers.delete(conversationId);
+    void imageReply(io, conversationId, userId, imagePrompt);
+    return;
+  }
   if (message.media_type && message.media_type !== 'text') {
     clearTimeout(timers.get(conversationId));
     timers.delete(conversationId);

@@ -20,6 +20,13 @@ services:
       # Kora IA (l'IA de Kalchat) — API compatible OpenAI (Groq par défaut)
       - key: AI_API_KEY
         sync: false
+      # Images de Kora IA (bouton 🎨 / commande /image dans la discussion avec Kora)
+      - key: POLLINATIONS_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: IMAGE_DAILY_LIMIT
+        value: 5
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY

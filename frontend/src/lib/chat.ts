@@ -60,6 +60,7 @@ export function messageSnippet(text: string | null | undefined, mediaType: strin
     audio: "🎤 Message vocal",
     video_expired: "🎥 Vidéo indisponible",
     audio_expired: "🎤 Message vocal expiré",
+    image_expired: "🖼️ Image supprimée",
   };
   return labels[mediaType ?? ""] ?? "📷 Photo";
 }

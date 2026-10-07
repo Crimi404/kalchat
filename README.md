@@ -73,6 +73,22 @@ kalchat/
 - **Le service "s'endort"** après 15 min d'inactivité, puis redémarre (quelques secondes de délai) à la prochaine visite.
 - **Les fichiers uploadés** (`backend/uploads/`) sont stockés localement sur Render et sont **réinitialisés à chaque redéploiement** (contrairement aux données en base, qui elles sont désormais permanentes grâce à Supabase). Pour des médias qui durent, il faudrait migrer vers un stockage externe (Supabase Storage, Cloudinary...).
 
+## Images de Kora IA 🎨
+
+Dans la discussion avec Kora, le bouton 🎨 (ou la commande `/image une description`) crée une image.
+Variables à définir dans Render (Environment) :
+
+| Variable | Rôle |
+| --- | --- |
+| `POLLINATIONS_API_KEY` | Clé Pollinations (fournisseur essayé en premier) |
+| `GEMINI_API_KEY` | Clé Google AI Studio (fournisseur de secours) |
+| `IMAGE_DAILY_LIMIT` | Images par membre et par 24 h (défaut : 5) |
+| `IMAGE_GLOBAL_DAILY_LIMIT` | Images pour toute la plateforme par 24 h (défaut : 150) |
+| `IMAGE_PROVIDERS` | Ordre des fournisseurs (défaut : `pollinations,gemini`) |
+| `GEMINI_IMAGE_MODEL` / `POLLINATIONS_MODEL` | Modèles à utiliser si les défauts changent |
+
+Les images sont stockées dans le bucket Supabase et supprimées automatiquement après 60 jours.
+
 ## Pistes d'amélioration
 
 - Mot de passe oublié / réinitialisation

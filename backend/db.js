@@ -213,6 +213,14 @@ async function initSchema() {
     ALTER TABLE users ADD COLUMN IF NOT EXISTS read_receipts INTEGER NOT NULL DEFAULT 1;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS push_prefs TEXT;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS default_ephemeral INTEGER NOT NULL DEFAULT 0;
+
+    CREATE TABLE IF NOT EXISTS image_generations (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      provider TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_image_generations_user ON image_generations(user_id, created_at);
     ALTER TABLE post_comments ADD COLUMN IF NOT EXISTS parent_id TEXT REFERENCES post_comments(id) ON DELETE CASCADE;
     ALTER TABLE post_comments ADD COLUMN IF NOT EXISTS edited_at TIMESTAMPTZ;
     CREATE TABLE IF NOT EXISTS comment_likes (
