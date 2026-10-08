@@ -302,6 +302,22 @@ async function initSchema() {
     );
     CREATE INDEX IF NOT EXISTS idx_reports_status ON reports(status, created_at);
     CREATE INDEX IF NOT EXISTS idx_reports_target ON reports(target_type, target_id);
+
+    -- Réglages de Kora IA (page Administration) et journal pour ses statistiques
+    CREATE TABLE IF NOT EXISTS kora_settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS kora_events (
+      id TEXT PRIMARY KEY,
+      kind TEXT NOT NULL,
+      status TEXT NOT NULL,
+      user_id TEXT,
+      detail TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_kora_events_created ON kora_events(created_at);
   `);
 
   // ---------- Badges à rangs : plus (bleu) < vip (rouge) < vip_plus (violet) < legend (doré) ----------

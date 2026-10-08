@@ -2,6 +2,7 @@ const express = require('express');
 const db = require('../db');
 const { sweepOrphanFiles } = require('../mediaCleanup');
 const ai = require('../ai');
+const koraSettings = require('../koraSettings');
 const authMiddleware = require('../middleware/auth');
 const staffMiddleware = require('../middleware/staff');
 const { notify } = require('../notify');
@@ -198,6 +199,25 @@ router.post('/kora/post-now', async (req, res) => {
     res.json({ id });
   } catch (err) {
     res.status(500).json({ error: `Publication impossible : ${err.message}` });
+  }
+});
+
+// ---------- Kora IA : réglages, quotas et statistiques (administrateurs) ----------
+router.get('/kora', async (req, res) => {
+  if (!(await requireAdmin(req, res))) return;
+  try {
+    res.json({ settings: koraSettings.all(), limits: koraSettings.LIMITS, stats: await koraSettings.stats() });
+  } catch (err) {
+    res.status(500).json({ error: `Impossible de charger Kora : ${err.message}` });
+  }
+});
+
+router.patch('/kora/settings', async (req, res) => {
+  if (!(await requireAdmin(req, res))) return;
+  try {
+    res.json({ settings: await koraSettings.update(req.body || {}) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
   }
 });
 
