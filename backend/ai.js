@@ -4,7 +4,7 @@ const { v4: uuid } = require('uuid');
 const db = require('./db');
 const { notify } = require('./notify');
 const imageGen = require('./imageGen');
-const { uploadFile, extractFilenameFromUrl } = require('./storage');
+const { uploadFile, downloadFileByUrl } = require('./storage');
 
 /**
  * Kora IA — l'IA officielle de Kalchat.
@@ -430,42 +430,34 @@ function allowedVision(userId) {
   return true;
 }
 
-/** Télécharge l'image depuis NOTRE stockage uniquement (jamais une adresse arbitraire). */
+/** Reconnaît le vrai format d'une image d'après ses premiers octets (le type annoncé par le serveur n'est pas toujours fiable). */
+function sniffImageMime(buf) {
+  if (buf.length > 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return 'image/jpeg';
+  if (buf.length > 8 && buf.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return 'image/png';
+  if (buf.length > 12 && buf.subarray(0, 4).toString('latin1') === 'RIFF' && buf.subarray(8, 12).toString('latin1') === 'WEBP') return 'image/webp';
+  if (buf.length > 12 && buf.subarray(4, 8).toString('latin1') === 'ftyp') {
+    const brand = buf.subarray(8, 12).toString('latin1');
+    if (/^(heic|heix|hevc|hevx)$/.test(brand)) return 'image/heic';
+    if (/^(mif1|msf1|heim|heis)$/.test(brand)) return 'image/heif';
+  }
+  return null;
+}
+
+/** Récupère l'image directement dans NOTRE bucket (jamais une adresse arbitraire). */
 async function loadStoredImage(url) {
-  let host = '';
-  try {
-    host = new URL(process.env.SUPABASE_URL || '').host;
-  } catch {
-    /* SUPABASE_URL absent */
+  const { buffer } = await downloadFileByUrl(String(url));
+  const mime = sniffImageMime(buffer);
+  if (!mime) {
+    const err = new Error('format non pris en charge (GIF, vidéo ou autre)');
+    err.unsupported = true;
+    throw err;
   }
-  let parsed;
-  try {
-    parsed = new URL(String(url));
-  } catch {
-    throw new Error('adresse invalide');
+  if (!buffer.length || buffer.length > VISION_MAX_BYTES) {
+    const err = new Error('image trop lourde');
+    err.unsupported = true;
+    throw err;
   }
-  if (!host || parsed.host !== host || !extractFilenameFromUrl(parsed.href)) throw new Error('image hors stockage Kalchat');
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 20000);
-  try {
-    const res = await fetch(parsed.href, { signal: controller.signal });
-    if (!res.ok) throw new Error(`téléchargement ${res.status}`);
-    const mime = (res.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
-    if (!['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'].includes(mime)) {
-      const err = new Error(`format non pris en charge (${mime || 'inconnu'})`);
-      err.unsupported = true;
-      throw err;
-    }
-    const buffer = Buffer.from(await res.arrayBuffer());
-    if (!buffer.length || buffer.length > VISION_MAX_BYTES) {
-      const err = new Error('image trop lourde');
-      err.unsupported = true;
-      throw err;
-    }
-    return { mime, data: buffer.toString('base64') };
-  } finally {
-    clearTimeout(timer);
-  }
+  return { mime, data: buffer.toString('base64') };
 }
 
 function sanitizeVisionText(text) {
@@ -732,7 +724,8 @@ async function replyToComment(io, { postId, commentId, rootId, askerId }) {
           .all(postId);
     const lines = thread.reverse().filter((c) => c.id !== commentId).map((c) => `@${c.username} : ${cut(c.content, 300)}`);
 
-    const question = await db.prepare('SELECT content FROM post_comments WHERE id = ?').get(commentId);
+    // @kora dans le texte de la publication elle-même (pas de commentaire) : la demande est le texte de la publication
+    const question = commentId ? await db.prepare('SELECT content FROM post_comments WHERE id = ?').get(commentId) : { content: post.content };
     const botName = await botUsername();
     const ask = cut(String(question?.content || '').replace(new RegExp(`@${botName}\\b`, 'gi'), '').replace(/@kora(_ia\w*)?\b/gi, ''), 600) || "Qu'en penses-tu ?";
 
@@ -791,6 +784,20 @@ async function maybeReplyToComment(io, { postId, commentId, rootId, authorId, te
   if (!mentioned && repliedToUserId !== BOT_ID) return false;
   setTimeout(() => {
     void replyToComment(io, { postId, commentId, rootId, askerId: authorId }).catch((err) => console.error('Kora (commentaire) :', err.message));
+  }, 1500);
+  return true;
+}
+
+/**
+ * À appeler après la création d'une publication : si le texte mentionne @kora, Kora répond en commentaire sous la publication.
+ * Renvoie true si une réponse est programmée.
+ */
+async function maybeReplyToPost(io, { postId, authorId, text }) {
+  if (authorId === BOT_ID) return false;
+  const botName = await botUsername();
+  if (!new RegExp(`(^|[^\\w@])@${botName}\\b`, 'i').test(text || '')) return false;
+  setTimeout(() => {
+    void replyToComment(io, { postId, commentId: null, rootId: null, askerId: authorId }).catch((err) => console.error('Kora (publication) :', err.message));
   }, 1500);
   return true;
 }
@@ -929,4 +936,4 @@ async function sendBotMessage(io, userId, text) {
   await say(io, conversationId, userId, text);
 }
 
-module.exports = { BOT_ID, init, ensureConversationFor, scheduleReply, maybeReplyToComment, postDaily, sendBotMessage };
+module.exports = { BOT_ID, init, ensureConversationFor, scheduleReply, maybeReplyToComment, maybeReplyToPost, postDaily, sendBotMessage };

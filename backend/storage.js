@@ -56,6 +56,15 @@ function extractFilenameFromUrl(url) {
   return decodeURIComponent(url.slice(idx + marker.length));
 }
 
+// ---------- Télécharge un fichier de NOTRE bucket à partir de son URL publique (sans passer par l'hôte de l'URL) ----------
+async function downloadFileByUrl(url) {
+  const filename = extractFilenameFromUrl(url);
+  if (!filename) throw new Error('image hors stockage Kalchat');
+  const { data, error } = await supabase.storage.from(BUCKET).download(filename);
+  if (error) throw new Error(`stockage : ${error.message}`);
+  return { buffer: Buffer.from(await data.arrayBuffer()), type: data.type || '' };
+}
+
 async function deleteFileByUrl(url) {
   const filename = extractFilenameFromUrl(url);
   if (!filename) return;
@@ -90,4 +99,4 @@ async function deleteFilesByName(names) {
   return removed;
 }
 
-module.exports = { initStorage, uploadFile, mediaTypeFromMimetype, deleteFileByUrl, extractFilenameFromUrl, listAllFiles, deleteFilesByName };
+module.exports = { initStorage, uploadFile, mediaTypeFromMimetype, deleteFileByUrl, downloadFileByUrl, extractFilenameFromUrl, listAllFiles, deleteFilesByName };

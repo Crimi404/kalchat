@@ -31,6 +31,9 @@ router.post('/', async (req, res) => {
 
   await notifyMentions(req.app.get('io'), { text: content, actorId: req.user.id, postId: id, where: 'post' });
 
+  // @kora dans le texte de la publication : Kora répond en commentaire quelques secondes plus tard
+  await ai.maybeReplyToPost(req.app.get('io'), { postId: id, authorId: req.user.id, text: content });
+
   res.status(201).json(await getPostById(id));
 });
 
