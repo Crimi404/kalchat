@@ -76,7 +76,7 @@ function AdminPage() {
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState<string | null>(null);
   const [warn, setWarn] = useState("");
-  const [tab, setTab] = useState<"members" | "reports">("members");
+  const [tab, setTab] = useState<"members" | "reports" | "kora">("members");
   const [closed, setClosed] = useState(false);
   const [storage, setStorage] = useState<StorageInfo | null>(null);
   const [storageBusy, setStorageBusy] = useState(false);
@@ -135,11 +135,12 @@ function AdminPage() {
     <div className="app-shell">
       <TopBar title="Administration" subtitle={isAdmin ? "Administrateur" : "Modérateur"} />
       <main className="space-y-3 p-3 pb-28">
-        <div className="grid grid-cols-2 gap-1 rounded-full border border-border bg-secondary/40 p-1 text-sm font-semibold">
+        <div className={`grid ${isAdmin ? "grid-cols-3" : "grid-cols-2"} gap-1 rounded-full border border-border bg-secondary/40 p-1 text-sm font-semibold`}>
           <button onClick={() => setTab("members")} className={`rounded-full py-1.5 ${tab === "members" ? "bg-card text-foreground shadow" : "text-muted-foreground"}`}>Membres</button>
           <button onClick={() => setTab("reports")} className={`rounded-full py-1.5 ${tab === "reports" ? "bg-card text-foreground shadow" : "text-muted-foreground"}`}>
             Signalements{stats.data?.open_reports ? <span className="ml-1.5 rounded-full bg-destructive px-1.5 py-0.5 text-[10px] text-white">{stats.data.open_reports}</span> : null}
           </button>
+          {isAdmin && <button onClick={() => setTab("kora")} className={`rounded-full py-1.5 ${tab === "kora" ? "bg-card text-foreground shadow" : "text-muted-foreground"}`}>Kora</button>}
         </div>
         {tab === "reports" && (
           <div className="space-y-3">
@@ -210,7 +211,7 @@ function AdminPage() {
             </div>
           ))}
         </div>}
-        {tab === "members" && isAdmin && <KoraAdmin />}
+        {tab === "kora" && isAdmin && <KoraAdmin />}
         {tab === "members" && isAdmin && (
           <div className="rounded-2xl border border-border bg-card p-3">
             <p className="text-sm font-semibold">Stockage des médias</p>
