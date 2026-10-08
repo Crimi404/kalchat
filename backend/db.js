@@ -318,6 +318,28 @@ async function initSchema() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
     CREATE INDEX IF NOT EXISTS idx_kora_events_created ON kora_events(created_at);
+    -- Communautés : groupes de discussion, avec propriétaire, administrateurs et membres
+    CREATE TABLE IF NOT EXISTS communities (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      description TEXT,
+      join_mode TEXT NOT NULL DEFAULT 'open',
+      owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_communities_name ON communities (LOWER(name));
+    CREATE TABLE IF NOT EXISTS community_members (
+      community_id TEXT NOT NULL REFERENCES communities(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      role TEXT NOT NULL DEFAULT 'member',
+      status TEXT NOT NULL DEFAULT 'active',
+      joined_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (community_id, user_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_community_members_user ON community_members(user_id, status);
+    ALTER TABLE posts ADD COLUMN IF NOT EXISTS community_id TEXT REFERENCES communities(id) ON DELETE CASCADE;
+    CREATE INDEX IF NOT EXISTS idx_posts_community ON posts(community_id, created_at);
+
     -- Retours des membres sur les réponses de Kora (1 = utile, -1 = pas utile)
     CREATE TABLE IF NOT EXISTS kora_feedback (
       message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,

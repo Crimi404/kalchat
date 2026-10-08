@@ -12,6 +12,23 @@ const { THEMED_POST_MAX_CHARS, normalizeTheme, normalizeFont } = require('../the
 const router = express.Router();
 router.use(authMiddleware);
 
+// Les publications d'une communauté ne sont visibles que de ses membres (et de l'équipe Kalchat).
+async function isStaffUser(userId) {
+  const me = await db.prepare('SELECT is_admin, role FROM users WHERE id = ?').get(userId);
+  return !!(me && (me.is_admin || me.role === 'moderator'));
+}
+
+async function isCommunityMember(communityId, userId) {
+  const m = await db.prepare("SELECT 1 FROM community_members WHERE community_id = ? AND user_id = ? AND status = 'active'").get(communityId, userId);
+  return !!m;
+}
+
+async function canAccessPost(postId, userId) {
+  const row = await db.prepare('SELECT community_id FROM posts WHERE id = ?').get(postId);
+  if (!row || !row.community_id) return true; // post inexistant : la route répond elle-même 404
+  return (await isCommunityMember(row.community_id, userId)) || (await isStaffUser(userId));
+}
+
 // ---------- Publier un post (texte et/ou média) ----------
 router.post('/', async (req, res) => {
   const { content, media_url, media_type } = req.body;
@@ -24,10 +41,16 @@ router.post('/', async (req, res) => {
   if (theme && (media_url || !content?.trim() || content.trim().length > THEMED_POST_MAX_CHARS)) theme = null;
   const font = theme ? normalizeFont(req.body.font) : null;
 
+  // Publication dans une communauté : il faut en être membre
+  const communityId = req.body.community_id ? String(req.body.community_id) : null;
+  if (communityId && !(await isCommunityMember(communityId, req.user.id))) {
+    return res.status(403).json({ error: 'Rejoins cette communauté pour pouvoir y publier' });
+  }
+
   const id = uuid();
   await db
-    .prepare('INSERT INTO posts (id, user_id, content, media_url, media_type, category, theme, font) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-    .run(id, req.user.id, content?.trim() || null, media_url || null, media_type || null, normalizeCategory(req.body.category), theme, font);
+    .prepare('INSERT INTO posts (id, user_id, content, media_url, media_type, category, theme, font, community_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(id, req.user.id, content?.trim() || null, media_url || null, media_type || null, normalizeCategory(req.body.category), theme, font, communityId);
 
   await notifyMentions(req.app.get('io'), { text: content, actorId: req.user.id, postId: id, where: 'post' });
 
@@ -41,6 +64,7 @@ router.post('/', async (req, res) => {
 router.post('/:id/share', async (req, res) => {
   const original = await db.prepare('SELECT * FROM posts WHERE id = ?').get(req.params.id);
   if (!original) return res.status(404).json({ error: 'Publication introuvable' });
+  if (original.community_id) return res.status(400).json({ error: "Les publications d'une communauté ne peuvent pas être repartagées" });
 
   const id = uuid();
   await db
@@ -55,7 +79,7 @@ router.post('/:id/share', async (req, res) => {
 // ---------- Aimer / ne plus aimer ----------
 router.post('/:id/like', async (req, res) => {
   const post = await db.prepare('SELECT id, user_id FROM posts WHERE id = ?').get(req.params.id);
-  if (!post) return res.status(404).json({ error: 'Publication introuvable' });
+  if (!post || !(await canAccessPost(post.id, req.user.id))) return res.status(404).json({ error: 'Publication introuvable' });
 
   const already = await db
     .prepare('SELECT 1 FROM post_likes WHERE post_id = ? AND user_id = ?')
@@ -75,7 +99,7 @@ router.post('/:id/like', async (req, res) => {
 // ---------- Favoris ----------
 router.post('/:id/bookmark', async (req, res) => {
   const post = await db.prepare('SELECT id FROM posts WHERE id = ?').get(req.params.id);
-  if (!post) return res.status(404).json({ error: 'Publication introuvable' });
+  if (!post || !(await canAccessPost(post.id, req.user.id))) return res.status(404).json({ error: 'Publication introuvable' });
 
   const already = await db
     .prepare('SELECT 1 FROM post_bookmarks WHERE post_id = ? AND user_id = ?')
@@ -140,10 +164,11 @@ router.get('/bookmarks', async (req, res) => {
        LEFT JOIN posts so ON so.id = p.shared_from_id
        LEFT JOIN users su ON su.id = so.user_id
        WHERE b.user_id = ?
+         AND (p.community_id IS NULL OR EXISTS (SELECT 1 FROM community_members cm WHERE cm.community_id = p.community_id AND cm.user_id = ? AND cm.status = 'active'))
        ORDER BY b.created_at DESC
        LIMIT 100`
     )
-    .all(req.user.id, req.user.id, req.user.id);
+    .all(req.user.id, req.user.id, req.user.id, req.user.id);
   res.json(rows);
 });
 
@@ -153,7 +178,7 @@ router.get('/hashtags/trending', async (req, res) => {
     .prepare(
       `SELECT LOWER(m[2]) AS tag, COUNT(DISTINCT p.id) AS count
        FROM posts p, regexp_matches(p.content, '(^|[^[:alnum:]_#])#([[:alpha:]0-9_]{2,50})', 'g') AS m
-       WHERE p.content IS NOT NULL AND p.created_at > NOW() - INTERVAL '7 days'
+       WHERE p.content IS NOT NULL AND p.community_id IS NULL AND p.created_at > NOW() - INTERVAL '7 days'
        GROUP BY 1 ORDER BY count DESC, tag ASC LIMIT 10`
     )
     .all();
@@ -167,6 +192,7 @@ const COMMENT_SELECT = `SELECT c.id, c.content, c.created_at, c.edited_at, c.par
        FROM post_comments c JOIN users u ON u.id = c.user_id`;
 
 router.get('/:id/comments', async (req, res) => {
+  if (!(await canAccessPost(req.params.id, req.user.id))) return res.status(404).json({ error: 'Publication introuvable' });
   const comments = await db
     .prepare(`${COMMENT_SELECT} WHERE c.post_id = ? ORDER BY c.created_at ASC`)
     .all(req.user.id, req.params.id);
@@ -178,7 +204,7 @@ router.post('/:id/comments', async (req, res) => {
   if (!content || !content.trim()) return res.status(400).json({ error: 'Commentaire vide' });
 
   const post = await db.prepare('SELECT id, user_id FROM posts WHERE id = ?').get(req.params.id);
-  if (!post) return res.status(404).json({ error: 'Publication introuvable' });
+  if (!post || !(await canAccessPost(post.id, req.user.id))) return res.status(404).json({ error: 'Publication introuvable' });
 
   // Réponse à un commentaire : on rattache toujours à un commentaire « racine » (un seul niveau, comme Instagram)
   let rootId = null;
@@ -258,12 +284,31 @@ router.patch('/comments/:commentId', async (req, res) => {
 // ---------- Fil de publications (le plus récent en premier) ----------
 async function listPosts(req, res) {
   const { user_id, hashtag, category } = req.query;
+  const communityId = req.query.community_id ? String(req.query.community_id) : null;
+  const followingOnly = req.query.feed === 'following';
+
+  // Fil d'une communauté : réservé à ses membres (et à l'équipe Kalchat)
+  if (communityId && !(await isCommunityMember(communityId, req.user.id)) && !(await isStaffUser(req.user.id))) {
+    return res.status(403).json({ error: 'Rejoins la communauté pour voir ses publications' });
+  }
 
   // On ne voit jamais les publications d'un compte qu'on a bloqué (ni de quelqu'un qui nous a bloqué)
   const conditions = [
     `NOT EXISTS (SELECT 1 FROM user_blocks ub WHERE (ub.blocker_id = ? AND ub.blocked_id = p.user_id) OR (ub.blocker_id = p.user_id AND ub.blocked_id = ?))`,
   ];
   const extraParams = [req.user.id, req.user.id];
+  // Les publications de communautés restent dans leur communauté (jamais dans le fil général, les profils ou les hashtags)
+  if (communityId) {
+    conditions.push('p.community_id = ?');
+    extraParams.push(communityId);
+  } else {
+    conditions.push('p.community_id IS NULL');
+  }
+  // Onglet « Abonnements » : mes publications et celles des comptes que je suis (abonnement accepté)
+  if (followingOnly && !communityId && !user_id && !hashtag) {
+    conditions.push(`(p.user_id = ? OR EXISTS (SELECT 1 FROM follows fw WHERE fw.follower_id = ? AND fw.followed_id = p.user_id AND fw.status = 'accepted'))`);
+    extraParams.push(req.user.id, req.user.id);
+  }
   // Les publications masquées disparaissent du fil et des hashtags (mais restent visibles sur le profil de leur auteur)
   if (!user_id) {
     conditions.push('NOT EXISTS (SELECT 1 FROM post_hidden ph WHERE ph.post_id = p.id AND ph.user_id = ?)');
@@ -273,8 +318,8 @@ async function listPosts(req, res) {
     // Parcourir une catégorie précise (page Explorer) : on l'affiche même si le sujet est masqué dans le fil
     conditions.push(`COALESCE(p.category, 'divers') = ?`);
     extraParams.push(normalizeCategory(category));
-  } else if (!user_id && !hashtag) {
-    // Fil principal : on retire les sujets que le membre ne veut plus voir
+  } else if (!user_id && !hashtag && !communityId && !followingOnly) {
+    // Fil principal (« Pour vous ») : on retire les sujets que le membre ne veut plus voir
     conditions.push(`COALESCE(p.category, 'divers') NOT IN (SELECT mc.category FROM muted_categories mc WHERE mc.user_id = ?)`);
     extraParams.push(req.user.id);
   }
@@ -335,7 +380,7 @@ router.get('/:id', async (req, res) => {
        WHERE p.id = ? AND ${blocked}`
     )
     .get(req.user.id, req.user.id, req.user.id, req.params.id, req.user.id, req.user.id);
-  if (!post) return res.status(404).json({ error: 'Publication introuvable' });
+  if (!post || !(await canAccessPost(post.id, req.user.id))) return res.status(404).json({ error: 'Publication introuvable' });
   res.json(post);
 });
 
@@ -371,8 +416,12 @@ router.delete('/:id', async (req, res) => {
   const post = await db.prepare('SELECT * FROM posts WHERE id = ?').get(req.params.id);
   if (!post) return res.status(404).json({ error: 'Publication introuvable' });
   if (post.user_id !== req.user.id) {
-    const me = await db.prepare('SELECT is_admin, role FROM users WHERE id = ?').get(req.user.id);
-    if (!me?.is_admin && me?.role !== 'moderator') return res.status(403).json({ error: 'Non autorisé' });
+    let allowed = await isStaffUser(req.user.id);
+    if (!allowed && post.community_id) {
+      const cm = await db.prepare("SELECT role FROM community_members WHERE community_id = ? AND user_id = ? AND status = 'active'").get(post.community_id, req.user.id);
+      allowed = !!cm && (cm.role === 'owner' || cm.role === 'admin');
+    }
+    if (!allowed) return res.status(403).json({ error: 'Non autorisé' });
   }
 
   await db.prepare('DELETE FROM posts WHERE id = ?').run(req.params.id);

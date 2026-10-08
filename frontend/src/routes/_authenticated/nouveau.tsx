@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ImagePlus, Loader2, X } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -7,6 +7,7 @@ import { TopBar } from "@/components/TopBar";
 import { useAuth } from "@/lib/auth";
 import { MAX_UPLOAD_MB, uploadMedia } from "@/lib/media";
 import { createPost } from "@/lib/social";
+import { fetchCommunity, isActiveMember } from "@/lib/communities";
 import { CATEGORIES, DEFAULT_CATEGORY } from "@/lib/categories";
 import { ThemePicker } from "@/components/ThemePicker";
 import { DEFAULT_FONT, THEME_MAX_CHARS, resolveFont, resolveTheme, themedTextSize } from "@/lib/themes";
@@ -20,6 +21,8 @@ export const Route = createFileRoute("/_authenticated/nouveau")({
       { property: "og:description", content: "Partage un texte, une photo ou une vidéo avec ta communauté Kalchat." },
     ],
   }),
+  // ?communaute=<id> : on publie dans une communauté plutôt que sur le fil général
+  validateSearch: (search: Record<string, unknown>): { communaute?: string } => (typeof search.communaute === "string" && search.communaute ? { communaute: search.communaute } : {}),
   component: NewPost,
 });
 
@@ -28,6 +31,8 @@ const MAX = 1000;
 function NewPost() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const { communaute } = Route.useSearch();
+  const community = useQuery({ queryKey: ["community", communaute], queryFn: () => fetchCommunity(communaute as string), enabled: !!communaute, retry: false });
   const qc = useQueryClient();
   const [text, setText] = useState("");
   const [file, setFile] = useState<File | null>(null);
@@ -62,10 +67,11 @@ function NewPost() {
     setBusy(true);
     try {
       const media = file ? await uploadMedia(file) : null;
-      await createPost({ content: text.trim(), imageUrl: media?.url ?? null, mediaType: media?.type ?? null, category, theme: media ? null : theme, font: media || !theme ? null : font });
+      await createPost({ content: text.trim(), imageUrl: media?.url ?? null, mediaType: media?.type ?? null, category, theme: media ? null : theme, font: media || !theme ? null : font, communityId: communaute ?? null });
       await qc.invalidateQueries();
       toast.success("Publication partagée");
-      navigate({ to: "/" });
+      if (communaute) navigate({ to: "/communaute/$id", params: { id: communaute } });
+      else navigate({ to: "/" });
     } catch (e) {
       toast.error((e as Error).message);
     } finally {
@@ -77,6 +83,11 @@ function NewPost() {
     <div className="app-shell">
       <TopBar title="Nouvelle publication" />
       <main className="space-y-4 p-4">
+        {communaute && (
+          <p className="rounded-2xl border border-primary/30 bg-primary/10 px-3 py-2 text-sm text-foreground">
+            {community.data ? (isActiveMember(community.data) ? <>Tu publies dans la communauté <strong>{community.data.name}</strong>. Seuls ses membres la verront.</> : <>Rejoins <strong>{community.data.name}</strong> pour pouvoir y publier.</>) : "Publication dans une communauté…"}
+          </p>
+        )}
         {themeStyle ? (
           <div className="flex min-h-[15rem] items-center justify-center rounded-3xl p-6" style={{ background: themeStyle.background, color: themeStyle.color, fontFamily: resolveFont(font) }}>
             <textarea

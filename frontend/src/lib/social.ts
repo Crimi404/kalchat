@@ -91,6 +91,16 @@ export async function fetchFeed(_uid?: string | null): Promise<FeedPost[]> {
 }
 
 /** Fil public pour les visiteurs non connectés (lecture seule). */
+/** Onglet « Abonnements » : mes publications et celles des comptes que je suis. */
+export async function fetchFollowingFeed(): Promise<FeedPost[]> {
+  return (await api<RawPost[]>("/posts?feed=following")).map(shape);
+}
+
+/** Publications d'une communauté (réservé à ses membres). */
+export async function fetchCommunityPosts(communityId: string): Promise<FeedPost[]> {
+  return (await api<RawPost[]>(`/posts?community_id=${encodeURIComponent(communityId)}`)).map(shape);
+}
+
 export async function fetchPublicFeed(): Promise<FeedPost[]> {
   return (await api<RawPost[]>("/public/feed")).map(shape);
 }
@@ -125,10 +135,10 @@ export async function fetchHashtagPosts(tag: string): Promise<FeedPost[]> {
   return (await api<RawPost[]>(`/posts?hashtag=${encodeURIComponent(tag.replace(/^#/, ""))}`)).map(shape);
 }
 
-export async function createPost(input: { content: string; imageUrl?: string | null; mediaType?: string | null; category?: string; theme?: string | null; font?: string | null }) {
+export async function createPost(input: { content: string; imageUrl?: string | null; mediaType?: string | null; category?: string; theme?: string | null; font?: string | null; communityId?: string | null }) {
   await api("/posts", {
     method: "POST",
-    body: { content: input.content, media_url: input.imageUrl ?? null, media_type: input.mediaType ?? null, category: input.category ?? "divers", theme: input.theme ?? null, font: input.font ?? null },
+    body: { content: input.content, media_url: input.imageUrl ?? null, media_type: input.mediaType ?? null, category: input.category ?? "divers", theme: input.theme ?? null, font: input.font ?? null, community_id: input.communityId ?? null },
   });
 }
 

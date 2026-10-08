@@ -159,7 +159,7 @@ function CommentItem({
  * `detail` = page d'une publication : texte en entier, commentaires affichés en bas.
  * Dans le fil, un appui sur la publication (hors boutons, liens et vidéo) l'ouvre.
  */
-export function PostCard({ post, detail = false }: { post: FeedPost; detail?: boolean }) {
+export function PostCard({ post, detail = false, canModerate = false }: { post: FeedPost; detail?: boolean; canModerate?: boolean }) {
   const mv = useMediaViewer();
   const { user, isStaff } = useAuth();
   const navigate = useNavigate();
@@ -468,7 +468,7 @@ export function PostCard({ post, detail = false }: { post: FeedPost; detail?: bo
                           <Ban className="h-4 w-4" /> Bloquer @{author.username}
                         </button>
                       )}
-                      {(isMine || isStaff) && (
+                      {(isMine || isStaff || canModerate) && (
                         <button
                           onClick={() => {
                             setMenuOpen(false);
