@@ -16,6 +16,7 @@ const DEFAULTS = {
   images_enabled: true, // génération d'images (🎨 / /image)
   vision_enabled: false, // lecture des images envoyées (désactivée tant que le quota gratuit ne le permet pas)
   daily_post_enabled: String(process.env.KORA_DAILY_POST || '').toLowerCase() !== 'off',
+  personalize_enabled: true, // Kora connaît le prénom, le pseudo et la bio (profil public) du membre en messages privés
   msg_per_hour: 25,
   comment_per_hour: 10,
   vision_per_hour: num(process.env.VISION_HOURLY_LIMIT, 10),
@@ -23,7 +24,7 @@ const DEFAULTS = {
   image_global_per_day: num(process.env.IMAGE_GLOBAL_DAILY_LIMIT, 150),
 };
 
-const BOOLEANS = ['replies_enabled', 'comments_enabled', 'images_enabled', 'vision_enabled', 'daily_post_enabled'];
+const BOOLEANS = ['replies_enabled', 'comments_enabled', 'images_enabled', 'vision_enabled', 'daily_post_enabled', 'personalize_enabled'];
 // Bornes des quotas (min, max)
 const LIMITS = {
   msg_per_hour: [1, 200],
@@ -134,7 +135,17 @@ async function stats() {
     .prepare("SELECT kind, detail, created_at FROM kora_events WHERE status = 'error' ORDER BY created_at DESC LIMIT 8")
     .all();
   const images = await db.prepare("SELECT COUNT(*) AS n FROM image_generations WHERE created_at > NOW() - INTERVAL '24 hours'").get();
-  return { by_kind: byKind, users_24h: Number(users?.n || 0), images_used_24h: Number(images?.n || 0), recent_errors: errors };
+  const fb = await db
+    .prepare(
+      `SELECT COUNT(*) FILTER (WHERE rating = 1) AS up,
+              COUNT(*) FILTER (WHERE rating = -1) AS down,
+              COUNT(*) FILTER (WHERE rating = 1 AND created_at > NOW() - INTERVAL '7 days') AS up_7d,
+              COUNT(*) FILTER (WHERE rating = -1 AND created_at > NOW() - INTERVAL '7 days') AS down_7d
+       FROM kora_feedback`
+    )
+    .get();
+  const feedback = { up: Number(fb?.up || 0), down: Number(fb?.down || 0), up_7d: Number(fb?.up_7d || 0), down_7d: Number(fb?.down_7d || 0) };
+  return { by_kind: byKind, users_24h: Number(users?.n || 0), images_used_24h: Number(images?.n || 0), feedback, recent_errors: errors };
 }
 
 module.exports = { DEFAULTS, LIMITS, get, all, load, update, logEvent, pruneEvents, stats };

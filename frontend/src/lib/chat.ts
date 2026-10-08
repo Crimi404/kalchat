@@ -40,6 +40,8 @@ export interface MessageRow {
   pinned: boolean;
   /** Message auquel celui-ci répond (null si ce n'est pas une réponse). */
   reply: ReplyPreview | null;
+  /** Ton retour sur une réponse de Kora : 1 = utile, -1 = pas utile, 0 = aucun. */
+  my_feedback?: number;
 }
 
 export interface ReplyPreview {
@@ -103,6 +105,7 @@ interface RawMessage {
   reply_media_type?: string | null;
   reply_sender_id?: string | null;
   reply_sender_name?: string | null;
+  my_feedback?: number | null;
 }
 
 function shapeMessage(conversationId: string, m: RawMessage): MessageRow {
@@ -120,6 +123,7 @@ function shapeMessage(conversationId: string, m: RawMessage): MessageRow {
     duration: m.media_duration ?? null,
     edited: !!m.edited_at,
     pinned: !!m.pinned_at,
+    my_feedback: m.my_feedback ?? 0,
     reply: m.reply_to_id
       ? {
           id: m.reply_to_id,
@@ -333,6 +337,11 @@ export async function deleteMessage(id: string) {
 export const EDIT_WINDOW_MS = 15 * 60 * 1000;
 export async function editMessage(id: string, content: string) {
   await api(`/chat/messages/${id}`, { method: "PATCH", body: { content } });
+}
+
+/** Note une réponse de Kora (1 = utile, -1 = pas utile, 0 = retirer ma note). */
+export async function rateKoraMessage(id: string, rating: 1 | -1 | 0) {
+  await api(`/chat/messages/${id}/feedback`, { method: "POST", body: { rating } });
 }
 
 export async function togglePinMessage(id: string): Promise<{ pinned: boolean }> {

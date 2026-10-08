@@ -491,6 +491,7 @@ router.get('/conversations/:id/messages', async (req, res) => {
          SELECT m.id, m.sender_id, u.username AS sender_username, u.first_name AS sender_first_name, u.last_name AS sender_last_name,
                 u.avatar_url AS sender_avatar_url, u.badge AS sender_badge, u.role AS sender_role,
               m.content, m.media_url, m.media_type, m.media_duration, m.created_at, m.edited_at, m.pinned_at, m.reply_to_id,
+              (SELECT f.rating FROM kora_feedback f WHERE f.message_id = m.id AND f.user_id = ?) AS my_feedback,
               rm.id AS reply_exists, rm.content AS reply_content, rm.media_type AS reply_media_type, rm.sender_id AS reply_sender_id,
               COALESCE(NULLIF(rmu.first_name, ''), rmu.username) AS reply_sender_name,
                 EXISTS(SELECT 1 FROM message_reads r JOIN users ru ON ru.id = r.user_id WHERE r.message_id = m.id AND r.user_id != m.sender_id AND ru.read_receipts = 1) AS seen
@@ -500,7 +501,7 @@ router.get('/conversations/:id/messages', async (req, res) => {
          WHERE m.conversation_id = ? AND (m.expires_at IS NULL OR m.expires_at > NOW()) ORDER BY m.created_at DESC LIMIT 200
        ) t ORDER BY t.created_at ASC`
     )
-    .all(req.params.id);
+    .all(req.user.id, req.params.id);
 
   res.json(messages);
 });
@@ -660,6 +661,28 @@ router.post('/messages/:id/pin', async (req, res) => {
   }
   req.app.get('io')?.to(m.conversation_id).emit('message_pinned', { conversation_id: m.conversation_id, message_id: m.id });
   res.json({ pinned: !m.pinned_at });
+});
+
+// ---------- « Cette réponse t'a aidé ? » : retour du membre sur une réponse de Kora (1 = utile, -1 = pas utile, 0 = retirer) ----------
+router.post('/messages/:id/feedback', async (req, res) => {
+  const rating = Number(req.body.rating);
+  if (![1, -1, 0].includes(rating)) return res.status(400).json({ error: 'Note invalide' });
+  const m = await db.prepare('SELECT id, conversation_id, sender_id, media_type FROM messages WHERE id = ?').get(req.params.id);
+  if (!m) return res.status(404).json({ error: 'Message introuvable' });
+  if (m.sender_id !== ai.BOT_ID || m.media_type === 'system') return res.status(400).json({ error: 'Seules les réponses de Kora peuvent être notées' });
+  const me = await getMembership(m.conversation_id, req.user.id);
+  if (!me) return res.status(403).json({ error: 'Accès refusé' });
+  if (rating === 0) {
+    await db.prepare('DELETE FROM kora_feedback WHERE message_id = ? AND user_id = ?').run(m.id, req.user.id);
+  } else {
+    await db
+      .prepare(
+        `INSERT INTO kora_feedback (message_id, user_id, rating) VALUES (?, ?, ?)
+         ON CONFLICT (message_id, user_id) DO UPDATE SET rating = EXCLUDED.rating, created_at = NOW()`
+      )
+      .run(m.id, req.user.id, rating);
+  }
+  res.json({ rating });
 });
 
 // ---------- Supprimer son propre message ----------

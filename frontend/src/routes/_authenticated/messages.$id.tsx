@@ -1,7 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { Fragment, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Check, CheckCheck, ImagePlus, Loader2, Maximize2, Mic, Ban, Flag, MoreVertical, Palette, Pencil, Pin, Reply, Send, Star, Timer, Trash2, Users, X } from "lucide-react";
+import { ArrowLeft, Check, CheckCheck, ImagePlus, Loader2, Maximize2, Mic, Ban, Flag, MoreVertical, Palette, Pencil, Pin, Reply, Send, Star, ThumbsDown, ThumbsUp, Timer, Trash2, Users, X } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
 import { dayKey, dayLabel } from "@/lib/dateLabel";
@@ -21,7 +21,7 @@ import { ActionIcons, MessageActionSheet, type MessageAction } from "@/component
 import { ephemeralLabel } from "@/lib/settings";
 import { MAX_VOICE_SECONDS, formatDuration, useVoiceRecorder } from "@/lib/voice";
 import { MAX_UPLOAD_MB, uploadMedia } from "@/lib/media";
-import { EDIT_WINDOW_MS, deleteMessage, editMessage, fetchConversationDetail, fetchMessages, joinConversation, markRead, messageSnippet, sendMessage, setEphemeral, togglePinMessage, toggleFavoriteConversation, type MessageRow, acceptMessageRequest, declineMessageRequest } from "@/lib/chat";
+import { EDIT_WINDOW_MS, deleteMessage, editMessage, fetchConversationDetail, fetchMessages, joinConversation, markRead, messageSnippet, rateKoraMessage, sendMessage, setEphemeral, togglePinMessage, toggleFavoriteConversation, type MessageRow, acceptMessageRequest, declineMessageRequest } from "@/lib/chat";
 import { useBackHandler } from "@/lib/back";
 
 export const Route = createFileRoute("/_authenticated/messages/$id")({
@@ -72,6 +72,16 @@ function ChatPage() {
   const [imageMode, setImageMode] = useState(false);
   const [drawingFrom, setDrawingFrom] = useState<number | null>(null); // nombre de messages de Kora au moment de la demande
   const koraMsgCount = (msgs.data ?? []).filter((m) => m.sender_id === KORA_ID).length;
+  // Dernière réponse de Kora : c'est elle qui propose « Cette réponse t'a aidé ? »
+  const lastKoraId = [...(msgs.data ?? [])].reverse().find((x) => x.sender_id === KORA_ID && x.body && x.media_type !== "system")?.id;
+  async function rateKora(m: MessageRow, rating: 1 | -1) {
+    try {
+      await rateKoraMessage(m.id, m.my_feedback === rating ? 0 : rating);
+      await qc.invalidateQueries({ queryKey: ["messages", id] });
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
   useEffect(() => {
     if (drawingFrom !== null && koraMsgCount > drawingFrom) setDrawingFrom(null);
   }, [koraMsgCount, drawingFrom]);
@@ -415,6 +425,13 @@ function ChatPage() {
                       <img src={m.media_url} alt="" draggable={false} onClick={() => mv.open(m.media_url!, "image")} className="mb-1 max-h-64 cursor-zoom-in rounded-xl object-cover" />
                     ))}
                     {m.body && (m.sender_id === KORA_ID ? <Markdown text={m.body} /> : <p className="whitespace-pre-wrap break-words"><LinkifiedText text={m.body} own={mine} /></p>)}
+                    {isKora && m.sender_id === KORA_ID && m.body && m.media_type !== "system" && (m.id === lastKoraId || m.my_feedback) ? (
+                      <div className="mt-1.5 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                        {m.id === lastKoraId && !m.my_feedback && <span>Cette réponse t'a aidé ?</span>}
+                        <button type="button" aria-label="Réponse utile" onClick={() => void rateKora(m, 1)} className={`rounded-full p-1 ${m.my_feedback === 1 ? "bg-primary/20 text-primary" : "hover:bg-background/60"}`}><ThumbsUp className="h-3.5 w-3.5" /></button>
+                        <button type="button" aria-label="Réponse pas utile" onClick={() => void rateKora(m, -1)} className={`rounded-full p-1 ${m.my_feedback === -1 ? "bg-destructive/20 text-destructive" : "hover:bg-background/60"}`}><ThumbsDown className="h-3.5 w-3.5" /></button>
+                      </div>
+                    ) : null}
                     <span className={`mt-0.5 flex items-center justify-end gap-1 text-[10px] ${mine ? "text-primary-foreground/70" : "text-muted-foreground"}`}>
                       {m.pinned && <Pin className="h-3 w-3" />}
                       {m.edited && <span className="italic">modifié</span>}

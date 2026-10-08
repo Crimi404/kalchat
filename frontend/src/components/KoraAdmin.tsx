@@ -11,6 +11,7 @@ type KoraSettings = {
   images_enabled: boolean;
   vision_enabled: boolean;
   daily_post_enabled: boolean;
+  personalize_enabled: boolean;
   msg_per_hour: number;
   comment_per_hour: number;
   vision_per_hour: number;
@@ -27,6 +28,7 @@ type KoraData = {
     by_kind: Record<string, KindStats>;
     users_24h: number;
     images_used_24h: number;
+    feedback: { up: number; down: number; up_7d: number; down_7d: number };
     recent_errors: { kind: string; detail: string | null; created_at: string }[];
   };
 };
@@ -37,6 +39,7 @@ const TOGGLES: { key: keyof KoraSettings; label: string; hint: string }[] = [
   { key: "images_enabled", label: "Génération d'images", hint: "Bouton 🎨 et commande /image." },
   { key: "vision_enabled", label: "Vision (lire les images)", hint: "Kora regarde les photos envoyées. Désactivée par défaut : dépend du quota gratuit." },
   { key: "daily_post_enabled", label: "Publication quotidienne", hint: "Un post par jour sur le compte de Kora." },
+  { key: "personalize_enabled", label: "Personnalisation", hint: "Kora connaît le prénom, le pseudo et la bio (profil public) du membre en messages privés pour discuter plus naturellement." },
 ];
 
 const QUOTAS: { key: keyof KoraSettings; label: string; unit: string }[] = [
@@ -165,6 +168,13 @@ export function KoraAdmin() {
           <p className="text-xs text-muted-foreground">
             {st.users_24h} membre{st.users_24h > 1 ? "s" : ""} actif{st.users_24h > 1 ? "s" : ""} avec Kora en 24 h · {st.images_used_24h} image{st.images_used_24h > 1 ? "s" : ""} générée{st.images_used_24h > 1 ? "s" : ""} en 24 h
           </p>
+          <div className="rounded-xl border border-border bg-secondary/40 p-2.5">
+            <p className="text-xs text-muted-foreground">Retours des membres sur les réponses</p>
+            <p className="text-sm font-semibold">
+              👍 {st.feedback.up_7d} · 👎 {st.feedback.down_7d} <span className="text-[11px] font-normal text-muted-foreground">sur 7 j</span>
+            </p>
+            <p className="text-[11px] text-muted-foreground">Total : 👍 {st.feedback.up} · 👎 {st.feedback.down}</p>
+          </div>
           <div className="grid grid-cols-2 gap-2">
             {Object.entries(KIND_LABEL).map(([kind, label]) => {
               const k = st.by_kind[kind];

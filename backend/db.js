@@ -318,6 +318,14 @@ async function initSchema() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
     CREATE INDEX IF NOT EXISTS idx_kora_events_created ON kora_events(created_at);
+    -- Retours des membres sur les réponses de Kora (1 = utile, -1 = pas utile)
+    CREATE TABLE IF NOT EXISTS kora_feedback (
+      message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      rating SMALLINT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (message_id, user_id)
+    );
   `);
 
   // ---------- Badges à rangs : plus (bleu) < vip (rouge) < vip_plus (violet) < legend (doré) ----------
