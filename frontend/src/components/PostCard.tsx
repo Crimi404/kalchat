@@ -550,7 +550,7 @@ export function PostCard({ post, detail = false, canModerate = false }: { post: 
           )}
 
           {post.image_url && (post.media_type === "video" ? (
-            <div className="mt-3"><VideoPlayer src={post.image_url} downloadable onExpand={() => mv.open(post.image_url!, "video")} className="max-h-[28rem] rounded-2xl border border-border" videoClassName="max-h-[28rem]" /></div>
+            <div className="mt-3"><VideoPlayer src={post.image_url} downloadable className="max-h-[28rem] rounded-2xl border border-border" videoClassName="max-h-[28rem]" /></div>
           ) : (
             <img
               src={post.image_url}

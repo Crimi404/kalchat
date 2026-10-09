@@ -419,7 +419,7 @@ function ChatPage() {
                     {m.media_type === "image_expired" && <p className="mb-1 text-xs italic opacity-80">🖼️ Image supprimée (après 60 jours)</p>}
                     {m.media_type === "video_expired" && <p className="mb-1 text-xs italic opacity-80">🎥 Vidéo indisponible (supprimée après 60 jours)</p>}
                     {m.media_url && (m.media_type === "video" ? (
-                      <div className="mb-1 w-64 max-w-full"><VideoPlayer src={m.media_url} downloadable onExpand={() => mv.open(m.media_url!, "video")} className="max-h-64 rounded-xl" videoClassName="max-h-64" /></div>
+                      <div className="mb-1 w-64 max-w-full"><VideoPlayer src={m.media_url} downloadable className="max-h-64 rounded-xl" videoClassName="max-h-64" /></div>
                     ) : m.media_type === "audio" ? (
                       <VoiceBubble src={m.media_url} duration={m.duration} mine={mine} />
                     ) : (
