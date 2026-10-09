@@ -328,6 +328,7 @@ async function initSchema() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
     CREATE UNIQUE INDEX IF NOT EXISTS idx_communities_name ON communities (LOWER(name));
+    ALTER TABLE communities ADD COLUMN IF NOT EXISTS avatar_url TEXT;
     CREATE TABLE IF NOT EXISTS community_members (
       community_id TEXT NOT NULL REFERENCES communities(id) ON DELETE CASCADE,
       user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

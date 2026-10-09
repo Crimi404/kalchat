@@ -8,6 +8,7 @@ export interface Community {
   id: string;
   name: string;
   description: string | null;
+  avatar_url: string | null;
   join_mode: JoinMode;
   owner_id: string;
   created_at: string;
@@ -44,11 +45,11 @@ export async function fetchCommunity(id: string): Promise<Community> {
   return shape(await api<Community>(`/communities/${encodeURIComponent(id)}`));
 }
 
-export async function createCommunity(input: { name: string; description: string; join_mode: JoinMode }): Promise<Community> {
+export async function createCommunity(input: { name: string; description: string; join_mode: JoinMode; avatar_url?: string | null }): Promise<Community> {
   return shape(await api<Community>("/communities", { method: "POST", body: input }));
 }
 
-export async function updateCommunity(id: string, input: { name?: string; description?: string; join_mode?: JoinMode }): Promise<Community> {
+export async function updateCommunity(id: string, input: { name?: string; description?: string; join_mode?: JoinMode; avatar_url?: string | null }): Promise<Community> {
   return shape(await api<Community>(`/communities/${encodeURIComponent(id)}`, { method: "PATCH", body: input }));
 }
 

@@ -3,6 +3,7 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Plus, Search, Users } from "lucide-react";
 import { toast } from "sonner";
+import { CommunityPhotoPicker } from "@/components/CommunityPhotoPicker";
 import { MiniAvatar } from "@/components/MiniAvatar";
 import { createCommunity, fetchCommunities, joinCommunity, type Community, type JoinMode } from "@/lib/communities";
 
@@ -30,7 +31,7 @@ function CommunityRow({ c }: { c: Community }) {
   return (
     <div className="flex items-center gap-3 rounded-2xl border border-border bg-card p-3">
       <Link to="/communaute/$id" params={{ id: c.id }} className="flex min-w-0 flex-1 items-center gap-3">
-        <MiniAvatar name={c.name} size={48} group />
+        <MiniAvatar url={c.avatar_url} name={c.name} size={48} group />
         <span className="min-w-0 flex-1">
           <span className="block truncate text-sm font-bold text-foreground">{c.name}</span>
           <span className="flex items-center gap-1 text-xs text-muted-foreground">
@@ -51,8 +52,9 @@ function CreateForm({ onDone }: { onDone: () => void }) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [mode, setMode] = useState<JoinMode>("open");
+  const [avatar, setAvatar] = useState<string | null>(null);
   const create = useMutation({
-    mutationFn: () => createCommunity({ name, description, join_mode: mode }),
+    mutationFn: () => createCommunity({ name, description, join_mode: mode, avatar_url: avatar }),
     onSuccess: (c) => {
       toast.success("Communauté créée");
       void qc.invalidateQueries({ queryKey: ["communities"] });
@@ -65,6 +67,7 @@ function CreateForm({ onDone }: { onDone: () => void }) {
   return (
     <div className="space-y-3 rounded-2xl border border-border bg-card p-3">
       <p className="text-sm font-bold">Nouvelle communauté</p>
+      <CommunityPhotoPicker url={avatar} name={name} onChange={setAvatar} />
       <input value={name} onChange={(e) => setName(e.target.value)} maxLength={40} placeholder="Nom (3 à 40 caractères)" className={field} />
       <textarea value={description} onChange={(e) => setDescription(e.target.value)} maxLength={300} rows={3} placeholder="De quoi parle cette communauté ?" className={field} />
       <div className="grid grid-cols-2 gap-2 text-xs font-semibold">

@@ -2,6 +2,8 @@ const express = require('express');
 const { v4: uuid } = require('uuid');
 const db = require('../db');
 const authMiddleware = require('../middleware/auth');
+const { extractFilenameFromUrl } = require('../storage');
+const { releaseMedia } = require('../mediaCleanup');
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -23,7 +25,7 @@ async function isStaff(userId) {
   return !!(me && (me.is_admin || me.role === 'moderator'));
 }
 
-const SELECT = `SELECT c.id, c.name, c.description, c.join_mode, c.owner_id, c.created_at,
+const SELECT = `SELECT c.id, c.name, c.description, c.avatar_url, c.join_mode, c.owner_id, c.created_at,
        (SELECT COUNT(*) FROM community_members m WHERE m.community_id = c.id AND m.status = 'active') AS member_count,
        me.role AS my_role, me.status AS my_status,
        CASE WHEN me.status = 'active' AND me.role IN ('owner', 'admin')
@@ -48,6 +50,12 @@ function validateFields(body, { partial = false } = {}) {
   }
   if (!partial || body.description !== undefined) {
     out.description = cleanText(body.description, DESC_MAX) || null;
+  }
+  if (body.avatar_url !== undefined) {
+    const url = body.avatar_url ? String(body.avatar_url).slice(0, 500) : null;
+    // Seules les photos envoyées sur le stockage de Kalchat sont acceptées (pas d'adresse externe)
+    if (url && !extractFilenameFromUrl(url)) return { error: 'Photo invalide' };
+    out.avatar_url = url;
   }
   if (!partial || body.join_mode !== undefined) {
     const mode = body.join_mode ?? 'open';
@@ -80,7 +88,7 @@ router.post('/', async (req, res) => {
   if (await nameTaken(fields.name)) return res.status(409).json({ error: 'Ce nom de communauté existe déjà' });
 
   const id = uuid();
-  await db.prepare('INSERT INTO communities (id, name, description, join_mode, owner_id) VALUES (?, ?, ?, ?, ?)').run(id, fields.name, fields.description, fields.join_mode, req.user.id);
+  await db.prepare('INSERT INTO communities (id, name, description, avatar_url, join_mode, owner_id) VALUES (?, ?, ?, ?, ?, ?)').run(id, fields.name, fields.description, fields.avatar_url ?? null, fields.join_mode, req.user.id);
   await db.prepare("INSERT INTO community_members (community_id, user_id, role, status) VALUES (?, ?, 'owner', 'active')").run(id, req.user.id);
   res.status(201).json(await getCommunity(id, req.user.id));
 });
@@ -93,7 +101,7 @@ router.get('/:id', async (req, res) => {
 
 // ---------- Modifier (propriétaire ou administrateur de la communauté) ----------
 router.patch('/:id', async (req, res) => {
-  const c = await db.prepare('SELECT id FROM communities WHERE id = ?').get(req.params.id);
+  const c = await db.prepare('SELECT id, avatar_url FROM communities WHERE id = ?').get(req.params.id);
   if (!c) return res.status(404).json({ error: 'Communauté introuvable' });
   if (!isManager(await getMember(c.id, req.user.id))) return res.status(403).json({ error: 'Réservé aux administrateurs de la communauté' });
   const { fields, error } = validateFields(req.body, { partial: true });
@@ -102,15 +110,17 @@ router.patch('/:id', async (req, res) => {
   for (const [key, value] of Object.entries(fields)) {
     await db.prepare(`UPDATE communities SET ${key} = ? WHERE id = ?`).run(value, c.id); // clés issues de validateFields uniquement
   }
+  if (fields.avatar_url !== undefined && c.avatar_url && c.avatar_url !== fields.avatar_url) await releaseMedia(c.avatar_url);
   res.json(await getCommunity(c.id, req.user.id));
 });
 
 // ---------- Supprimer (propriétaire, ou équipe Kalchat) ----------
 router.delete('/:id', async (req, res) => {
-  const c = await db.prepare('SELECT id, owner_id FROM communities WHERE id = ?').get(req.params.id);
+  const c = await db.prepare('SELECT id, owner_id, avatar_url FROM communities WHERE id = ?').get(req.params.id);
   if (!c) return res.status(404).json({ error: 'Communauté introuvable' });
   if (c.owner_id !== req.user.id && !(await isStaff(req.user.id))) return res.status(403).json({ error: 'Seul le propriétaire peut supprimer la communauté' });
   await db.prepare('DELETE FROM communities WHERE id = ?').run(c.id);
+  await releaseMedia(c.avatar_url);
   res.json({ ok: true });
 });
 

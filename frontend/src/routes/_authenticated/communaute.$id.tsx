@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Loader2, LogOut, Pencil, Trash2, Users } from "lucide-react";
 import { toast } from "sonner";
 import { BottomNav } from "@/components/BottomNav";
+import { CommunityPhotoPicker } from "@/components/CommunityPhotoPicker";
 import { MiniAvatar } from "@/components/MiniAvatar";
 import { PostCard } from "@/components/PostCard";
 import { useAuth } from "@/lib/auth";
@@ -37,8 +38,9 @@ function EditForm({ c, onDone }: { c: Community; onDone: () => void }) {
   const [name, setName] = useState(c.name);
   const [description, setDescription] = useState(c.description ?? "");
   const [mode, setMode] = useState<JoinMode>(c.join_mode);
+  const [avatar, setAvatar] = useState<string | null>(c.avatar_url);
   const save = useMutation({
-    mutationFn: () => updateCommunity(c.id, { name, description, join_mode: mode }),
+    mutationFn: () => updateCommunity(c.id, { name, description, join_mode: mode, avatar_url: avatar }),
     onSuccess: () => {
       toast.success("Communauté mise à jour");
       void qc.invalidateQueries({ queryKey: ["community", c.id] });
@@ -50,6 +52,7 @@ function EditForm({ c, onDone }: { c: Community; onDone: () => void }) {
   const field = "w-full rounded-xl border border-border bg-secondary/60 px-3 py-2 text-sm outline-none focus:border-primary";
   return (
     <div className="space-y-3 border-b border-border px-4 py-3">
+      <CommunityPhotoPicker url={avatar} name={name} onChange={setAvatar} />
       <input value={name} onChange={(e) => setName(e.target.value)} maxLength={40} className={field} />
       <textarea value={description} onChange={(e) => setDescription(e.target.value)} maxLength={300} rows={3} className={field} />
       <div className="grid grid-cols-2 gap-2 text-xs font-semibold">
@@ -175,7 +178,7 @@ function CommunityPage() {
       </header>
 
       <section className="flex items-start gap-3 px-4 pb-3">
-        <MiniAvatar name={c.name} size={64} group />
+        <MiniAvatar url={c.avatar_url} name={c.name} size={64} group />
         <div className="min-w-0 flex-1">
           <p className="flex items-center gap-1 text-xs text-muted-foreground"><Users className="h-3.5 w-3.5" /> {c.member_count} membre{c.member_count > 1 ? "s" : ""} · {c.join_mode === "approval" ? "sur validation" : "ouverte"}</p>
           {c.description && <p className="mt-1 whitespace-pre-wrap text-sm text-foreground">{c.description}</p>}
