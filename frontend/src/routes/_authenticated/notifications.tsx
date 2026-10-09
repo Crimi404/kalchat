@@ -31,6 +31,8 @@ interface RawNotif {
   body: string | null;
   conversation_id: string | null;
   post_id: string | null;
+  community_id: string | null;
+  community_name: string | null;
   is_read: number | boolean;
   created_at: string;
   actor_id: string;
@@ -45,7 +47,7 @@ type Tab = "all" | "requests" | "mentions" | "likes" | "comments";
 
 const TABS: { id: Tab; label: string; types: string[] }[] = [
   { id: "all", label: "Tout", types: [] },
-  { id: "requests", label: "Demandes", types: ["follow_request"] },
+  { id: "requests", label: "Demandes", types: ["follow_request", "community_request", "community_invite"] },
   { id: "mentions", label: "Mentions", types: ["mention"] },
   { id: "likes", label: "J'aime", types: ["like", "comment_like"] },
   { id: "comments", label: "Commentaires", types: ["comment", "reply"] },
@@ -53,7 +55,7 @@ const TABS: { id: Tab; label: string; types: string[] }[] = [
 
 const EMPTY: Record<Tab, string> = {
   all: "Aucune notification.",
-  requests: "Aucune demande d'abonnement.",
+  requests: "Aucune demande ni invitation.",
   mentions: "Personne ne t'a mentionné pour l'instant. Quand quelqu'un écrit @ton_pseudo, ça apparaît ici.",
   likes: "Aucun like pour l'instant.",
   comments: "Aucun commentaire pour l'instant.",
@@ -71,6 +73,9 @@ function textFor(n: RawNotif): string {
     case "follow_accept": return "a accepté ta demande d'abonnement";
     case "message": return "t'a envoyé un message";
     case "group_add": return "t'a ajouté à un groupe";
+    case "community_invite": return n.community_name ? `t'invite à rejoindre « ${n.community_name} »` : "t'invite à rejoindre une communauté";
+    case "community_request": return n.community_name ? `veut rejoindre « ${n.community_name} »` : "veut rejoindre ta communauté";
+    case "community_approved": return n.community_name ? `a accepté ta demande pour rejoindre « ${n.community_name} »` : "a accepté ta demande pour rejoindre une communauté";
     default: return "";
   }
 }
@@ -201,6 +206,8 @@ function NotificationsPage() {
                   <span className="mx-1 inline-flex align-middle"><BadgeList badges={toBadges(n.actor_id, n.actor_badge, n.actor_role)} size={14} /></span>
                   {(n.type === "message" || n.type === "group_add") && n.conversation_id ? (
                     <Link to="/messages/$id" params={{ id: n.conversation_id }} className="text-muted-foreground hover:underline">{textFor(n)}</Link>
+                  ) : n.community_id && ["community_invite", "community_request", "community_approved"].includes(n.type) ? (
+                    <Link to="/communaute/$id" params={{ id: n.community_id }} className="text-muted-foreground hover:underline">{textFor(n)}</Link>
                   ) : n.post_id && ["like", "comment", "reply", "comment_like", "share", "mention"].includes(n.type) ? (
                     <Link to="/post/$id" params={{ id: n.post_id }} className="text-muted-foreground hover:underline">{textFor(n)}</Link>
                   ) : (

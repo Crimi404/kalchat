@@ -127,6 +127,9 @@ const ACTIONS = {
   follow_request: "t'a envoyé une demande d'abonnement",
   follow_accept: "a accepté ta demande d'abonnement",
   group_add: "t'a ajouté à un groupe",
+  community_invite: "t'invite à rejoindre une communauté",
+  community_request: 'veut rejoindre ta communauté',
+  community_approved: 'a accepté ta demande pour rejoindre une communauté',
 };
 
 // ---------- Réglages : quels types de notifications push le membre veut recevoir ----------
@@ -144,6 +147,9 @@ const PUSH_CATEGORY_OF = {
   mention: 'publications',
   follow_request: 'abonnements',
   follow_accept: 'abonnements',
+  community_invite: 'abonnements',
+  community_request: 'abonnements',
+  community_approved: 'abonnements',
 };
 
 async function getPushPrefs(userId) {
@@ -190,6 +196,13 @@ async function pushForNotification(full, userId) {
 
   if (full.type === 'mention') {
     body = full.body === 'comment' ? "t'a mentionné dans un commentaire" : "t'a mentionné dans une publication";
+  } else if (full.type.startsWith('community_')) {
+    const label = full.community_name ? ` « ${cut(full.community_name, 40)} »` : '';
+    if (full.community_id) url = `/communaute/${full.community_id}`;
+    tag = `cm-${full.community_id}-${full.type}`;
+    if (full.type === 'community_invite') body = `t'invite à rejoindre${label}`;
+    else if (full.type === 'community_request') body = `veut rejoindre${label}`;
+    else if (full.type === 'community_approved') body = `a accepté ta demande pour rejoindre${label}`;
   } else if (full.type === 'moderation') {
     title = 'Kalchat — Modération';
     body = cut(full.body, 140) || 'Tu as reçu un message de la modération';

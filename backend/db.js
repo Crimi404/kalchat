@@ -200,6 +200,7 @@ async function initSchema() {
     ALTER TABLE stories ADD COLUMN IF NOT EXISTS media_type TEXT;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'user';
     ALTER TABLE notifications ADD COLUMN IF NOT EXISTS body TEXT;
+    ALTER TABLE notifications ADD COLUMN IF NOT EXISTS community_id TEXT;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS theme TEXT NOT NULL DEFAULT 'dark';
     ALTER TABLE users ADD COLUMN IF NOT EXISTS username_changed_at TIMESTAMPTZ;
     ALTER TABLE conversation_members ADD COLUMN IF NOT EXISTS is_favorite INTEGER NOT NULL DEFAULT 0;
@@ -338,6 +339,13 @@ async function initSchema() {
       PRIMARY KEY (community_id, user_id)
     );
     CREATE INDEX IF NOT EXISTS idx_community_members_user ON community_members(user_id, status);
+    CREATE TABLE IF NOT EXISTS community_invites (
+      community_id TEXT NOT NULL REFERENCES communities(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      invited_by TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (community_id, user_id)
+    );
     ALTER TABLE posts ADD COLUMN IF NOT EXISTS community_id TEXT REFERENCES communities(id) ON DELETE CASCADE;
     CREATE INDEX IF NOT EXISTS idx_posts_community ON posts(community_id, created_at);
 

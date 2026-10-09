@@ -22,7 +22,7 @@ function JoinButton({ c }: { c: Community }) {
   if (c.my_status === "active") return null;
   return (
     <button disabled={join.isPending} onClick={() => join.mutate()} className="brand-gradient shrink-0 rounded-full px-4 py-1.5 text-xs font-bold text-primary-foreground disabled:opacity-60">
-      {c.join_mode === "approval" ? "Demander" : "Rejoindre"}
+      {c.join_mode === "approval" && !c.invited_by ? "Demander" : "Rejoindre"}
     </button>
   );
 }

@@ -16,6 +16,8 @@ export interface Community {
   my_role: CommunityRole | null;
   my_status: CommunityStatus | null;
   pending_count: number;
+  /** Pseudo du membre qui m'a invité (invitation en attente), sinon null. */
+  invited_by?: string | null;
 }
 
 export interface CommunityMember {
@@ -68,6 +70,27 @@ export async function leaveCommunity(id: string) {
 export async function fetchCommunityMembers(id: string): Promise<{ members: CommunityMember[]; pending: CommunityMember[] }> {
   return api(`/communities/${encodeURIComponent(id)}/members`);
 }
+
+export interface InviteCandidate {
+  id: string;
+  username: string;
+  first_name: string | null;
+  last_name: string | null;
+  avatar_url: string | null;
+  member_status: CommunityStatus | null;
+  invited: boolean;
+}
+
+export async function searchInvitees(id: string, q: string): Promise<InviteCandidate[]> {
+  return api(`/communities/${encodeURIComponent(id)}/invite-search?q=${encodeURIComponent(q)}`);
+}
+
+export async function inviteToCommunity(id: string, userId: string): Promise<{ status: "invited" | "already_invited" | "approved" }> {
+  return api(`/communities/${encodeURIComponent(id)}/invite`, { method: "POST", body: { user_id: userId } });
+}
+
+/** Un membre actif peut inviter ; dans une communauté « sur validation », seuls les administrateurs le peuvent. */
+export const canInviteToCommunity = (c: Community | undefined) => !!c && c.my_status === "active" && (c.join_mode === "open" || isCommunityManager(c));
 
 export type MemberAction = "approve" | "reject" | "remove" | "promote" | "demote";
 

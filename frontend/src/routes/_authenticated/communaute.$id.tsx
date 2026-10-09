@@ -1,14 +1,16 @@
 import { useState } from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Loader2, LogOut, Pencil, Trash2, Users } from "lucide-react";
+import { ArrowLeft, Loader2, LogOut, Pencil, Trash2, UserPlus, Users } from "lucide-react";
 import { toast } from "sonner";
 import { BottomNav } from "@/components/BottomNav";
 import { CommunityPhotoPicker } from "@/components/CommunityPhotoPicker";
+import { InviteSheet } from "@/components/InviteSheet";
 import { MiniAvatar } from "@/components/MiniAvatar";
 import { PostCard } from "@/components/PostCard";
 import { useAuth } from "@/lib/auth";
 import {
+  canInviteToCommunity,
   deleteCommunity,
   fetchCommunity,
   fetchCommunityMembers,
@@ -121,6 +123,7 @@ function CommunityPage() {
   const { isStaff } = useAuth();
   const [tab, setTab] = useState<"posts" | "members">("posts");
   const [editing, setEditing] = useState(false);
+  const [inviting, setInviting] = useState(false);
 
   const community = useQuery({ queryKey: ["community", id], queryFn: () => fetchCommunity(id), retry: false });
   const c = community.data;
@@ -185,8 +188,11 @@ function CommunityPage() {
           <div className="mt-3 flex flex-wrap gap-2">
             {!c.my_status && (
               <button disabled={join.isPending} onClick={() => join.mutate()} className="brand-gradient rounded-full px-5 py-2 text-sm font-bold text-primary-foreground disabled:opacity-60">
-                {c.join_mode === "approval" ? "Demander à rejoindre" : "Rejoindre"}
+                {c.join_mode === "approval" && !c.invited_by ? "Demander à rejoindre" : "Rejoindre"}
               </button>
+            )}
+            {canInviteToCommunity(c) && (
+              <button onClick={() => setInviting(true)} className="flex items-center gap-1.5 rounded-full border border-primary/50 bg-primary/10 px-4 py-2 text-sm font-bold text-primary"><UserPlus className="h-4 w-4" /> Inviter</button>
             )}
             {c.my_status === "pending" && (
               <button disabled={leave.isPending} onClick={() => leave.mutate()} className="rounded-full border border-border px-5 py-2 text-sm font-semibold hover:bg-secondary">Demande envoyée · Annuler</button>
@@ -201,7 +207,12 @@ function CommunityPage() {
         </div>
       </section>
 
+      {c.invited_by && !c.my_status && (
+        <p className="mx-4 mb-3 rounded-2xl border border-primary/30 bg-primary/10 px-3 py-2 text-sm text-foreground">@{c.invited_by} t'a invité à rejoindre cette communauté. 🎉</p>
+      )}
+
       {editing && manager && <EditForm c={c} onDone={() => setEditing(false)} />}
+      {inviting && <InviteSheet community={c} onClose={() => setInviting(false)} />}
 
       {!canSee ? (
         <p className="border-t border-border px-6 py-14 text-center text-sm text-muted-foreground">
