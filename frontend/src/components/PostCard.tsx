@@ -1,10 +1,11 @@
-import { Heart, MessageCircle, Repeat2, Bookmark, MoreHorizontal, Trash2, Pencil, Loader2, Send, X, EyeOff, Flag, Ban, Share2, Copy, UserPlus, UserMinus, UserCheck, ThumbsDown, Maximize2 } from "lucide-react";
+import { Heart, MessageCircle, Repeat2, Bookmark, MoreHorizontal, Trash2, Pencil, Loader2, Send, X, EyeOff, Flag, Ban, Share2, Copy, UserPlus, UserMinus, UserCheck, ThumbsDown } from "lucide-react";
 import { useRef, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { RichText } from "@/components/RichText";
 import { useMediaViewer } from "@/components/MediaViewer";
+import { VideoPlayer } from "@/components/VideoPlayer";
 import { KORA_ID, Markdown } from "@/components/Markdown";
 import { BadgeList } from "@/components/KalBadge";
 import { ReportSheet } from "@/components/ReportSheet";
@@ -549,7 +550,7 @@ export function PostCard({ post, detail = false, canModerate = false }: { post: 
           )}
 
           {post.image_url && (post.media_type === "video" ? (
-            <div className="relative mt-3"><video src={post.image_url} controls preload="metadata" playsInline className="max-h-[28rem] w-full rounded-2xl border border-border bg-black" /><button type="button" aria-label="Ouvrir la vidéo en plein écran" onClick={(e) => { e.stopPropagation(); mv.open(post.image_url!, "video"); }} className="absolute right-2 top-2 rounded-full bg-black/55 p-1.5 text-white"><Maximize2 className="h-4 w-4" /></button></div>
+            <div className="mt-3"><VideoPlayer src={post.image_url} downloadable onExpand={() => mv.open(post.image_url!, "video")} className="max-h-[28rem] rounded-2xl border border-border" videoClassName="max-h-[28rem]" /></div>
           ) : (
             <img
               src={post.image_url}

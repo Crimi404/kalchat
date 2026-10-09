@@ -28,12 +28,47 @@ function forcedDownloadUrl(url: string, name: string): string {
   }
 }
 
+type FsPlugin = {
+  downloadFile: (o: { url: string; path: string; directory?: string; recursive?: boolean; progress?: boolean }) => Promise<{ path?: string }>;
+  addListener: (event: "progress", cb: (p: { url: string; bytes: number; contentLength: number }) => void) => Promise<{ remove: () => Promise<void> }>;
+};
+
+function nativeFilesystem(): FsPlugin | null {
+  const cap = (window as unknown as { Capacitor?: { Plugins?: { Filesystem?: FsPlugin }; registerPlugin?: (n: string) => FsPlugin } }).Capacitor;
+  return cap?.Plugins?.Filesystem ?? cap?.registerPlugin?.("Filesystem") ?? null;
+}
+
+/** Téléchargement direct dans l'appli (sans ouvrir le navigateur), avec progression. Renvoie false si impossible (ancienne APK, erreur). */
+async function downloadInsideApp(url: string, name: string): Promise<boolean> {
+  const fs = nativeFilesystem();
+  if (!fs) return false;
+  const toastId = `dl-${name}`;
+  let listener: { remove: () => Promise<void> } | null = null;
+  try {
+    toast.loading("Téléchargement… 0 %", { id: toastId });
+    listener = await fs.addListener("progress", (p) => {
+      if (p.url !== url || !p.contentLength) return;
+      const pct = Math.min(100, Math.round((p.bytes / p.contentLength) * 100));
+      toast.loading(`Téléchargement… ${pct} %`, { id: toastId });
+    });
+    await fs.downloadFile({ url, path: `Kalchat/${name}`, directory: "DOCUMENTS", recursive: true, progress: true });
+    toast.success("Enregistré dans Documents/Kalchat", { id: toastId });
+    return true;
+  } catch {
+    toast.dismiss(toastId);
+    return false;
+  } finally {
+    void listener?.remove();
+  }
+}
+
 /** Télécharge une photo ou une vidéo sur le téléphone / l'ordinateur. */
 export async function downloadMedia(url: string, type: "image" | "video") {
   const name = mediaFileName(url, type);
 
-  // Dans l'appli Android : on laisse le navigateur du téléphone gérer le téléchargement
+  // Dans l'appli Android : téléchargement direct ; si ce n'est pas possible (ancienne APK sans le module), on retombe sur le navigateur
   if (isNativeApp()) {
+    if (await downloadInsideApp(url, name)) return;
     window.open(forcedDownloadUrl(url, name), "_blank");
     toast.info("Téléchargement lancé dans ton navigateur");
     return;

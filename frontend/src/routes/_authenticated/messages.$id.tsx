@@ -1,7 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { Fragment, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Check, CheckCheck, ImagePlus, Loader2, Maximize2, Mic, Ban, Flag, MoreVertical, Palette, Pencil, Pin, Reply, Send, Star, ThumbsDown, ThumbsUp, Timer, Trash2, Users, X } from "lucide-react";
+import { ArrowLeft, Check, CheckCheck, ImagePlus, Loader2, Mic, Ban, Flag, MoreVertical, Palette, Pencil, Pin, Reply, Send, Star, ThumbsDown, ThumbsUp, Timer, Trash2, Users, X } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
 import { dayKey, dayLabel } from "@/lib/dateLabel";
@@ -16,6 +16,7 @@ import { blockUser, unblockUser } from "@/lib/settings";
 import type { ReportTarget } from "@/lib/reports";
 import { VoiceBubble } from "@/components/VoiceBubble";
 import { useMediaViewer } from "@/components/MediaViewer";
+import { VideoPlayer } from "@/components/VideoPlayer";
 import { SwipeableMessage } from "@/components/SwipeableMessage";
 import { ActionIcons, MessageActionSheet, type MessageAction } from "@/components/MessageActionSheet";
 import { ephemeralLabel } from "@/lib/settings";
@@ -418,7 +419,7 @@ function ChatPage() {
                     {m.media_type === "image_expired" && <p className="mb-1 text-xs italic opacity-80">🖼️ Image supprimée (après 60 jours)</p>}
                     {m.media_type === "video_expired" && <p className="mb-1 text-xs italic opacity-80">🎥 Vidéo indisponible (supprimée après 60 jours)</p>}
                     {m.media_url && (m.media_type === "video" ? (
-                      <div className="relative mb-1"><video src={m.media_url} controls playsInline className="max-h-64 rounded-xl" /><button type="button" aria-label="Ouvrir la vidéo en plein écran" onClick={() => mv.open(m.media_url!, "video")} className="absolute right-1.5 top-1.5 rounded-full bg-black/55 p-1.5 text-white"><Maximize2 className="h-4 w-4" /></button></div>
+                      <div className="mb-1 w-64 max-w-full"><VideoPlayer src={m.media_url} downloadable onExpand={() => mv.open(m.media_url!, "video")} className="max-h-64 rounded-xl" videoClassName="max-h-64" /></div>
                     ) : m.media_type === "audio" ? (
                       <VoiceBubble src={m.media_url} duration={m.duration} mine={mine} />
                     ) : (

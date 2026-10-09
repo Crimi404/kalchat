@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { Download, X } from "lucide-react";
 import { useBackHandler } from "@/lib/back";
 import { downloadMedia } from "@/lib/download";
+import { VideoPlayer } from "@/components/VideoPlayer";
 
 export interface ViewerMedia {
   url: string;
@@ -35,7 +36,7 @@ export function MediaViewer({ media, onClose }: { media: ViewerMedia; onClose: (
       </div>
       <div className="flex min-h-0 flex-1 items-center justify-center p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
         {media.type === "video" ? (
-          <video src={media.url} controls autoPlay playsInline onClick={(e) => e.stopPropagation()} className="max-h-full max-w-full rounded-lg" />
+          <VideoPlayer src={media.url} autoPlay className="max-h-full w-full max-w-3xl rounded-lg" videoClassName="max-h-[80vh]" />
         ) : (
           <img src={media.url} alt="" draggable={false} onClick={(e) => e.stopPropagation()} className="max-h-full max-w-full rounded-lg object-contain" />
         )}
