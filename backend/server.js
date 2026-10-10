@@ -116,6 +116,21 @@ app.use('/downloads', express.static(path.join(FRONT_DIST, 'downloads'), {
 }));
 app.use('/downloads', (req, res) => res.status(404).json({ error: 'Fichier introuvable' }));
 
+// ---------- Liens « kalchat.site » qui ouvrent l'appli Android (Android App Links) ----------
+// Android vérifie ce fichier pour confirmer que l'APK signée avec cette clé a le droit d'ouvrir les liens du site.
+// L'empreinte SHA-256 du certificat se met dans la variable ANDROID_CERT_SHA256 (Render > Environment ; plusieurs valeurs séparées par des virgules).
+app.get('/.well-known/assetlinks.json', (req, res) => {
+  const fingerprints = String(process.env.ANDROID_CERT_SHA256 || '')
+    .split(',')
+    .map((v) => v.replace(/[^0-9a-f]/gi, '').toUpperCase())
+    .filter((v) => v.length === 64)
+    .map((v) => v.match(/.{2}/g).join(':'));
+  const body = fingerprints.length
+    ? [{ relation: ['delegate_permission/common.handle_all_urls'], target: { namespace: 'android_app', package_name: 'com.kalchat.app', sha256_cert_fingerprints: fingerprints } }]
+    : [];
+  res.set('Cache-Control', 'public, max-age=300').type('application/json').send(JSON.stringify(body));
+});
+
 app.use(express.static(FRONT_DIST));
 // Application monopage : toute adresse qui n'est pas /api ni /socket.io renvoie index.html
 app.get(/^\/(?!api\/|socket\.io\/).*/, (req, res, next) => {

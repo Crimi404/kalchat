@@ -31,6 +31,9 @@ services:
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
+      # Empreinte SHA-256 du certificat de signature de l'APK (affichée à la fin du build GitHub) : liens kalchat.site -> appli
+      - key: ANDROID_CERT_SHA256
+        sync: false
 # Supabase sert uniquement de base de données (Postgres) et de stockage de fichiers.
 # Les 3 variables DATABASE_URL, SUPABASE_URL et SUPABASE_SERVICE_ROLE_KEY restent à renseigner
 # dans Render (Environment), comme pour la version actuelle. Aucune migration SQL à lancer :
