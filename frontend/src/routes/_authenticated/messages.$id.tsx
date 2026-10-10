@@ -24,6 +24,9 @@ import { MAX_VOICE_SECONDS, formatDuration, useVoiceRecorder } from "@/lib/voice
 import { MAX_UPLOAD_MB, uploadMedia } from "@/lib/media";
 import { EDIT_WINDOW_MS, deleteMessage, editMessage, fetchConversationDetail, fetchMessages, joinConversation, markRead, messageSnippet, rateKoraMessage, sendMessage, setEphemeral, togglePinMessage, toggleFavoriteConversation, type MessageRow, acceptMessageRequest, declineMessageRequest } from "@/lib/chat";
 import { useBackHandler } from "@/lib/back";
+import { ChatThemeEditor } from "@/components/ChatThemeEditor";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { chatThemeSupported, useChatTheme } from "@/lib/chatTheme";
 
 export const Route = createFileRoute("/_authenticated/messages/$id")({
   head: () => ({
@@ -49,6 +52,9 @@ function ChatPage() {
   const [menuOpen, setMenuOpen] = useState(false);
   useBackHandler(() => setMenuOpen(false), menuOpen);
   const [infoOpen, setInfoOpen] = useState(false);
+  const [themeOpen, setThemeOpen] = useState(false);
+  useBackHandler(() => setThemeOpen(false), themeOpen);
+  const chatTheme = useChatTheme(id); // fond et couleur des bulles (APK uniquement)
   const [ephOpen, setEphOpen] = useState(false);
   const [replyTo, setReplyTo] = useState<MessageRow | null>(null);
   const [editing, setEditing] = useState<MessageRow | null>(null);
@@ -331,6 +337,11 @@ function ChatPage() {
                 <Star className={`h-4 w-4 ${detail.isFavorite ? "fill-current text-primary" : ""}`} />
                 {detail.isFavorite ? "Retirer des favoris" : "Ajouter aux favoris"}
               </button>
+              {chatThemeSupported() && (
+                <button onClick={() => { setMenuOpen(false); setThemeOpen(true); }} className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-foreground hover:bg-secondary">
+                  <Palette className="h-4 w-4" /> Fond de la discussion
+                </button>
+              )}
               {(!isGroup || detail.myIsAdmin) && (
                 <button onClick={() => { setMenuOpen(false); setEphOpen(true); }} className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-foreground hover:bg-secondary">
                   <Timer className="h-4 w-4" /> Messages éphémères
@@ -386,8 +397,17 @@ function ChatPage() {
       {actionMsg && <MessageActionSheet preview={messageSnippet(actionMsg.body, actionMsg.media_type)} actions={actionsFor(actionMsg)} onClose={() => setActionMsg(null)} />}
       {ephOpen && <EphemeralSheet current={ephemeralSeconds} pending={ephemeral.isPending} onSelect={(s) => ephemeral.mutate(s)} onClose={() => setEphOpen(false)} />}
       {infoOpen && isGroup && <GroupInfoSheet detail={detail} myId={uid} onClose={() => setInfoOpen(false)} />}
+      <Dialog open={themeOpen} onOpenChange={setThemeOpen}>
+        <DialogContent className="max-h-[90dvh] max-w-md overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Thème de la discussion</DialogTitle>
+            <DialogDescription>Fond et couleur de tes messages, juste pour cette discussion.</DialogDescription>
+          </DialogHeader>
+          <ChatThemeEditor scope={id} />
+        </DialogContent>
+      </Dialog>
 
-      <main className="flex-1 space-y-2 overflow-y-auto px-3 py-4">
+      <main className="flex-1 space-y-2 overflow-y-auto px-3 py-4" style={chatTheme.wallpaperStyle}>
         <p className="mx-auto mb-4 max-w-xs text-center text-[11px] text-muted-foreground">{isGroup ? "Messages du groupe : visibles uniquement par ses membres. Ils ne sont pas chiffrés de bout en bout." : "Messages privés : visibles uniquement par vous deux. Ils ne sont pas chiffrés de bout en bout."}</p>
         {msgs.data?.map((m, i) => {
           const prev = i > 0 ? msgs.data![i - 1] : null;
@@ -403,7 +423,7 @@ function ChatPage() {
             <div key={m.id} id={`msg-${m.id}`} className={`rounded-2xl transition-colors duration-500 ${highlightId === m.id ? "bg-primary/20" : ""}`}>
               <SwipeableMessage onReply={() => startReply(m)} onLongPress={() => setActionMsg(m)}>
                 <div className={`flex ${mine ? "justify-end" : "justify-start"}`}>
-                  <div className={`max-w-[75%] rounded-2xl px-3.5 py-2 text-sm ${mine ? "brand-gradient rounded-br-md text-primary-foreground" : "rounded-bl-md bg-secondary text-foreground"}`}>
+                  <div style={mine ? chatTheme.bubbleStyle ?? undefined : undefined} className={`max-w-[75%] rounded-2xl px-3.5 py-2 text-sm ${mine ? (chatTheme.bubbleStyle ? "rounded-br-md" : "brand-gradient rounded-br-md text-primary-foreground") : "rounded-bl-md bg-secondary text-foreground"}`}>
                     {isGroup && !mine && <span className="mb-0.5 block text-[11px] font-semibold text-primary">{m.sender_name}</span>}
                     {m.reply && (
                       <button

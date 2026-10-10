@@ -1,6 +1,6 @@
 import { createFileRoute, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import { Bell, Check, EyeOff, FileText, Fingerprint, LifeBuoy, Lock, Mail, LogOut, Moon, ScrollText, ShieldCheck, Sun, UserRound } from "lucide-react";
+import { Bell, Check, EyeOff, FileText, Fingerprint, LifeBuoy, Lock, Mail, LogOut, Moon, Palette, ScrollText, ShieldCheck, Sun, UserRound } from "lucide-react";
 import { TopBar } from "@/components/TopBar";
 import { BottomNav } from "@/components/BottomNav";
 import { useAuth } from "@/lib/auth";
@@ -8,6 +8,7 @@ import { SettingRow } from "@/components/SettingsShell";
 import { useTheme, type Theme } from "@/lib/theme";
 import { SUPPORT_EMAIL } from "@/lib/legal";
 import { lockSupported } from "@/lib/applock";
+import { chatThemeSupported } from "@/lib/chatTheme";
 
 export const Route = createFileRoute("/_authenticated/parametres")({
   head: () => ({
@@ -88,6 +89,7 @@ function ParametresPage() {
           <SettingRow icon={Bell} title="Notifications" description="Active les notifications push sur ton téléphone" onClick={() => navigate({ to: "/parametres/notifications" })} />
           <SettingRow icon={EyeOff} title="Sujets masqués" description="Catégories de publications que tu ne veux plus voir dans ton fil" onClick={() => navigate({ to: "/parametres/sujets" })} />
           <SettingRow icon={Lock} title="Changer de mot de passe" description="Change de mot de passe à tout moment" onClick={() => navigate({ to: "/parametres/mot-de-passe" })} />
+          {chatThemeSupported() && <SettingRow icon={Palette} title="Fond des discussions" description="Thème, photo de ton téléphone en fond et couleur de tes messages" onClick={() => navigate({ to: "/parametres/discussions" })} />}
           {lockSupported() && <SettingRow icon={Fingerprint} title="Verrouillage" description="Code PIN et empreinte pour protéger l'application ou seulement la messagerie" onClick={() => navigate({ to: "/parametres/verrouillage" })} />}
           <SettingRow icon={ShieldCheck} title="Confidentialité" description="Présence en ligne, accusés de lecture, messages éphémères et comptes bloqués" onClick={() => navigate({ to: "/parametres/confidentialite" })} />
         </section>
