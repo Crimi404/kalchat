@@ -9,6 +9,7 @@ import { GuestPrompt } from "@/components/GuestPrompt";
 import { BackButtonHandler } from "@/components/BackButtonHandler";
 import { AppLockGate } from "@/components/AppLockGate";
 import { DeepLinkHandler } from "@/components/DeepLinkHandler";
+import { UpdateGate } from "@/components/UpdateGate";
 
 function NotFoundComponent() {
   return (
@@ -87,6 +88,7 @@ function RootComponent() {
             <BackButtonHandler />
             <DeepLinkHandler />
             <AppLockGate />
+            <UpdateGate />
             <Toaster position="top-center" richColors />
           </PresenceProvider>
         </ThemeProvider>
