@@ -407,7 +407,7 @@ function ChatPage() {
         </DialogContent>
       </Dialog>
 
-      <main className="flex-1 space-y-2 overflow-y-auto px-3 py-4" style={chatTheme.wallpaperStyle}>
+      <main className="flex-1 space-y-2 overflow-y-auto px-3 py-4" style={{ ...chatTheme.wallpaperStyle, ...chatTheme.fontStyle }}>
         <p className="mx-auto mb-4 max-w-xs text-center text-[11px] text-muted-foreground">{isGroup ? "Messages du groupe : visibles uniquement par ses membres. Ils ne sont pas chiffrés de bout en bout." : "Messages privés : visibles uniquement par vous deux. Ils ne sont pas chiffrés de bout en bout."}</p>
         {msgs.data?.map((m, i) => {
           const prev = i > 0 ? msgs.data![i - 1] : null;

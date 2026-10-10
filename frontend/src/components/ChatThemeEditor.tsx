@@ -2,7 +2,7 @@ import { useRef, useState } from "react";
 import { Check, ImagePlus, Loader2, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { MAX_DIM, resetChatTheme, setChatPhoto, updateChatTheme, useChatTheme } from "@/lib/chatTheme";
-import { THEMES, isCustomColor } from "@/lib/themes";
+import { FONTS, THEMES, isCustomColor } from "@/lib/themes";
 
 const MAX_PHOTO_MB = 15;
 
@@ -47,11 +47,11 @@ function Swatches({ value, onChange, noneLabel, extra }: { value: string | null;
 }
 
 /**
- * Éditeur du thème des discussions (fond + bulles), avec aperçu en direct.
+ * Éditeur du thème des discussions (fond + bulles + police), avec aperçu en direct.
  * `scope` : null = thème par défaut de toutes les discussions ; sinon l'identifiant d'une discussion.
  */
 export function ChatThemeEditor({ scope }: { scope: string | null }) {
-  const { theme, hasOwn, wallpaperStyle, bubbleStyle } = useChatTheme(scope);
+  const { theme, hasOwn, wallpaperStyle, bubbleStyle, fontStyle } = useChatTheme(scope);
   const [busy, setBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const forChat = scope !== null;
@@ -84,7 +84,7 @@ export function ChatThemeEditor({ scope }: { scope: string | null }) {
 
       {/* Aperçu */}
       <div className="overflow-hidden rounded-2xl border border-border">
-        <div className="flex min-h-[10rem] flex-col justify-end gap-2 bg-background px-3 py-4" style={wallpaperStyle}>
+        <div className="flex min-h-[10rem] flex-col justify-end gap-2 bg-background px-3 py-4" style={{ ...wallpaperStyle, ...fontStyle }}>
           <div className="flex justify-start"><div className="max-w-[75%] rounded-2xl rounded-bl-md bg-secondary px-3.5 py-2 text-sm text-foreground">Salut ! Tu as vu mon nouveau fond ? 👀</div></div>
           <div className="flex justify-end">
             <div className={`max-w-[75%] rounded-2xl rounded-br-md px-3.5 py-2 text-sm ${bubbleStyle ? "" : "brand-gradient text-primary-foreground"}`} style={bubbleStyle ?? undefined}>
@@ -142,10 +142,32 @@ export function ChatThemeEditor({ scope }: { scope: string | null }) {
         <Swatches value={theme.bubble} onChange={(v) => void updateChatTheme(scope, { bubble: v })} noneLabel="Violet Kalchat" />
       </section>
 
+      {/* Police */}
+      <section>
+        <h3 className="mb-1 text-sm font-bold text-foreground">Police des messages</h3>
+        <div className="no-scrollbar flex items-center gap-2 overflow-x-auto py-1">
+          {FONTS.map((f) => {
+            const active = (theme.font ?? "sans") === f.id;
+            return (
+              <button
+                key={f.id}
+                type="button"
+                aria-pressed={active}
+                onClick={() => void updateChatTheme(scope, { font: f.id === "sans" ? null : f.id })}
+                className={`flex shrink-0 flex-col items-center rounded-2xl border-2 bg-card px-3.5 py-2 ${active ? "border-primary" : "border-border"}`}
+              >
+                <span className="text-base text-foreground" style={{ fontFamily: f.family }}>Aa</span>
+                <span className="text-[10px] font-semibold text-muted-foreground">{f.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      </section>
+
       <button
         type="button"
         onClick={() => void resetChatTheme(scope).then(() => toast.success(forChat ? "Thème par défaut rétabli" : "Thème réinitialisé"))}
-        disabled={forChat ? !hasOwn : !hasWallpaper && theme.bubble === null}
+        disabled={forChat ? !hasOwn : !hasWallpaper && theme.bubble === null && theme.font === null}
         className="flex w-full items-center justify-center gap-2 rounded-2xl border border-border bg-card py-3 text-sm font-semibold text-foreground transition-colors hover:bg-secondary disabled:opacity-50"
       >
         <RotateCcw className="h-4 w-4" /> {forChat ? "Revenir au thème par défaut" : "Tout réinitialiser"}

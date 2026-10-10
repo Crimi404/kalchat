@@ -1,9 +1,9 @@
 import { useEffect, useState, useSyncExternalStore, type CSSProperties } from "react";
 import { isInsideApp } from "@/lib/apk";
-import { resolveTheme } from "@/lib/themes";
+import { FONTS, resolveFont, resolveTheme } from "@/lib/themes";
 
 /**
- * Thème des discussions (APK uniquement) : fond (thème, couleur ou photo du téléphone) + couleur de MES bulles.
+ * Thème des discussions (APK uniquement) : fond (thème, couleur ou photo du téléphone), couleur de MES bulles et police des messages.
  * Tout reste sur le téléphone : les réglages dans localStorage, les photos (réduites) dans IndexedDB.
  * Un thème « par défaut » s'applique à toutes les discussions ; une discussion peut avoir le sien.
  */
@@ -14,11 +14,13 @@ export interface ChatTheme {
   dim: number;
   /** Couleur de mes bulles : identifiant de thème ou « #rrggbb » ; null = violet Kalchat. */
   bubble: string | null;
+  /** Police des messages : identifiant de police (« serif », « mono »…) ; null = police Classique d'origine. */
+  font: string | null;
   /** Change à chaque nouvelle photo, pour recharger l'image. */
   photoRev: number;
 }
 
-export const DEFAULT_CHAT_THEME: ChatTheme = { wallpaper: null, dim: 0.25, bubble: null, photoRev: 0 };
+export const DEFAULT_CHAT_THEME: ChatTheme = { wallpaper: null, dim: 0.25, bubble: null, font: null, photoRev: 0 };
 export const MAX_DIM = 0.7;
 
 interface Store {
@@ -37,7 +39,8 @@ function clean(t: unknown): ChatTheme {
   const wallpaper = typeof o.wallpaper === "string" && (o.wallpaper === "photo" || resolveTheme(o.wallpaper)) ? o.wallpaper : null;
   const bubble = typeof o.bubble === "string" && resolveTheme(o.bubble) ? o.bubble : null;
   const dim = typeof o.dim === "number" && o.dim >= 0 && o.dim <= MAX_DIM ? o.dim : DEFAULT_CHAT_THEME.dim;
-  return { wallpaper, bubble, dim, photoRev: typeof o.photoRev === "number" ? o.photoRev : 0 };
+  const font = typeof o.font === "string" && o.font !== "sans" && FONTS.some((f) => f.id === o.font) ? o.font : null;
+  return { wallpaper, bubble, dim, font, photoRev: typeof o.photoRev === "number" ? o.photoRev : 0 };
 }
 
 function read(): Store {
@@ -167,6 +170,8 @@ export interface ResolvedChatTheme {
   wallpaperStyle: CSSProperties;
   /** Style de MES bulles (null = violet Kalchat d'origine). */
   bubbleStyle: CSSProperties | null;
+  /** Police des messages (vide = police d'origine). */
+  fontStyle: CSSProperties;
 }
 
 export function useChatTheme(scope: string | null): ResolvedChatTheme {
@@ -212,5 +217,7 @@ export function useChatTheme(scope: string | null): ResolvedChatTheme {
     if (r) bubbleStyle = { background: r.background, color: r.color, ["--primary-foreground" as string]: r.color, ["--color-primary-foreground" as string]: r.color };
   }
 
-  return { theme: t, hasOwn: scope !== null && !!s.chats[scope], wallpaperStyle, bubbleStyle };
+  const fontStyle: CSSProperties = inApp && t.font ? { fontFamily: resolveFont(t.font) } : {};
+
+  return { theme: t, hasOwn: scope !== null && !!s.chats[scope], wallpaperStyle, bubbleStyle, fontStyle };
 }
