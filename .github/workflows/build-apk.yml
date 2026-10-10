@@ -46,6 +46,16 @@ jobs:
             echo "::warning::mobile/google-services.json est absent : l'APK est compilée SANS notifications push."
           fi
 
+      - name: Ajouter la réception des partages Android (Kalchat dans le menu Partager)
+        run: |
+          # Non bloquant : si le module est introuvable, l'APK est compilée sans cette fonction (le reste fonctionne).
+          if npm install @capgo/capacitor-share-target@^6 ; then
+            echo "SHARE_TARGET=1" >> "$GITHUB_ENV"
+            echo "Module de réception des partages installé."
+          else
+            echo "::warning::Module @capgo/capacitor-share-target indisponible : l'APK est compilée SANS le menu Partager."
+          fi
+
       - name: Créer le projet Android
         run: npx cap add android
 
@@ -76,6 +86,26 @@ jobs:
               <uses-feature android:name="android.hardware.microphone" android:required="false" />
           """
           s = s.replace("</manifest>", perms + "</manifest>")
+          open(p, "w", encoding="utf-8").write(s)
+          PY
+
+      - name: Kalchat dans le menu Partager d'Android (texte, liens, photos, vidéos)
+        if: env.SHARE_TARGET == '1'
+        run: |
+          python3 - <<'PY'
+          p = "android/app/src/main/AndroidManifest.xml"
+          s = open(p, encoding="utf-8").read()
+          def f(action, mime):
+              return f"""
+                  <intent-filter>
+                      <action android:name="android.intent.action.{action}" />
+                      <category android:name="android.intent.category.DEFAULT" />
+                      <data android:mimeType="{mime}" />
+                  </intent-filter>
+              """
+          filters = f("SEND", "text/plain") + f("SEND", "image/*") + f("SEND", "video/*") + f("SEND_MULTIPLE", "image/*")
+          assert "</activity>" in s
+          s = s.replace("</activity>", filters + "</activity>", 1)
           open(p, "w", encoding="utf-8").write(s)
           PY
 
