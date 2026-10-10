@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Kalchat — pas de connexion</title>
+  <style>
+    body{margin:0;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;
+         background:#0d0a1f;color:#fff;font-family:system-ui,sans-serif;text-align:center;padding:24px;box-sizing:border-box}
+    .icon{width:84px;height:84px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+          background:linear-gradient(135deg,#4351ec,#7c4dff);margin-bottom:20px}
+    h1{font-size:22px;margin:0 0 8px}
+    p{margin:0;color:#b8b3d1;line-height:1.5;font-size:15px}
+    button{margin-top:24px;padding:13px 32px;border:0;border-radius:999px;background:linear-gradient(135deg,#4351ec,#7c4dff);
+           color:#fff;font-size:16px;font-weight:700}
+    small{margin-top:14px;color:#8a85a6;font-size:12px}
+  </style>
+</head>
+<body>
+  <div class="icon">
+    <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <line x1="2" y1="2" x2="22" y2="22"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><path d="M2 8.8a15 15 0 0 1 4.2-2.6"/>
+      <path d="M10.7 5.1A15 15 0 0 1 22 8.8"/><path d="M5 12.9a10 10 0 0 1 5.2-2.7"/><path d="M13.9 10.3a10 10 0 0 1 5.1 2.6"/>
+      <line x1="12" y1="20" x2="12.01" y2="20"/>
+    </svg>
+  </div>
+  <h1>Pas de connexion</h1>
+  <p>Impossible de joindre Kalchat.<br>Vérifie ta connexion internet (Wi-Fi ou données mobiles).</p>
+  <button id="retry">Réessayer</button>
+  <small>Kalchat se rouvrira tout seul dès que le réseau revient.</small>
+  <script>
+    var URL_KALCHAT = "https://kalchat.site";
+    function go(){ location.href = URL_KALCHAT; }
+    document.getElementById("retry").addEventListener("click", go);
+    window.addEventListener("online", go);
+    setInterval(function(){ if (navigator.onLine) go(); }, 5000);
+  </script>
+</body>
+</html>

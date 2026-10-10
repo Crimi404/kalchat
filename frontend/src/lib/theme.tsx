@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useState, type React
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { syncStatusBar } from "@/lib/statusBar";
 
 export type Theme = "dark" | "light";
 
@@ -19,6 +20,7 @@ function readStoredTheme(): Theme {
 function applyTheme(theme: Theme) {
   document.documentElement.setAttribute("data-theme", theme);
   document.querySelector('meta[name="theme-color"]')?.setAttribute("content", THEME_COLORS[theme]);
+  syncStatusBar(theme, THEME_COLORS[theme]);
   try {
     localStorage.setItem(THEME_KEY, theme);
   } catch {

@@ -11,6 +11,7 @@ import { AppLockGate } from "@/components/AppLockGate";
 import { DeepLinkHandler } from "@/components/DeepLinkHandler";
 import { UpdateGate } from "@/components/UpdateGate";
 import { ShareReceiver } from "@/components/ShareReceiver";
+import { OfflineBanner } from "@/components/OfflineBanner";
 
 function NotFoundComponent() {
   return (
@@ -90,6 +91,7 @@ function RootComponent() {
             <DeepLinkHandler />
             <AppLockGate />
             <ShareReceiver />
+            <OfflineBanner />
             <UpdateGate />
             <Toaster position="top-center" richColors />
           </PresenceProvider>

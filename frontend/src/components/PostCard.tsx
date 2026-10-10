@@ -34,6 +34,7 @@ import {
   type FeedPost,
 } from "@/lib/social";
 import { useBackHandler } from "@/lib/back";
+import { likeBuzz } from "@/lib/haptics";
 
 // Au-delà de cette limite, le texte est coupé avec « Voir plus » (la page de la publication affiche tout)
 const PREVIEW_CHARS = 280;
@@ -599,7 +600,7 @@ export function PostCard({ post, detail = false, canModerate = false }: { post: 
 
           <div className={`mt-3 flex items-center justify-between text-muted-foreground ${detail ? "border-y border-border py-2.5" : ""}`}>
             <button
-              onClick={() => requireAuth("like") && likeMutation.mutate()}
+              onClick={() => { if (!requireAuth("like")) return; if (!post.likedByMe) likeBuzz(); likeMutation.mutate(); }}
               className={`flex items-center gap-1.5 text-xs transition-colors ${post.likedByMe ? "text-like" : "hover:text-like"}`}
             >
               <Heart className="h-[18px] w-[18px]" fill={post.likedByMe ? "currentColor" : "none"} />
@@ -648,7 +649,7 @@ export function PostCard({ post, detail = false, canModerate = false }: { post: 
                     isMine={user?.id === c.author_id}
                     canDelete={user?.id === c.author_id || isMine || isStaff}
                     onReply={() => startReply(c)}
-                    onLike={() => requireAuth("like") && likeCommentMutation.mutate(c.id)}
+                    onLike={() => { if (!requireAuth("like")) return; if (!c.likedByMe) likeBuzz(); likeCommentMutation.mutate(c.id); }}
                     onDelete={() => deleteCommentMutation.mutate(c.id)}
                     onSave={(text) => editCommentMutation.mutate({ id: c.id, text })}
                     onReport={user && user.id !== c.author_id ? () => setReporting({ type: "comment", id: c.id }) : undefined}
