@@ -79,6 +79,24 @@ jobs:
           open(p, "w", encoding="utf-8").write(s)
           PY
 
+      - name: Ouvrir les liens kalchat.site dans l'appli (App Links)
+        run: |
+          python3 - <<'PY'
+          p = "android/app/src/main/AndroidManifest.xml"
+          s = open(p, encoding="utf-8").read()
+          f = """
+                  <intent-filter android:autoVerify="true">
+                      <action android:name="android.intent.action.VIEW" />
+                      <category android:name="android.intent.category.DEFAULT" />
+                      <category android:name="android.intent.category.BROWSABLE" />
+                      <data android:scheme="https" android:host="kalchat.site" />
+                  </intent-filter>
+              """
+          assert "</activity>" in s
+          s = s.replace("</activity>", f + "</activity>", 1)
+          open(p, "w", encoding="utf-8").write(s)
+          PY
+
       - name: Numéro de version (pour pouvoir mettre à jour par-dessus)
         run: |
           sed -i "s/versionCode 1/versionCode ${{ github.run_number }}/" android/app/build.gradle
@@ -104,6 +122,19 @@ jobs:
             --out Kalchat.apk aligned.apk
           $ANDROID_HOME/build-tools/$BT/apksigner verify Kalchat.apk
           rm kalchat.jks
+
+      - name: Empreinte du certificat (à copier dans Render pour les liens kalchat.site)
+        run: |
+          BT=$(ls $ANDROID_HOME/build-tools | sort -V | tail -1)
+          FP=$($ANDROID_HOME/build-tools/$BT/apksigner verify --print-certs Kalchat.apk | grep -m1 "SHA-256 digest" | sed 's/.*: //')
+          echo "Empreinte SHA-256 du certificat : $FP"
+          {
+            echo "### Empreinte SHA-256 du certificat de l'APK"
+            echo
+            echo "Variable à renseigner dans Render (Environment) : \`ANDROID_CERT_SHA256\`"
+            echo
+            echo "\`$FP\`"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v4
         with:
