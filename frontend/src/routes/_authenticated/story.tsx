@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ImagePlus, Loader2, X } from "lucide-react";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
@@ -9,6 +9,7 @@ import { MAX_UPLOAD_MB, uploadMedia } from "@/lib/media";
 import { createStory } from "@/lib/stories";
 import { ThemePicker } from "@/components/ThemePicker";
 import { DEFAULT_FONT, resolveFont, resolveTheme, themedTextSize } from "@/lib/themes";
+import { takePendingShare } from "@/lib/shareIn";
 
 export const Route = createFileRoute("/_authenticated/story")({
   head: () => ({
@@ -33,6 +34,17 @@ function NewStory() {
   const [font, setFont] = useState(DEFAULT_FONT);
   const [hours, setHours] = useState(24);
   const themeStyle = resolveTheme(theme) ?? resolveTheme("kalchat")!;
+
+  // Contenu reçu depuis le menu « Partager » d'Android
+  useEffect(() => {
+    const shared = takePendingShare();
+    if (!shared) return;
+    if (shared.text) setText(shared.text.slice(0, 300));
+    if (shared.file) {
+      if (shared.file.size > MAX_UPLOAD_MB * 1024 * 1024) toast.error(`Fichier trop lourd (${MAX_UPLOAD_MB} Mo max)`);
+      else setFile(shared.file);
+    }
+  }, []);
 
   async function submit() {
     if (!user) return;

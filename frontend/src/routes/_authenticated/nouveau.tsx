@@ -1,7 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ImagePlus, Loader2, X } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { TopBar } from "@/components/TopBar";
 import { useAuth } from "@/lib/auth";
@@ -11,6 +11,7 @@ import { fetchCommunity, isActiveMember } from "@/lib/communities";
 import { CATEGORIES, DEFAULT_CATEGORY } from "@/lib/categories";
 import { ThemePicker } from "@/components/ThemePicker";
 import { Switch } from "@/components/ui/switch";
+import { takePendingShare } from "@/lib/shareIn";
 import { DEFAULT_FONT, THEME_MAX_CHARS, resolveFont, resolveTheme, themedTextSize } from "@/lib/themes";
 
 export const Route = createFileRoute("/_authenticated/nouveau")({
@@ -45,6 +46,15 @@ function NewPost() {
   const [allowDownload, setAllowDownload] = useState(true);
   const themeStyle = resolveTheme(theme);
   const maxChars = themeStyle ? THEME_MAX_CHARS : MAX;
+
+  // Contenu reçu depuis le menu « Partager » d'Android
+  useEffect(() => {
+    const shared = takePendingShare();
+    if (!shared) return;
+    if (shared.text) setText(shared.text.slice(0, MAX));
+    if (shared.file) pick(shared.file);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function chooseTheme(t: string | null) {
     if (t && text.length > THEME_MAX_CHARS) {

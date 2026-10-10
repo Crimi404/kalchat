@@ -10,6 +10,7 @@ import { BackButtonHandler } from "@/components/BackButtonHandler";
 import { AppLockGate } from "@/components/AppLockGate";
 import { DeepLinkHandler } from "@/components/DeepLinkHandler";
 import { UpdateGate } from "@/components/UpdateGate";
+import { ShareReceiver } from "@/components/ShareReceiver";
 
 function NotFoundComponent() {
   return (
@@ -88,6 +89,7 @@ function RootComponent() {
             <BackButtonHandler />
             <DeepLinkHandler />
             <AppLockGate />
+            <ShareReceiver />
             <UpdateGate />
             <Toaster position="top-center" richColors />
           </PresenceProvider>
