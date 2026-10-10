@@ -10,6 +10,7 @@ import { createPost } from "@/lib/social";
 import { fetchCommunity, isActiveMember } from "@/lib/communities";
 import { CATEGORIES, DEFAULT_CATEGORY } from "@/lib/categories";
 import { ThemePicker } from "@/components/ThemePicker";
+import { Switch } from "@/components/ui/switch";
 import { DEFAULT_FONT, THEME_MAX_CHARS, resolveFont, resolveTheme, themedTextSize } from "@/lib/themes";
 
 export const Route = createFileRoute("/_authenticated/nouveau")({
@@ -41,6 +42,7 @@ function NewPost() {
   const [category, setCategory] = useState(DEFAULT_CATEGORY);
   const [theme, setTheme] = useState<string | null>(null);
   const [font, setFont] = useState(DEFAULT_FONT);
+  const [allowDownload, setAllowDownload] = useState(true);
   const themeStyle = resolveTheme(theme);
   const maxChars = themeStyle ? THEME_MAX_CHARS : MAX;
 
@@ -67,7 +69,7 @@ function NewPost() {
     setBusy(true);
     try {
       const media = file ? await uploadMedia(file) : null;
-      await createPost({ content: text.trim(), imageUrl: media?.url ?? null, mediaType: media?.type ?? null, category, theme: media ? null : theme, font: media || !theme ? null : font, communityId: communaute ?? null });
+      await createPost({ content: text.trim(), imageUrl: media?.url ?? null, mediaType: media?.type ?? null, category, theme: media ? null : theme, font: media || !theme ? null : font, communityId: communaute ?? null, allowDownload });
       await qc.invalidateQueries();
       toast.success("Publication partagée");
       if (communaute) navigate({ to: "/communaute/$id", params: { id: communaute } });
@@ -129,6 +131,15 @@ function NewPost() {
           <label className="flex cursor-pointer items-center justify-center gap-2 rounded-2xl border border-dashed border-border py-8 text-sm text-muted-foreground hover:bg-secondary/60">
             <ImagePlus className="h-5 w-5" /> Ajouter une photo ou une vidéo
             <input type="file" accept="image/*,video/*" className="hidden" onChange={(e) => pick(e.target.files?.[0])} />
+          </label>
+        )}
+        {file && (
+          <label className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-card px-4 py-3">
+            <span>
+              <span className="block text-sm font-semibold text-foreground">Autoriser le téléchargement</span>
+              <span className="block text-xs text-muted-foreground">Les autres pourront enregistrer {file.type.startsWith("video/") ? "cette vidéo" : "cette photo"}. Tu peux changer d'avis plus tard.</span>
+            </span>
+            <Switch checked={allowDownload} onCheckedChange={setAllowDownload} aria-label="Autoriser le téléchargement" />
           </label>
         )}
         <div>

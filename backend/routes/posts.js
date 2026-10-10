@@ -29,6 +29,11 @@ async function canAccessPost(postId, userId) {
   return (await isCommunityMember(row.community_id, userId)) || (await isStaffUser(userId));
 }
 
+// Autorisation de téléchargement : activée par défaut, désactivée seulement si le créateur l'a refusée explicitement
+function parseAllowDownload(value) {
+  return !(value === false || value === 0 || value === '0' || value === 'false');
+}
+
 // ---------- Publier un post (texte et/ou média) ----------
 router.post('/', async (req, res) => {
   const { content, media_url, media_type } = req.body;
@@ -49,8 +54,8 @@ router.post('/', async (req, res) => {
 
   const id = uuid();
   await db
-    .prepare('INSERT INTO posts (id, user_id, content, media_url, media_type, category, theme, font, community_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
-    .run(id, req.user.id, content?.trim() || null, media_url || null, media_type || null, normalizeCategory(req.body.category), theme, font, communityId);
+    .prepare('INSERT INTO posts (id, user_id, content, media_url, media_type, category, theme, font, community_id, allow_download) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(id, req.user.id, content?.trim() || null, media_url || null, media_type || null, normalizeCategory(req.body.category), theme, font, communityId, parseAllowDownload(req.body.allow_download) ? 1 : 0);
 
   await notifyMentions(req.app.get('io'), { text: content, actorId: req.user.id, postId: id, where: 'post' });
 
@@ -68,8 +73,8 @@ router.post('/:id/share', async (req, res) => {
 
   const id = uuid();
   await db
-    .prepare('INSERT INTO posts (id, user_id, content, media_url, media_type, shared_from_id, category, theme, font) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
-    .run(id, req.user.id, original.content, original.media_url, original.media_type, original.id, normalizeCategory(original.category), original.theme || null, original.font || null);
+    .prepare('INSERT INTO posts (id, user_id, content, media_url, media_type, shared_from_id, category, theme, font, allow_download) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(id, req.user.id, original.content, original.media_url, original.media_type, original.id, normalizeCategory(original.category), original.theme || null, original.font || null, original.allow_download === 0 ? 0 : 1);
 
   await notify(req.app.get('io'), { user_id: original.user_id, actor_id: req.user.id, type: 'share', post_id: original.id });
 
@@ -149,7 +154,7 @@ router.delete('/categories/:key/mute', async (req, res) => {
 router.get('/bookmarks', async (req, res) => {
   const rows = await db
     .prepare(
-      `SELECT p.id, p.user_id, u.username, u.avatar_url, u.badge, u.role, u.first_name, u.last_name, p.content, p.media_url, p.media_type, p.created_at,
+      `SELECT p.id, p.user_id, u.username, u.avatar_url, u.badge, u.role, u.first_name, u.last_name, p.content, p.media_url, p.media_type, p.allow_download, p.created_at,
               (SELECT COUNT(*) FROM post_likes l WHERE l.post_id = p.id) AS like_count,
               EXISTS(SELECT 1 FROM post_likes l WHERE l.post_id = p.id AND l.user_id = ?) AS liked_by_me,
               (SELECT COUNT(*) FROM post_comments c WHERE c.post_id = p.id) AS comment_count,
@@ -336,7 +341,7 @@ async function listPosts(req, res) {
 
   const rows = await db
     .prepare(
-      `SELECT p.id, p.user_id, u.username, u.avatar_url, u.badge, u.role, u.first_name, u.last_name, p.content, p.media_url, p.media_type, p.created_at,
+      `SELECT p.id, p.user_id, u.username, u.avatar_url, u.badge, u.role, u.first_name, u.last_name, p.content, p.media_url, p.media_type, p.allow_download, p.created_at,
               (SELECT COUNT(*) FROM post_likes l WHERE l.post_id = p.id) AS like_count,
               EXISTS(SELECT 1 FROM post_likes l WHERE l.post_id = p.id AND l.user_id = ?) AS liked_by_me,
               (SELECT COUNT(*) FROM post_comments c WHERE c.post_id = p.id) AS comment_count,
@@ -364,7 +369,7 @@ router.get('/:id', async (req, res) => {
   const blocked = `NOT EXISTS (SELECT 1 FROM user_blocks ub WHERE (ub.blocker_id = ? AND ub.blocked_id = p.user_id) OR (ub.blocker_id = p.user_id AND ub.blocked_id = ?))`;
   const post = await db
     .prepare(
-      `SELECT p.id, p.user_id, u.username, u.avatar_url, u.badge, u.role, u.first_name, u.last_name, p.content, p.media_url, p.media_type, p.created_at,
+      `SELECT p.id, p.user_id, u.username, u.avatar_url, u.badge, u.role, u.first_name, u.last_name, p.content, p.media_url, p.media_type, p.allow_download, p.created_at,
               (SELECT COUNT(*) FROM post_likes l WHERE l.post_id = p.id) AS like_count,
               EXISTS(SELECT 1 FROM post_likes l WHERE l.post_id = p.id AND l.user_id = ?) AS liked_by_me,
               (SELECT COUNT(*) FROM post_comments c WHERE c.post_id = p.id) AS comment_count,
@@ -384,17 +389,26 @@ router.get('/:id', async (req, res) => {
   res.json(post);
 });
 
-// ---------- Modifier son propre post ----------
+// ---------- Modifier son propre post (texte et/ou autorisation de téléchargement) ----------
 router.patch('/:id', async (req, res) => {
   const post = await db.prepare('SELECT * FROM posts WHERE id = ?').get(req.params.id);
   if (!post) return res.status(404).json({ error: 'Publication introuvable' });
   if (post.user_id !== req.user.id) return res.status(403).json({ error: 'Non autorisé' });
-  const content = (req.body.content || '').trim();
-  if (!content && !post.media_url) return res.status(400).json({ error: 'Le post ne peut pas être vide' });
-  if (post.theme && content.length > THEMED_POST_MAX_CHARS) {
-    return res.status(400).json({ error: `Un post avec fond est limité à ${THEMED_POST_MAX_CHARS} caractères` });
+
+  if (req.body.content !== undefined) {
+    const content = String(req.body.content || '').trim();
+    if (!content && !post.media_url) return res.status(400).json({ error: 'Le post ne peut pas être vide' });
+    if (post.theme && content.length > THEMED_POST_MAX_CHARS) {
+      return res.status(400).json({ error: `Un post avec fond est limité à ${THEMED_POST_MAX_CHARS} caractères` });
+    }
+    await db.prepare('UPDATE posts SET content = ? WHERE id = ?').run(content || null, req.params.id);
   }
-  await db.prepare('UPDATE posts SET content = ? WHERE id = ?').run(content || null, req.params.id);
+
+  if (req.body.allow_download !== undefined) {
+    const allow = parseAllowDownload(req.body.allow_download) ? 1 : 0;
+    // Les repartages de cette publication suivent le choix du créateur
+    await db.prepare('UPDATE posts SET allow_download = ? WHERE id = ? OR shared_from_id = ?').run(allow, req.params.id, req.params.id);
+  }
   res.json({ ok: true });
 });
 
@@ -432,7 +446,7 @@ router.delete('/:id', async (req, res) => {
 async function getPostById(id) {
   return db
     .prepare(
-      `SELECT p.id, p.user_id, u.username, u.avatar_url, u.badge, u.role, u.first_name, u.last_name, p.content, p.media_url, p.media_type, p.created_at,
+      `SELECT p.id, p.user_id, u.username, u.avatar_url, u.badge, u.role, u.first_name, u.last_name, p.content, p.media_url, p.media_type, p.allow_download, p.created_at,
               0 AS like_count, false AS liked_by_me, 0 AS comment_count, 0 AS share_count,
               false AS bookmarked_by_me, su.username AS shared_from_username,
               COALESCE(p.category, 'divers') AS category, p.theme, p.font, NULL AS follow_status

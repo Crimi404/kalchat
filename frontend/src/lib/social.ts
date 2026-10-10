@@ -27,6 +27,8 @@ export interface FeedPost {
   /** Fond coloré (post texte) : identifiant de thème ou couleur « #rrggbb ». */
   theme: string | null;
   font: string | null;
+  /** Le créateur autorise-t-il le téléchargement du média ? (activé par défaut) */
+  allowDownload: boolean;
   /** Relation de l'auteur avec moi : « none », « pending » (demande envoyée) ou « accepted » (abonné). */
   followStatus: Relationship;
 }
@@ -61,6 +63,7 @@ interface RawPost extends RawAuthor {
   category?: string | null;
   theme?: string | null;
   font?: string | null;
+  allow_download?: number | boolean | null;
   follow_status?: string | null;
 }
 
@@ -70,6 +73,7 @@ function shape(r: RawPost): FeedPost {
     content: r.content ?? "",
     image_url: r.media_url,
     media_type: r.media_type,
+    allowDownload: r.allow_download !== 0 && r.allow_download !== false,
     created_at: r.created_at,
     author_id: r.user_id,
     author: toAuthor(r.user_id, r),
@@ -135,15 +139,20 @@ export async function fetchHashtagPosts(tag: string): Promise<FeedPost[]> {
   return (await api<RawPost[]>(`/posts?hashtag=${encodeURIComponent(tag.replace(/^#/, ""))}`)).map(shape);
 }
 
-export async function createPost(input: { content: string; imageUrl?: string | null; mediaType?: string | null; category?: string; theme?: string | null; font?: string | null; communityId?: string | null }) {
+export async function createPost(input: { content: string; imageUrl?: string | null; mediaType?: string | null; category?: string; theme?: string | null; font?: string | null; communityId?: string | null; allowDownload?: boolean }) {
   await api("/posts", {
     method: "POST",
-    body: { content: input.content, media_url: input.imageUrl ?? null, media_type: input.mediaType ?? null, category: input.category ?? "divers", theme: input.theme ?? null, font: input.font ?? null, community_id: input.communityId ?? null },
+    body: { content: input.content, media_url: input.imageUrl ?? null, media_type: input.mediaType ?? null, category: input.category ?? "divers", theme: input.theme ?? null, font: input.font ?? null, community_id: input.communityId ?? null, allow_download: input.allowDownload ?? true },
   });
 }
 
 export async function updatePost(postId: string, content: string) {
   await api(`/posts/${postId}`, { method: "PATCH", body: { content } });
+}
+
+/** Autorise ou interdit le téléchargement du média d'une de ses publications. */
+export async function setPostDownload(postId: string, allow: boolean) {
+  await api(`/posts/${postId}`, { method: "PATCH", body: { allow_download: allow } });
 }
 
 export async function deletePost(postId: string) {

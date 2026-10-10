@@ -8,6 +8,8 @@ import { VideoPlayer } from "@/components/VideoPlayer";
 export interface ViewerMedia {
   url: string;
   type: "image" | "video";
+  /** Faux si le créateur a interdit le téléchargement (le bouton disparaît). */
+  downloadable?: boolean;
 }
 
 /** Affichage plein écran d'une photo ou d'une vidéo, avec bouton de téléchargement. */
@@ -30,13 +32,15 @@ export function MediaViewer({ media, onClose }: { media: ViewerMedia; onClose: (
         <button type="button" aria-label="Fermer" onClick={onClose} className="rounded-full bg-white/10 p-2.5 text-white hover:bg-white/20">
           <X className="h-5 w-5" />
         </button>
-        <button type="button" aria-label="Télécharger" onClick={() => void downloadMedia(media.url, media.type)} className="flex items-center gap-2 rounded-full bg-white/10 px-4 py-2.5 text-sm font-semibold text-white hover:bg-white/20">
-          <Download className="h-4 w-4" /> Télécharger
-        </button>
+        {media.downloadable !== false && (
+          <button type="button" aria-label="Télécharger" onClick={() => void downloadMedia(media.url, media.type)} className="flex items-center gap-2 rounded-full bg-white/10 px-4 py-2.5 text-sm font-semibold text-white hover:bg-white/20">
+            <Download className="h-4 w-4" /> Télécharger
+          </button>
+        )}
       </div>
       <div className="flex min-h-0 flex-1 items-center justify-center p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
         {media.type === "video" ? (
-          <VideoPlayer src={media.url} autoPlay className="max-h-full w-full max-w-3xl rounded-lg" videoClassName="max-h-[80vh]" />
+          <VideoPlayer src={media.url} autoPlay downloadable={media.downloadable !== false} className="max-h-full w-full max-w-3xl rounded-lg" videoClassName="max-h-[80vh]" />
         ) : (
           <img src={media.url} alt="" draggable={false} onClick={(e) => e.stopPropagation()} className="max-h-full max-w-full rounded-lg object-contain" />
         )}
@@ -47,10 +51,10 @@ export function MediaViewer({ media, onClose }: { media: ViewerMedia; onClose: (
 }
 
 /** Petit utilitaire : `const mv = useMediaViewer();` puis `mv.open(url, "image")` et `{mv.viewer}` dans le rendu. */
-export function useMediaViewer(): { open: (url: string, type?: "image" | "video") => void; viewer: ReactNode } {
+export function useMediaViewer(): { open: (url: string, type?: "image" | "video", downloadable?: boolean) => void; viewer: ReactNode } {
   const [media, setMedia] = useState<ViewerMedia | null>(null);
   return {
-    open: (url, type = "image") => setMedia({ url, type }),
+    open: (url, type = "image", downloadable = true) => setMedia({ url, type, downloadable }),
     viewer: media ? <MediaViewer media={media} onClose={() => setMedia(null)} /> : null,
   };
 }

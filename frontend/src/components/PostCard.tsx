@@ -1,4 +1,4 @@
-import { Heart, MessageCircle, Repeat2, Bookmark, MoreHorizontal, Trash2, Pencil, Loader2, Send, X, EyeOff, Flag, Ban, Share2, Copy, UserPlus, UserMinus, UserCheck, ThumbsDown } from "lucide-react";
+import { Heart, MessageCircle, Repeat2, Bookmark, MoreHorizontal, Trash2, Pencil, Loader2, Send, X, EyeOff, Flag, Ban, Share2, Copy, Download, UserPlus, UserMinus, UserCheck, ThumbsDown } from "lucide-react";
 import { useRef, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -22,6 +22,7 @@ import {
   deletePost,
   fetchComments,
   repost,
+  setPostDownload,
   timeAgo,
   toggleCommentLike,
   toggleLike,
@@ -179,6 +180,9 @@ export function PostCard({ post, detail = false, canModerate = false }: { post: 
   const isMine = user?.id === post.author_id;
   const author = post.author;
   const name = author?.display_name ?? "Compte supprimé";
+  // Le créateur peut interdire le téléchargement ; il garde toujours le droit de récupérer son propre média
+  const canDownload = post.allowDownload || isMine;
+  const hasMedia = !!post.image_url && (post.media_type === "video" || post.media_type === "image");
 
   const invalidate = () => queryClient.invalidateQueries();
 
@@ -191,6 +195,15 @@ export function PostCard({ post, detail = false, canModerate = false }: { post: 
   const likeMutation = useMutation({
     mutationFn: () => toggleLike(post.id),
     onSuccess: invalidate,
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const downloadSettingMutation = useMutation({
+    mutationFn: (allow: boolean) => setPostDownload(post.id, allow),
+    onSuccess: (_d, allow) => {
+      toast.success(allow ? "Téléchargement autorisé" : "Téléchargement interdit");
+      invalidate();
+    },
     onError: (e: Error) => toast.error(e.message),
   });
 
@@ -412,6 +425,17 @@ export function PostCard({ post, detail = false, canModerate = false }: { post: 
                           <Pencil className="h-4 w-4" /> Modifier
                         </button>
                       )}
+                      {isMine && hasMedia && (
+                        <button
+                          onClick={() => {
+                            setMenuOpen(false);
+                            downloadSettingMutation.mutate(!post.allowDownload);
+                          }}
+                          className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-foreground hover:bg-secondary"
+                        >
+                          {post.allowDownload ? <><Ban className="h-4 w-4" /> Interdire le téléchargement</> : <><Download className="h-4 w-4" /> Autoriser le téléchargement</>}
+                        </button>
+                      )}
                       {!isMine && author && (
                         <button
                           onClick={() => {
@@ -550,13 +574,13 @@ export function PostCard({ post, detail = false, canModerate = false }: { post: 
           )}
 
           {post.image_url && (post.media_type === "video" ? (
-            <div className="mt-3"><VideoPlayer src={post.image_url} downloadable className="max-h-[28rem] rounded-2xl border border-border" videoClassName="max-h-[28rem]" /></div>
+            <div className="mt-3"><VideoPlayer src={post.image_url} downloadable={canDownload} className="max-h-[28rem] rounded-2xl border border-border" videoClassName="max-h-[28rem]" /></div>
           ) : (
             <img
               src={post.image_url}
               alt="Publication"
               loading="lazy"
-              onClick={(e) => { e.stopPropagation(); mv.open(post.image_url!, "image"); }}
+              onClick={(e) => { e.stopPropagation(); mv.open(post.image_url!, "image", canDownload); }}
               className="mt-3 w-full cursor-zoom-in rounded-2xl border border-border object-cover"
             />
           ))}
