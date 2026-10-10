@@ -4,6 +4,7 @@
   "private": true,
   "description": "Coque Android (Capacitor) pour Kalchat",
   "dependencies": {
+    "@capacitor-community/media": "^7.0.0",
     "@capacitor/android": "^6.2.0",
     "@capacitor/app": "^6.0.2",
     "@capacitor/cli": "^6.2.0",

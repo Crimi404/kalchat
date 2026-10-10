@@ -62,12 +62,55 @@ async function downloadInsideApp(url: string, name: string): Promise<boolean> {
   }
 }
 
+type MediaPlugin = {
+  getAlbums: () => Promise<{ albums: { identifier: string; name: string }[] }>;
+  createAlbum: (o: { name: string }) => Promise<void>;
+  saveVideo: (o: { path: string; albumIdentifier?: string; fileName?: string }) => Promise<unknown>;
+  savePhoto: (o: { path: string; albumIdentifier?: string; fileName?: string }) => Promise<unknown>;
+};
+
+const GALLERY_ALBUM = "Kalchat";
+
+function nativeMedia(): MediaPlugin | null {
+  const cap = (window as unknown as { Capacitor?: { Plugins?: { Media?: MediaPlugin }; registerPlugin?: (n: string) => MediaPlugin } }).Capacitor;
+  return cap?.Plugins?.Media ?? cap?.registerPlugin?.("Media") ?? null;
+}
+
+/** Retrouve (ou crée) l'album « Kalchat » de la galerie et renvoie son identifiant. */
+async function galleryAlbumId(media: MediaPlugin): Promise<string | undefined> {
+  const find = async () => (await media.getAlbums()).albums.find((a) => a.name === GALLERY_ALBUM)?.identifier;
+  const existing = await find();
+  if (existing) return existing;
+  await media.createAlbum({ name: GALLERY_ALBUM });
+  return find();
+}
+
+/** Enregistre la photo / vidéo dans la galerie du téléphone (album « Kalchat »). Renvoie false si impossible (ancienne APK, erreur). */
+async function downloadToGallery(url: string, name: string, type: "image" | "video"): Promise<boolean> {
+  const media = nativeMedia();
+  if (!media) return false;
+  const toastId = `gal-${name}`;
+  try {
+    toast.loading("Enregistrement dans la galerie…", { id: toastId });
+    const albumIdentifier = await galleryAlbumId(media);
+    const fileName = name.replace(/\.[a-z0-9]{2,5}$/i, ""); // le plugin veut un nom sans extension
+    if (type === "video") await media.saveVideo({ path: url, albumIdentifier, fileName });
+    else await media.savePhoto({ path: url, albumIdentifier, fileName });
+    toast.success("Enregistré dans ta galerie (album Kalchat)", { id: toastId });
+    return true;
+  } catch {
+    toast.dismiss(toastId);
+    return false;
+  }
+}
+
 /** Télécharge une photo ou une vidéo sur le téléphone / l'ordinateur. */
 export async function downloadMedia(url: string, type: "image" | "video") {
   const name = mediaFileName(url, type);
 
-  // Dans l'appli Android : téléchargement direct ; si ce n'est pas possible (ancienne APK sans le module), on retombe sur le navigateur
+  // Dans l'appli Android : 1) galerie du téléphone ; 2) à défaut dossier Documents/Kalchat ; 3) à défaut le navigateur
   if (isNativeApp()) {
+    if (await downloadToGallery(url, name, type)) return;
     if (await downloadInsideApp(url, name)) return;
     window.open(forcedDownloadUrl(url, name), "_blank");
     toast.info("Téléchargement lancé dans ton navigateur");
