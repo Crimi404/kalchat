@@ -9,6 +9,8 @@ import android.provider.OpenableColumns;
 import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
+import com.getcapacitor.PluginCall;
+import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 
 import java.io.File;
@@ -37,6 +39,28 @@ public class ShareTargetPlugin extends Plugin {
     protected void handleOnNewIntent(Intent intent) {
         super.handleOnNewIntent(intent);
         handle(intent);
+    }
+
+    /**
+     * Ouvre une adresse dans le navigateur par défaut d'Android (Chrome…), jamais dans Kalchat lui-même,
+     * même si l'adresse est un lien kalchat.site. Sert à télécharger la mise à jour de l'APK.
+     */
+    @PluginMethod
+    public void openExternal(PluginCall call) {
+        String url = call.getString("url");
+        if (url == null || url.length() == 0) {
+            call.reject("Adresse manquante");
+            return;
+        }
+        try {
+            Intent go = Intent.makeMainSelectorActivity(Intent.ACTION_MAIN, Intent.CATEGORY_APP_BROWSER);
+            go.setData(Uri.parse(url));
+            go.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            getContext().startActivity(go);
+            call.resolve();
+        } catch (Exception e) {
+            call.reject("Impossible d'ouvrir le navigateur");
+        }
     }
 
     private void handle(final Intent intent) {

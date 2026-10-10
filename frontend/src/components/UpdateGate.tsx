@@ -12,28 +12,41 @@ type BrowserPlugin = { open: (o: { url: string }) => Promise<void> };
 type FsPlugin = {
   downloadFile: (o: { url: string; path: string; directory?: string; recursive?: boolean }) => Promise<{ path?: string }>;
 };
-type CapPlugins = { Browser?: BrowserPlugin; Filesystem?: FsPlugin };
+type NativeShare = { openExternal?: (o: { url: string }) => Promise<void> };
+type CapPlugins = { Browser?: BrowserPlugin; Filesystem?: FsPlugin; CapacitorShareTarget?: NativeShare };
 
 function plugins(): CapPlugins {
   return (window as unknown as { Capacitor?: { Plugins?: CapPlugins } }).Capacitor?.Plugins ?? {};
 }
 
 /**
- * Télécharge la nouvelle APK. Plusieurs méthodes, de la plus simple à la plus basique (les anciennes APK n'ont pas tous les modules) :
- * 1. navigateur d'Android (Chrome), qui propose ensuite l'installation ;
- * 2. téléchargement direct dans Documents/Kalchat (module Fichiers) ;
- * 3. en dernier recours, copie du lien à coller dans Chrome.
+ * Télécharge la nouvelle APK en ouvrant le navigateur d'Android tout seul (il propose ensuite l'installation).
+ * Plusieurs méthodes, de la plus fiable à la plus basique (les anciennes APK n'ont pas tous les modules) :
+ * 1. ouverture directe du navigateur par Kalchat (APK récentes) ;
+ * 2. navigateur intégré (module « Browser ») ;
+ * 3. téléchargement direct dans Documents/Kalchat (module Fichiers) ;
+ * 4. ouverture d'une nouvelle fenêtre (Android l'envoie au navigateur) ;
+ * 5. en dernier recours, copie du lien à coller dans Chrome.
  */
 async function startUpdate(): Promise<void> {
   const url = `${window.location.origin}${APK_URL}`;
-  const { Browser, Filesystem } = plugins();
+  const { CapacitorShareTarget, Browser, Filesystem } = plugins();
+
+  if (CapacitorShareTarget?.openExternal) {
+    try {
+      await CapacitorShareTarget.openExternal({ url });
+      return;
+    } catch {
+      /* méthode suivante */
+    }
+  }
 
   if (Browser?.open) {
     try {
       await Browser.open({ url });
       return;
     } catch {
-      /* on essaie la méthode suivante */
+      /* méthode suivante */
     }
   }
 
@@ -47,6 +60,12 @@ async function startUpdate(): Promise<void> {
     } catch {
       toast.dismiss(id);
     }
+  }
+
+  try {
+    if (window.open(url, "_blank")) return;
+  } catch {
+    /* méthode suivante */
   }
 
   try {
