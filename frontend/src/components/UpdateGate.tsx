@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Download } from "lucide-react";
+import { Download, Loader2 } from "lucide-react";
+import { toast } from "sonner";
 import logo from "@/assets/kalchat-logo.png";
 import { APK_URL } from "@/lib/apk";
 import { useBackHandler } from "@/lib/back";
@@ -8,16 +9,51 @@ import { useAppUpdate } from "@/lib/appUpdate";
 const SNOOZE_KEY = "kalchat_update_snoozed";
 
 type BrowserPlugin = { open: (o: { url: string }) => Promise<void> };
+type FsPlugin = {
+  downloadFile: (o: { url: string; path: string; directory?: string; recursive?: boolean }) => Promise<{ path?: string }>;
+};
+type CapPlugins = { Browser?: BrowserPlugin; Filesystem?: FsPlugin };
 
-/** Télécharge la nouvelle APK : navigateur intégré d'Android (Chrome), qui propose ensuite l'installation. */
-function startUpdate() {
+function plugins(): CapPlugins {
+  return (window as unknown as { Capacitor?: { Plugins?: CapPlugins } }).Capacitor?.Plugins ?? {};
+}
+
+/**
+ * Télécharge la nouvelle APK. Plusieurs méthodes, de la plus simple à la plus basique (les anciennes APK n'ont pas tous les modules) :
+ * 1. navigateur d'Android (Chrome), qui propose ensuite l'installation ;
+ * 2. téléchargement direct dans Documents/Kalchat (module Fichiers) ;
+ * 3. en dernier recours, copie du lien à coller dans Chrome.
+ */
+async function startUpdate(): Promise<void> {
   const url = `${window.location.origin}${APK_URL}`;
-  const cap = (window as unknown as { Capacitor?: { Plugins?: { Browser?: BrowserPlugin } } }).Capacitor;
-  const browser = cap?.Plugins?.Browser;
-  if (browser?.open) {
-    void browser.open({ url }).catch(() => { window.location.href = url; });
-  } else {
-    window.location.href = url; // APK sans le module « Browser »
+  const { Browser, Filesystem } = plugins();
+
+  if (Browser?.open) {
+    try {
+      await Browser.open({ url });
+      return;
+    } catch {
+      /* on essaie la méthode suivante */
+    }
+  }
+
+  if (Filesystem?.downloadFile) {
+    const id = "apk-update";
+    try {
+      toast.loading("Téléchargement de la mise à jour…", { id });
+      await Filesystem.downloadFile({ url, path: "Kalchat/Kalchat.apk", directory: "DOCUMENTS", recursive: true });
+      toast.success("Téléchargée ! Ouvre le fichier Documents/Kalchat/Kalchat.apk depuis tes fichiers pour l'installer.", { id, duration: 12000 });
+      return;
+    } catch {
+      toast.dismiss(id);
+    }
+  }
+
+  try {
+    await navigator.clipboard.writeText(url);
+    toast.success("Lien copié : ouvre Chrome et colle-le dans la barre d'adresse.", { duration: 10000 });
+  } catch {
+    toast.error("Ouvre kalchat.site dans Chrome pour télécharger la mise à jour.", { duration: 10000 });
   }
 }
 
@@ -27,6 +63,7 @@ function startUpdate() {
  */
 export function UpdateGate() {
   const update = useAppUpdate();
+  const [busy, setBusy] = useState(false);
   const [snoozed, setSnoozed] = useState(() => {
     try { return sessionStorage.getItem(SNOOZE_KEY) === "1"; } catch { return false; }
   });
@@ -56,15 +93,19 @@ export function UpdateGate() {
             {update.daysLeft <= 1 ? "Dernier jour avant la mise à jour obligatoire." : `Il te reste ${update.daysLeft} jours avant la mise à jour obligatoire.`}
           </p>
         )}
-        <button onClick={startUpdate} className="brand-gradient mt-5 flex w-full items-center justify-center gap-2 rounded-full py-3 text-sm font-bold text-primary-foreground">
-          <Download className="h-4 w-4" /> Mettre à jour
+        <button
+          disabled={busy}
+          onClick={() => { setBusy(true); void startUpdate().finally(() => setBusy(false)); }}
+          className="brand-gradient mt-5 flex w-full items-center justify-center gap-2 rounded-full py-3 text-sm font-bold text-primary-foreground disabled:opacity-70"
+        >
+          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />} Mettre à jour
         </button>
         {!update.blocking && (
           <button onClick={later} className="mt-2 w-full rounded-full py-2.5 text-sm font-semibold text-muted-foreground hover:bg-secondary">
             Plus tard
           </button>
         )}
-        <p className="mt-3 text-[11px] text-muted-foreground">Si Android le demande, autorise l'installation, puis ouvre le fichier téléchargé.</p>
+        <p className="mt-3 text-[11px] text-muted-foreground">Si Android le demande, autorise l'installation, puis ouvre le fichier téléchargé. Tu peux aussi ouvrir kalchat.site dans Chrome et appuyer sur « Télécharger l'appli Android ».</p>
       </div>
     </div>
   );
