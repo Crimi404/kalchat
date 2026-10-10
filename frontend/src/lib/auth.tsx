@@ -1,3 +1,4 @@
+import { clearAppLock } from "@/lib/applock";
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { api, closeSocket, displayName, getToken, setToken, toBadges } from "@/lib/api";
@@ -164,6 +165,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     },
     signOut: async () => {
       void unregisterPush(); // cet appareil ne reçoit plus les notifications de ce compte
+      clearAppLock();
       setToken(null);
       closeSocket();
       setProfile(null);
