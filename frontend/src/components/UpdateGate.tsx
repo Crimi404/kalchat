@@ -124,6 +124,18 @@ export function UpdateGate() {
             Plus tard
           </button>
         )}
+        <button
+          onClick={() => {
+            const url = `${window.location.origin}${APK_URL}`;
+            navigator.clipboard.writeText(url).then(
+              () => toast.success("Lien copié : ouvre Chrome et colle-le dans la barre d'adresse.", { duration: 8000 }),
+              () => toast.error(`Ouvre ce lien dans Chrome : ${url}`, { duration: 10000 }),
+            );
+          }}
+          className="mt-1 w-full rounded-full py-2 text-xs font-semibold text-primary hover:bg-secondary"
+        >
+          Le navigateur ne s'ouvre pas ? Copier le lien
+        </button>
         <p className="mt-3 text-[11px] text-muted-foreground">Si Android le demande, autorise l'installation, puis ouvre le fichier téléchargé. Tu peux aussi ouvrir kalchat.site dans Chrome et appuyer sur « Télécharger l'appli Android ».</p>
       </div>
     </div>

@@ -1,7 +1,10 @@
 package com.kalchat.app;
 
 import android.content.ContentResolver;
+import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageManager;
+import android.content.pm.ResolveInfo;
 import android.database.Cursor;
 import android.net.Uri;
 import android.provider.OpenableColumns;
@@ -52,15 +55,69 @@ public class ShareTargetPlugin extends Plugin {
             call.reject("Adresse manquante");
             return;
         }
+        Uri uri = Uri.parse(url);
+        Context ctx = getContext();
+
+        // 1. Le navigateur est visé directement par son nom de paquet : les liens kalchat.site (App Links) ne peuvent alors
+        //    pas être « rattrapés » par Kalchat lui-même, ce qui donnait l'impression que rien ne s'ouvrait.
+        try {
+            String pkg = findBrowserPackage(ctx);
+            if (pkg != null) {
+                Intent go = new Intent(Intent.ACTION_VIEW, uri);
+                go.addCategory(Intent.CATEGORY_BROWSABLE);
+                go.setPackage(pkg);
+                go.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                ctx.startActivity(go);
+                call.resolve();
+                return;
+            }
+        } catch (Exception e) {
+            /* méthode suivante */
+        }
+
+        // 2. Navigateur par défaut via le « sélecteur » d'Android
         try {
             Intent go = Intent.makeMainSelectorActivity(Intent.ACTION_MAIN, Intent.CATEGORY_APP_BROWSER);
-            go.setData(Uri.parse(url));
+            go.setData(uri);
             go.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            getContext().startActivity(go);
+            ctx.startActivity(go);
+            call.resolve();
+            return;
+        } catch (Exception e) {
+            /* méthode suivante */
+        }
+
+        // 3. Dernier recours : le menu « Ouvrir avec » d'Android
+        try {
+            Intent view = new Intent(Intent.ACTION_VIEW, uri);
+            Intent chooser = Intent.createChooser(view, "Ouvrir avec");
+            chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            ctx.startActivity(chooser);
             call.resolve();
         } catch (Exception e) {
             call.reject("Impossible d'ouvrir le navigateur");
         }
+    }
+
+    /** Nom du paquet du navigateur par défaut (Chrome…), retrouvé avec une adresse qui n'appartient pas à Kalchat. */
+    private static String findBrowserPackage(Context ctx) {
+        PackageManager pm = ctx.getPackageManager();
+        Intent probe = new Intent(Intent.ACTION_VIEW, Uri.parse("https://example.com"));
+        probe.addCategory(Intent.CATEGORY_BROWSABLE);
+        ResolveInfo def = pm.resolveActivity(probe, PackageManager.MATCH_DEFAULT_ONLY);
+        if (def != null && def.activityInfo != null) {
+            String p = def.activityInfo.packageName;
+            if (p != null && !"android".equals(p) && !p.equals(ctx.getPackageName())) return p;
+        }
+        String first = null;
+        for (ResolveInfo ri : pm.queryIntentActivities(probe, 0)) {
+            if (ri.activityInfo == null) continue;
+            String p = ri.activityInfo.packageName;
+            if (p == null || p.equals(ctx.getPackageName())) continue;
+            if ("com.android.chrome".equals(p)) return p;
+            if (first == null) first = p;
+        }
+        return first;
     }
 
     private void handle(final Intent intent) {
