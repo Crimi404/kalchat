@@ -2,10 +2,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Download, FastForward, Maximize2, Minimize2, Pause, Play, Rewind, Volume2, VolumeX } from "lucide-react";
 import { downloadMedia } from "@/lib/download";
 import { useBackHandler } from "@/lib/back";
+import { firstFrameUrl, shouldAutoplay, useAutoplayMode } from "@/lib/mediaPrefs";
 
 interface VideoPlayerProps {
   src: string;
   autoPlay?: boolean;
+  /** Lecture automatique (sans le son) quand la vidéo est bien visible, selon le réglage « Données et lecture automatique ». À réserver au fil, au profil et à Explorer (jamais les messages). */
+  autoplayInView?: boolean;
   /** Affiche un bouton de téléchargement dans la barre de contrôle. */
   downloadable?: boolean;
   className?: string;
@@ -27,7 +30,7 @@ type OrientationLock = { lock?: (o: string) => Promise<void>; unlock?: () => voi
 type WakeLockSentinelLike = { release: () => Promise<void> };
 
 /** Lecteur vidéo Kalchat : lecture/pause, progression, volume, vitesse, double-tap ±10 s, plein écran (avec rotation et écran allumé), téléchargement. */
-export function VideoPlayer({ src, autoPlay = false, downloadable = false, className = "", videoClassName = "" }: VideoPlayerProps) {
+export function VideoPlayer({ src, autoPlay = false, autoplayInView = false, downloadable = false, className = "", videoClassName = "" }: VideoPlayerProps) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const hideTimer = useRef<number | undefined>(undefined);
@@ -50,6 +53,36 @@ export function VideoPlayer({ src, autoPlay = false, downloadable = false, class
   const [skipFlash, setSkipFlash] = useState<{ side: "left" | "right"; n: number } | null>(null);
 
   const fullscreen = nativeFs || pseudoFs;
+  const autoplayMode = useAutoplayMode();
+
+  // ---------- Lecture automatique dans le fil / profil (selon le réglage) : sans le son, arrêt dès qu'on dépasse la vidéo ----------
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!autoplayInView || !v || typeof IntersectionObserver === "undefined") return;
+    const io = new IntersectionObserver(
+      ([e]) => {
+        if (e.isIntersecting && e.intersectionRatio >= 0.6) {
+          if (shouldAutoplay(autoplayMode)) {
+            v.muted = true; // les navigateurs n'autorisent le lancement automatique que sans le son
+            setMuted(true);
+            void v.play().catch(() => {});
+          }
+        } else if (!v.paused && !document.fullscreenElement) {
+          v.pause();
+        }
+      },
+      { threshold: [0, 0.6] },
+    );
+    io.observe(v);
+    const onHide = () => {
+      if (document.hidden) v.pause();
+    };
+    document.addEventListener("visibilitychange", onHide);
+    return () => {
+      io.disconnect();
+      document.removeEventListener("visibilitychange", onHide);
+    };
+  }, [autoplayInView, autoplayMode, src]);
 
   const revealControls = useCallback(() => {
     setShowControls(true);
@@ -248,7 +281,7 @@ export function VideoPlayer({ src, autoPlay = false, downloadable = false, class
     >
       <video
         ref={videoRef}
-        src={src}
+        src={firstFrameUrl(src)}
         autoPlay={autoPlay}
         playsInline
         preload="metadata"

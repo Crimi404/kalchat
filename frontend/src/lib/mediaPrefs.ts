@@ -69,6 +69,15 @@ export function onUnmeteredConnection(): boolean {
   return c.effectiveType !== "slow-2g" && c.effectiveType !== "2g";
 }
 
+/**
+ * Adresse d'une vidéo avec « #t=0.1 » : le navigateur charge et affiche la première image comme aperçu
+ * (sinon Android affiche une icône de lecture grise sur fond noir). Sans effet sur l'adresse signée côté serveur.
+ */
+export function firstFrameUrl(url: string): string {
+  if (!url || url.includes("#") || url.startsWith("blob:") || url.startsWith("data:")) return url;
+  return `${url}#t=0.1`;
+}
+
 /** Faut-il lancer automatiquement les vidéos du fil, avec ce réglage et la connexion du moment ? */
 export function shouldAutoplay(mode: AutoplayMode): boolean {
   if (mode === "never") return false;

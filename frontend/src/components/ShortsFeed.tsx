@@ -465,10 +465,14 @@ function ShortSlide({
     }
   }
 
+  const lastTime = useRef(0);
   function onTime() {
     const v = videoRef.current;
     const b = barRef.current;
     if (v && b && v.duration) b.style.width = `${(v.currentTime / v.duration) * 100}%`;
+    // Vidéo qui repart en boucle (temps qui retombe près de 0 après avoir été près de la fin) = nouvelle lecture
+    if (v && v.loop && v.duration && lastTime.current > v.duration * 0.6 && v.currentTime < v.duration * 0.3) countPlay();
+    if (v) lastTime.current = v.currentTime;
   }
 
   const like = useMutation({
@@ -485,16 +489,23 @@ function ShortSlide({
     onError: (e: Error) => toast.error(e.message),
   });
 
-  // Une lecture est comptée quand la vidéo reste affichée 1,5 s (pas pour l'auteur ; une seule fois par spectateur côté serveur)
+  // Chaque lecture compte (pas pour l'auteur) : la vidéo reste affichée 1,5 s, et on recompte chaque fois qu'on y revient ou qu'elle repart en boucle
+  function countPlay() {
+    if (item.mine) return;
+    recordShortView(item.id)
+      .then((r) => onPatch(item.id, { view_count: r.view_count }))
+      .catch(() => undefined);
+  }
+
   useEffect(() => {
-    if (!active || item.mine || viewed.current) return;
+    if (!active) {
+      viewed.current = false; // quand on revient sur la vidéo, c'est une nouvelle lecture
+      return;
+    }
+    if (item.mine || viewed.current) return;
     const t = window.setTimeout(() => {
       viewed.current = true;
-      recordShortView(item.id)
-        .then((r) => onPatch(item.id, { view_count: r.view_count }))
-        .catch(() => {
-          viewed.current = false;
-        });
+      countPlay();
     }, 1500);
     return () => window.clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -621,6 +632,7 @@ function ShortSlide({
               const v = videoRef.current;
               if (v) {
                 v.currentTime = 0;
+                countPlay();
                 void v.play().catch(() => setPaused(true));
               }
             }

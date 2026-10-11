@@ -72,6 +72,9 @@ const SCHEMA = `
   ALTER TABLE short_comments ADD COLUMN IF NOT EXISTS parent_id TEXT REFERENCES short_comments(id) ON DELETE CASCADE;
 
   ALTER TABLE shorts ADD COLUMN IF NOT EXISTS allow_download BOOLEAN NOT NULL DEFAULT TRUE;
+  ALTER TABLE shorts ADD COLUMN IF NOT EXISTS play_count BIGINT NOT NULL DEFAULT 0;
+  UPDATE shorts SET play_count = (SELECT COUNT(*) FROM short_views vw WHERE vw.short_id = shorts.id)
+    WHERE play_count = 0 AND EXISTS (SELECT 1 FROM short_views vw WHERE vw.short_id = shorts.id);
 
   CREATE TABLE IF NOT EXISTS short_saves (
     short_id TEXT NOT NULL REFERENCES shorts(id) ON DELETE CASCADE,
@@ -154,7 +157,7 @@ const SELECT_SHORT = `
          (SELECT COUNT(*) FROM short_likes l WHERE l.short_id = s.id) AS like_count,
          (SELECT COUNT(*) FROM short_comments c WHERE c.short_id = s.id) AS comment_count,
          (SELECT COUNT(*) FROM short_reposts rp WHERE rp.short_id = s.id) AS repost_count,
-         (SELECT COUNT(*) FROM short_views vw WHERE vw.short_id = s.id) AS view_count,
+         s.play_count AS view_count,
          EXISTS (SELECT 1 FROM short_likes l WHERE l.short_id = s.id AND l.user_id = ?) AS liked,
          EXISTS (SELECT 1 FROM short_reposts rp WHERE rp.short_id = s.id AND rp.user_id = ?) AS reposted,
          EXISTS (SELECT 1 FROM short_saves sv WHERE sv.short_id = s.id AND sv.user_id = ?) AS saved,
@@ -426,14 +429,27 @@ router.patch('/:id/download', wrap(async (req, res) => {
   res.json({ allow_download: allow });
 }));
 
-// Une vue : comptée une seule fois par spectateur (pas pour l'auteur)
+// Une lecture : chaque visionnage compte, même si c'est la même personne qui revoit la vidéo (pas pour l'auteur).
+// Anti-abus : au plus une lecture comptée toutes les 2 s par personne et par vidéo.
+const lastPlay = new Map();
+const PLAY_MIN_GAP_MS = 2000;
+setInterval(() => {
+  const limit = Date.now() - 60_000;
+  for (const [k, t] of lastPlay) if (t < limit) lastPlay.delete(k);
+}, 60_000).unref();
+
 router.post('/:id/view', wrap(async (req, res) => {
   const row = await findLive(req.params.id, req.user.id);
   if (!row) return res.status(404).json({ error: 'Vidéo introuvable' });
   if (row.user_id !== req.user.id) {
-    await db.prepare('INSERT INTO short_views (short_id, user_id) VALUES (?, ?) ON CONFLICT DO NOTHING').run(row.id, req.user.id);
+    const key = `${req.user.id}:${row.id}`;
+    const now = Date.now();
+    if (now - (lastPlay.get(key) || 0) >= PLAY_MIN_GAP_MS) {
+      lastPlay.set(key, now);
+      await db.prepare('UPDATE shorts SET play_count = play_count + 1 WHERE id = ?').run(row.id);
+    }
   }
-  const count = await db.prepare('SELECT COUNT(*) AS n FROM short_views WHERE short_id = ?').get(row.id);
+  const count = await db.prepare('SELECT play_count AS n FROM shorts WHERE id = ?').get(row.id);
   res.json({ view_count: Number(count.n) });
 }));
 

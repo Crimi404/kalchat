@@ -2,7 +2,7 @@ import { createFileRoute, Link, redirect, useNavigate } from "@tanstack/react-ro
 import { getToken } from "@/lib/api";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, Hash, Loader2, Play, Search } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { TopBar } from "@/components/TopBar";
 import { BottomNav } from "@/components/BottomNav";
 import { BadgeList } from "@/components/KalBadge";
@@ -10,6 +10,7 @@ import { PostCard } from "@/components/PostCard";
 import { ShortFeedCard } from "@/components/ShortFeedCard";
 import { fetchShortsFeed, fetchShortsStatus, fetchShortTrendingTags, searchShorts, timeLeft, type ShortItem } from "@/lib/shorts";
 import { useAuth } from "@/lib/auth";
+import { firstFrameUrl, shouldAutoplay, useAutoplayMode } from "@/lib/mediaPrefs";
 import { fetchCategoryPosts, fetchFeed, fetchHashtagPosts, fetchTrendingHashtags, searchUsers } from "@/lib/social";
 import { CATEGORIES, categoryOf } from "@/lib/categories";
 
@@ -90,12 +91,47 @@ function CategoryResults({ cat }: { cat: string }) {
   );
 }
 
-/** Vignette d'une vidéo K-Short : seule la première image est chargée (peu de données), la vidéo se lance dans K-Short. */
+const PREVIEW_SECONDS = 4;
+
+/** Vignette d'une vidéo K-Short : première image par défaut ; si la lecture automatique est active, un court extrait muet tourne en boucle quand la vignette est visible. */
 function VideoTile({ v, onOpen }: { v: ShortItem; onOpen: () => void }) {
+  const ref = useRef<HTMLVideoElement>(null);
+  const mode = useAutoplayMode();
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof IntersectionObserver === "undefined") return;
+    const io = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting && entry.intersectionRatio >= 0.6 && shouldAutoplay(mode)) {
+          el.muted = true;
+          void el.play().catch(() => {});
+        } else {
+          el.pause();
+          if (el.currentTime > 0.2) el.currentTime = 0.1;
+        }
+      },
+      { threshold: [0, 0.6] },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [mode, v.video_url]);
+
   if (!v.video_url) return null;
   return (
     <button onClick={onOpen} aria-label={v.caption ?? "Ouvrir la vidéo"} className="relative aspect-[9/16] w-28 shrink-0 overflow-hidden rounded-xl bg-black text-left">
-      <video src={`${v.video_url}#t=0.1`} muted playsInline preload="metadata" className="h-full w-full object-cover" />
+      <video
+        ref={ref}
+        src={firstFrameUrl(v.video_url)}
+        muted
+        playsInline
+        preload="metadata"
+        onTimeUpdate={(ev) => {
+          // Extrait court : on repart du début après quelques secondes
+          if (ev.currentTarget.currentTime >= PREVIEW_SECONDS) ev.currentTarget.currentTime = 0.1;
+        }}
+        className="h-full w-full object-cover"
+      />
       <span className="absolute right-1.5 top-1.5 rounded-full bg-black/50 p-1 text-white"><Play className="h-3 w-3 fill-white" /></span>
       <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-1.5 text-[10px] font-semibold leading-tight text-white">
         <span className="line-clamp-2">{v.caption || v.author?.username}</span>

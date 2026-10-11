@@ -8,8 +8,8 @@ import { BadgeList } from "@/components/KalBadge";
 import { Avatar } from "@/components/PostCard";
 import { ShortComments } from "@/components/ShortsFeed";
 import { publicUrl, shareLink } from "@/lib/share";
-import { shouldAutoplay, useAutoplayMode } from "@/lib/mediaPrefs";
-import { fetchShort, timeLeft, toggleShortLike, type ShortItem } from "@/lib/shorts";
+import { firstFrameUrl, shouldAutoplay, useAutoplayMode } from "@/lib/mediaPrefs";
+import { fetchShort, recordShortView, timeLeft, toggleShortLike, type ShortItem } from "@/lib/shorts";
 
 /** Une vidéo K-Short publiée aussi dans le fil : c'est la même vidéo (mêmes j'aime et commentaires) que dans la section K-Short. */
 export function ShortFeedCard({ short }: { short: ShortItem }) {
@@ -95,11 +95,15 @@ export function ShortFeedCard({ short }: { short: ShortItem }) {
 
       <video
         ref={videoRef}
-        src={src}
+        src={firstFrameUrl(src)}
         controls
         playsInline
         preload="metadata"
         onError={onVideoError}
+        onPlay={(e) => {
+          // Une lecture = un départ depuis le début (une reprise après pause ne compte pas) ; chaque nouveau visionnage compte, même par la même personne
+          if (!short.mine && e.currentTarget.currentTime < 1.5) void recordShortView(short.id).catch(() => {});
+        }}
         className="mt-2 max-h-[70vh] w-full rounded-2xl bg-black"
       />
 

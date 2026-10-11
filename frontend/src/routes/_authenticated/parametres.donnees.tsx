@@ -10,8 +10,8 @@ export const Route = createFileRoute("/_authenticated/parametres/donnees")({
 });
 
 const MODES: { value: AutoplayMode; title: string; description: string }[] = [
-  { value: "wifi", title: "Wi-Fi seulement", description: "Les vidéos du fil se lancent toutes seules uniquement en Wi-Fi. Avec tes données mobiles, tu lances la vidéo toi-même." },
-  { value: "never", title: "Jamais", description: "Aucune vidéo ne se lance toute seule : tu gardes le contrôle de ta consommation." },
+  { value: "wifi", title: "Wi-Fi seulement", description: "Les vidéos se lancent toutes seules uniquement en Wi-Fi. Avec tes données mobiles, tu lances la vidéo toi-même." },
+  { value: "never", title: "Jamais", description: "Aucune vidéo du fil, des profils ou d'Explorer ne se lance toute seule : tu gardes le contrôle de ta consommation." },
   { value: "always", title: "Toujours", description: "Les vidéos se lancent toutes seules, même avec tes données mobiles." },
 ];
 
@@ -24,10 +24,10 @@ function DataPage() {
       <section className="rounded-2xl border border-border bg-card p-4">
         <div className="flex items-center gap-2">
           <Wifi className="h-5 w-5 text-muted-foreground" />
-          <h2 className="text-sm font-bold text-foreground">Lecture automatique des vidéos du fil</h2>
+          <h2 className="text-sm font-bold text-foreground">Lecture automatique dans le fil, les profils et Explorer</h2>
         </div>
         <p className="mt-1 text-xs leading-snug text-muted-foreground">
-          Les vidéos se lancent sans le son quand elles sont bien visibles, et s'arrêtent dès que tu les dépasses. Utilise le bouton son de la vidéo pour l'activer.
+          Les vidéos se lancent sans le son quand elles sont bien visibles, et s'arrêtent dès que tu les dépasses. Utilise le bouton son de la vidéo pour l'activer. Dans les messages, les vidéos ne se lancent jamais toutes seules. Dans K-Short, elles se lancent toujours automatiquement.
         </p>
         <div className="mt-3 space-y-2">
           {MODES.map((m) => (
