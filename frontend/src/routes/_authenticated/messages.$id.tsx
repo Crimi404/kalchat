@@ -64,6 +64,13 @@ function ChatPage() {
   const [pinIdx, setPinIdx] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const lastMsgRef = useRef<string | null>(null);
+  const mainRef = useRef<HTMLElement>(null);
+  const pinned = useRef(true); // reste collé en bas tant qu'on n'a pas fait défiler vers le haut
+  const openedRef = useRef<string | null>(null); // discussion déjà placée sur le dernier message
+  function scrollToEnd(smooth: boolean) {
+    const el = mainRef.current;
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior: smooth ? "smooth" : "auto" });
+  }
 
   const conv = useQuery({ queryKey: ["conversation", id], queryFn: () => fetchConversationDetail(id, uid) });
   const detail = conv.data;
@@ -147,11 +154,23 @@ function ChatPage() {
   // Rejoint la conversation en direct (Socket.io) tant que la page est ouverte
   useEffect(() => joinConversation(id), [id]);
 
+  const chatShown = !conv.isLoading;
   useEffect(() => {
     const lastId = msgs.data?.length ? msgs.data[msgs.data.length - 1].id : null;
-    if (lastId !== lastMsgRef.current) {
-      lastMsgRef.current = lastId;
-      endRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (mainRef.current && msgs.data) {
+      if (openedRef.current !== id) {
+        // Ouverture de la discussion : on arrive directement sur le dernier message (sans animation), puis on y reste
+        // pendant que les images, vidéos et textes longs finissent de s'afficher
+        openedRef.current = id;
+        lastMsgRef.current = lastId;
+        pinned.current = true;
+        scrollToEnd(false);
+        requestAnimationFrame(() => pinned.current && scrollToEnd(false));
+        for (const ms of [120, 400, 1000, 2000]) window.setTimeout(() => pinned.current && scrollToEnd(false), ms);
+      } else if (lastId !== lastMsgRef.current) {
+        lastMsgRef.current = lastId;
+        scrollToEnd(true);
+      }
     }
     if (msgs.data?.some((m) => m.sender_id !== uid && !m.seen)) {
       void markRead(id).then(() => {
@@ -159,7 +178,7 @@ function ChatPage() {
         void qc.invalidateQueries({ queryKey: ["conversations"] });
       });
     }
-  }, [msgs.data, id, uid, qc]);
+  }, [msgs.data, id, uid, qc, chatShown]);
 
   const [sendingFile, setSendingFile] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -407,7 +426,16 @@ function ChatPage() {
         </DialogContent>
       </Dialog>
 
-      <main className="flex-1 space-y-2 overflow-y-auto px-3 py-4" style={{ ...chatTheme.wallpaperStyle, ...chatTheme.fontStyle }}>
+      <main
+        ref={mainRef}
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 150;
+        }}
+        onLoadCapture={() => pinned.current && scrollToEnd(false)}
+        onLoadedMetadataCapture={() => pinned.current && scrollToEnd(false)}
+        className="flex-1 space-y-2 overflow-y-auto px-3 py-4"
+        style={{ ...chatTheme.wallpaperStyle, ...chatTheme.fontStyle }}>
         <p className="mx-auto mb-4 max-w-xs text-center text-[11px] text-muted-foreground">{isGroup ? "Messages du groupe : visibles uniquement par ses membres. Ils ne sont pas chiffrés de bout en bout." : "Messages privés : visibles uniquement par vous deux. Ils ne sont pas chiffrés de bout en bout."}</p>
         {msgs.data?.map((m, i) => {
           const prev = i > 0 ? msgs.data![i - 1] : null;
