@@ -7,6 +7,7 @@ const { notify } = require('../notify');
 const { isBlockedEitherWay } = require('../blocks');
 const ai = require('../ai');
 const { releaseMedia } = require('../mediaCleanup');
+const { mediaUrlOk, BAD_URL } = require('../mediaUrl');
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -190,6 +191,7 @@ router.post('/conversations', async (req, res) => {
     let requestStatus = null;
     const name = typeof req.body.name === 'string' ? req.body.name.trim() : '';
     const avatar_url = req.body.avatar_url || null;
+    if (!(await mediaUrlOk(avatar_url))) return res.status(400).json(BAD_URL);
     // Sans doublons, sans soi-même
     const member_ids = [...new Set((req.body.member_ids || []).filter((x) => typeof x === 'string' && x !== req.user.id))];
 
@@ -353,6 +355,7 @@ router.patch('/conversations/:id', async (req, res) => {
   }
   if (typeof req.body.avatar_url === 'string') {
     const before = await db.prepare('SELECT avatar_url FROM conversations WHERE id = ?').get(req.params.id);
+    if (!(await mediaUrlOk(req.body.avatar_url, before?.avatar_url))) return res.status(400).json(BAD_URL);
     await db.prepare('UPDATE conversations SET avatar_url = ? WHERE id = ?').run(req.body.avatar_url || null, req.params.id);
     if (before?.avatar_url && before.avatar_url !== (req.body.avatar_url || null)) await releaseMedia(before.avatar_url);
   }
@@ -513,6 +516,7 @@ router.post('/conversations/:id/messages', async (req, res) => {
     .prepare('SELECT 1 FROM conversation_members WHERE conversation_id = ? AND user_id = ?')
     .get(req.params.id, req.user.id);
   if (!isMember) return res.status(403).json({ error: 'Accès refusé' });
+  if (!(await mediaUrlOk(media_url))) return res.status(400).json(BAD_URL);
   // « system » est réservé aux messages automatiques du serveur
   if (media_type === 'system' || (media_type && String(media_type).endsWith('_expired'))) {
     return res.status(400).json({ error: 'Type de média invalide' });

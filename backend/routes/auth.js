@@ -8,8 +8,12 @@ const { USERNAME_RE, nextUsernameChangeAt } = require('../usernamePolicy');
 const { isMailPublic, sendMail, codeEmail, welcomeEmail, passwordChangedEmail } = require('../mailer');
 const otp = require('../otp');
 const ai = require('../ai');
+const { mediaUrlOk, BAD_URL } = require('../mediaUrl');
 
 const router = express.Router();
+
+// Empreinte factice : on fait le même calcul bcrypt même quand le pseudo n'existe pas (sinon la rapidité de la réponse révèle quels comptes existent)
+const DUMMY_HASH = bcrypt.hashSync('kalchat-dummy-password', 10);
 
 // Création du compte (inscription classique ou après validation du code par email)
 async function createUser({ first_name, last_name, username, password_hash, avatar_url, email = null }) {
@@ -24,7 +28,7 @@ async function createUser({ first_name, last_name, username, password_hash, avat
     .run(id, username, password_hash, avatar_url || null, first_name.trim(), last_name.trim(), isFirstUser ? 1 : 0, isFirstUser ? 'gold' : null, email);
   // Chaque nouveau membre a d'office une discussion avec Kora IA (l'IA de Kalchat)
   await ai.ensureConversationFor(id).catch((err) => console.error('Kora : discussion non créée:', err.message));
-  const token = jwt.sign({ id, username }, process.env.JWT_SECRET, { expiresIn: '30d' });
+  const token = jwt.sign({ id, username }, process.env.JWT_SECRET, { expiresIn: '14d' });
   return { token, user: { id, username, avatar_url: avatar_url || null, first_name, last_name, is_admin: isFirstUser } };
 }
 
@@ -55,6 +59,7 @@ router.post('/register/start', async (req, res) => {
     const password = String(req.body.password || '');
     const email = otp.normalizeEmail(req.body.email);
     const avatar_url = req.body.avatar_url || null;
+    if (!(await mediaUrlOk(avatar_url))) return res.status(400).json(BAD_URL);
 
     if (!first_name || !last_name) return res.status(400).json({ error: 'Prénom et nom requis' });
     if (!USERNAME_RE.test(username)) return res.status(400).json({ error: "Nom d'utilisateur : 3 à 20 caractères (lettres minuscules, chiffres et _)" });
@@ -175,7 +180,7 @@ router.post('/reset', async (req, res) => {
     await otp.consume(user.email, 'reset');
     sendMail({ to: user.email, ...passwordChangedEmail({ firstName: user.first_name }) }).catch((err) => console.error('Email de confirmation non envoyé :', err.message));
 
-    const token = jwt.sign({ id: user.id, username: user.username }, process.env.JWT_SECRET, { expiresIn: '30d' });
+    const token = jwt.sign({ id: user.id, username: user.username }, process.env.JWT_SECRET, { expiresIn: '14d' });
     res.json({ token, user: { id: user.id, username: user.username, avatar_url: user.avatar_url, badge: user.badge, role: user.role, is_admin: !!user.is_admin } });
   } catch (err) {
     otp.sendError(res, err);
@@ -188,16 +193,23 @@ router.post('/register', async (req, res) => {
     // Quand les emails sont actifs, l'inscription passe obligatoirement par le code (voir /register/start)
     if (isMailPublic()) return res.status(403).json({ error: "L'inscription se fait avec ton adresse email : mets-la à jour dans l'application", code: 'email_required' });
 
-    const { first_name, last_name, username, password, avatar_url } = req.body;
+    otp.rateLimit(req, 'register', 10, 60 * 60 * 1000);
+    const { first_name, last_name, avatar_url } = req.body;
+    if (!(await mediaUrlOk(avatar_url))) return res.status(400).json(BAD_URL);
+    const username = String(req.body.username ?? '').trim().toLowerCase();
+    const password = String(req.body.password ?? '');
 
-    if (!first_name?.trim() || !last_name?.trim()) {
+    if (typeof first_name !== 'string' || typeof last_name !== 'string' || !first_name.trim() || !last_name.trim()) {
       return res.status(400).json({ error: 'Prénom et nom requis' });
     }
     if (!username || !password) {
       return res.status(400).json({ error: 'Nom d\'utilisateur et mot de passe requis' });
     }
-    if (password.length < 6) {
-      return res.status(400).json({ error: 'Le mot de passe doit faire au moins 6 caractères' });
+    if (!USERNAME_RE.test(username)) {
+      return res.status(400).json({ error: "Nom d'utilisateur : 3 à 20 caractères (lettres minuscules, chiffres et _)" });
+    }
+    if (password.length < 8 || password.length > 72) {
+      return res.status(400).json({ error: 'Le mot de passe doit faire entre 8 et 72 caractères' });
     }
 
     const existing = await db.prepare('SELECT id FROM users WHERE LOWER(username) = LOWER(?)').get(username);
@@ -208,15 +220,22 @@ router.post('/register', async (req, res) => {
     const created = await createUser({ first_name, last_name, username, password_hash: await bcrypt.hash(password, 10), avatar_url });
     res.status(201).json(created);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Erreur serveur' });
+    otp.sendError(res, err);
   }
 });
 
 // ---------- Connexion ----------
 router.post('/login', async (req, res) => {
   try {
+    // Anti-devinette de mot de passe : limite par adresse IP, et limite par compte visé (même si l'attaquant change d'IP)
+    // (réglées large par IP : sur un réseau mobile, beaucoup de gens partagent la même adresse)
+    otp.rateLimit(req, 'login', 100, 15 * 60 * 1000);
+    otp.rateLimitKey(`login-id:${String(req.body?.username ?? '').trim().toLowerCase().slice(0, 100)}`, 15, 15 * 60 * 1000);
+
     const { username, password } = req.body;
+    if (typeof username !== 'string' || typeof password !== 'string' || !username || !password || password.length > 200) {
+      return res.status(401).json({ error: 'Identifiants incorrects' });
+    }
     // On peut se connecter avec son pseudo ou avec son adresse email vérifiée
     const ident = String(username ?? '').trim();
     const user = ident.includes('@')
@@ -224,6 +243,7 @@ router.post('/login', async (req, res) => {
       : await db.prepare('SELECT * FROM users WHERE username = ?').get(username);
 
     if (!user) {
+      await bcrypt.compare(password, DUMMY_HASH);
       return res.status(401).json({ error: 'Identifiants incorrects' });
     }
 
@@ -237,7 +257,7 @@ router.post('/login', async (req, res) => {
     }
 
     const token = jwt.sign({ id: user.id, username: user.username }, process.env.JWT_SECRET, {
-      expiresIn: '30d',
+      expiresIn: '14d',
     });
 
     res.json({
@@ -245,8 +265,7 @@ router.post('/login', async (req, res) => {
       user: { id: user.id, username: user.username, avatar_url: user.avatar_url, status_text: user.status_text, badge: user.badge, role: user.role, is_admin: !!user.is_admin },
     });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Erreur serveur' });
+    otp.sendError(res, err);
   }
 });
 

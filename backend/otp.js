@@ -100,11 +100,16 @@ async function purgeExpired() {
 
 // ---------- Limiteur simple par adresse IP (en mémoire) ----------
 const hits = new Map();
+// IP du client : req.ip tient compte du réglage « trust proxy » (voir server.js) et ignore donc les valeurs
+// X-Forwarded-For inventées par le client (avant, la 1re valeur de l'en-tête était crue sur parole : limites contournables).
 function clientIp(req) {
-  return String(req.headers['x-forwarded-for'] || req.ip || 'unknown').split(',')[0].trim();
+  return String(req.ip || req.socket?.remoteAddress || 'unknown');
 }
 function rateLimit(req, key, max, windowMs) {
-  const k = `${key}:${clientIp(req)}`;
+  rateLimitKey(`${key}:${clientIp(req)}`, max, windowMs);
+}
+/** Limiteur sur une clé libre (ex. pseudo visé, identifiant du membre). Lève une HttpError 429 au-delà de la limite. */
+function rateLimitKey(k, max, windowMs) {
   const now = Date.now();
   const list = (hits.get(k) || []).filter((t) => now - t < windowMs);
   if (list.length >= max) {
@@ -122,4 +127,4 @@ function sendError(res, err) {
   return res.status(500).json({ error: 'Erreur serveur' });
 }
 
-module.exports = { HttpError, normalizeEmail, isValidEmail, issueCode, discard, checkCode, consume, peekPayload, latestForUser, purgeExpired, rateLimit, sendError };
+module.exports = { HttpError, clientIp, rateLimitKey, normalizeEmail, isValidEmail, issueCode, discard, checkCode, consume, peekPayload, latestForUser, purgeExpired, rateLimit, sendError };

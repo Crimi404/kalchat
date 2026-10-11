@@ -1,4 +1,4 @@
-import { api, displayName, toBadges } from "@/lib/api";
+import { api, displayName, setToken, toBadges } from "@/lib/api";
 import type { MiniProfile } from "@/lib/social";
 
 export type PresenceMode = "everyone" | "friends" | "nobody";
@@ -32,7 +32,9 @@ export async function updateSettings(patch: SettingsPatch) {
 }
 
 export async function changePassword(currentPassword: string, newPassword: string) {
-  await api("/users/me/password", { method: "POST", body: { current_password: currentPassword, new_password: newPassword } });
+  const r = await api<{ ok: boolean; token?: string }>("/users/me/password", { method: "POST", body: { current_password: currentPassword, new_password: newPassword } });
+  // Le serveur déconnecte les autres appareils et renvoie un nouveau jeton pour celui-ci
+  if (r?.token) setToken(r.token);
 }
 
 export async function deleteMyAccount(password: string) {

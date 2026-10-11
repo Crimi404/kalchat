@@ -120,4 +120,4 @@ async function sweepOrphanFiles({ dryRun = false } = {}) {
   return result;
 }
 
-module.exports = { releaseMedia, releaseMany, cleanupExpiredStories, sweepOrphanFiles, processDeleteQueue };
+module.exports = { isStillUsed, releaseMedia, releaseMany, cleanupExpiredStories, sweepOrphanFiles, processDeleteQueue };

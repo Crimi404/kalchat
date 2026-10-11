@@ -6,6 +6,7 @@ const { notify } = require('../notify');
 const { notifyMentions } = require('../mentions');
 const { CATEGORIES, DEFAULT_CATEGORY, normalizeCategory } = require('../categories');
 const { releaseMedia } = require('../mediaCleanup');
+const { mediaUrlOk, BAD_URL } = require('../mediaUrl');
 const ai = require('../ai');
 const { THEMED_POST_MAX_CHARS, normalizeTheme, normalizeFont } = require('../themes');
 
@@ -37,6 +38,7 @@ function parseAllowDownload(value) {
 // ---------- Publier un post (texte et/ou média) ----------
 router.post('/', async (req, res) => {
   const { content, media_url, media_type } = req.body;
+  if (!(await mediaUrlOk(media_url))) return res.status(400).json(BAD_URL);
   if (!content?.trim() && !media_url) {
     return res.status(400).json({ error: 'Le post doit contenir du texte ou un média' });
   }

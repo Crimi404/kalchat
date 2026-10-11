@@ -46,6 +46,8 @@ export async function api<T = unknown>(path: string, init: { method?: string; bo
     ...(body !== undefined ? { body } : {}),
   });
 
+  const renewed = res.headers.get("X-Renewed-Token");
+  if (renewed && token) setToken(renewed); // session glissante : le serveur renouvelle le jeton tant qu'on utilise l'appli
   const data = (await res.json().catch(() => null)) as (T & { error?: string }) | null;
   if (!res.ok) {
     if (res.status === 401 && token) {

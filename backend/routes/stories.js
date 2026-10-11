@@ -3,6 +3,7 @@ const { v4: uuid } = require('uuid');
 const db = require('../db');
 const authMiddleware = require('../middleware/auth');
 const { releaseMedia, cleanupExpiredStories } = require('../mediaCleanup');
+const { mediaUrlOk, BAD_URL } = require('../mediaUrl');
 const { normalizeTheme, normalizeFont } = require('../themes');
 
 const router = express.Router();
@@ -20,6 +21,7 @@ function storyHours(value) {
 // ---------- Publier une story (ou repartager une story existante) ----------
 router.post('/', async (req, res) => {
   const { media_url, media_type, caption, shared_from_id } = req.body;
+  if (!(await mediaUrlOk(media_url))) return res.status(400).json(BAD_URL);
   if (!media_url && !caption?.trim()) return res.status(400).json({ error: 'Une story doit contenir une photo, une vidéo ou du texte' });
 
   // Fond et police : uniquement pour une story texte (sans photo ni vidéo)

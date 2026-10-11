@@ -31,6 +31,16 @@ const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: '*' } });
 
 app.set('io', io);
+// Render place un relais devant le serveur : on fait confiance à ce nombre de relais pour lire la vraie IP (req.ip).
+// Si les limites par IP bloquent tout le monde d'un coup, essayer TRUST_PROXY_HOPS=2 dans Render > Environment.
+app.set('trust proxy', Number(process.env.TRUST_PROXY_HOPS) || 1);
+app.disable('x-powered-by');
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  next();
+});
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 
@@ -42,7 +52,7 @@ registerUpload(app, storage);
 // Un faux identifiant est utilisé : aucun like, favori, abonnement ni blocage ne lui correspond.
 const guestHits = new Map();
 app.get('/api/public/feed', (req, res, next) => {
-  const ip = String(req.headers['x-forwarded-for'] || req.ip || 'unknown').split(',')[0].trim();
+  const ip = String(req.ip || 'unknown');
   const now = Date.now();
   const recent = (guestHits.get(ip) || []).filter((t) => now - t < 60 * 1000);
   if (recent.length >= 40) return res.status(429).json({ error: 'Trop de requêtes, réessaie dans une minute' });
@@ -109,10 +119,16 @@ app.get(/^\/(?!api\/|socket\.io\/).*/, (req, res, next) => {
 });
 
 // ---------- Socket.io : chat en temps réel ----------
-io.use((socket, next) => {
+io.use(async (socket, next) => {
   try {
     const token = socket.handshake.auth?.token;
     const payload = jwt.verify(token, process.env.JWT_SECRET);
+    // Mêmes règles que pour l'API : compte bloqué ou ancienne session (mot de passe changé depuis) = refus
+    const u = await db.prepare('SELECT is_blocked, password_changed_at FROM users WHERE id = ?').get(payload.id);
+    if (!u || u.is_blocked) return next(new Error('Authentification WebSocket échouée'));
+    if (u.password_changed_at && payload.iat && payload.iat < Math.floor(new Date(u.password_changed_at).getTime() / 1000)) {
+      return next(new Error('Authentification WebSocket échouée'));
+    }
     socket.user = payload;
     next();
   } catch {
@@ -183,7 +199,9 @@ io.on('connection', (socket) => {
     socket.leave(conversationId);
   });
 
-  socket.on('typing', ({ conversation_id, is_typing }) => {
+  socket.on('typing', ({ conversation_id, is_typing } = {}) => {
+    // Seulement dans une conversation dont on est membre (la salle n'est rejointe qu'après vérification, voir « join »)
+    if (typeof conversation_id !== 'string' || !socket.rooms.has(conversation_id)) return;
     socket.to(conversation_id).emit('typing', {
       conversation_id,
       user_id: socket.user.id,

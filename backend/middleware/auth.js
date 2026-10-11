@@ -20,6 +20,12 @@ async function authMiddleware(req, res, next) {
     }
     if (user.is_blocked) return res.status(403).json({ error: 'Ce compte a été bloqué par un administrateur' });
 
+    // Session glissante : jeton valable 14 jours ; tant que la personne utilise l'appli, un jeton neuf lui est donné (en-tête X-Renewed-Token)
+    // dès que l'actuel a plus de 3 jours. Un jeton volé et laissé de côté expire donc vite, sans déconnecter les vrais utilisateurs.
+    if (payload.iat && Math.floor(Date.now() / 1000) - payload.iat > 3 * 24 * 3600) {
+      res.setHeader('X-Renewed-Token', jwt.sign({ id: payload.id, username: payload.username }, process.env.JWT_SECRET, { expiresIn: '14d' }));
+    }
+
     req.user = payload; // { id, username }
     next();
   } catch (err) {

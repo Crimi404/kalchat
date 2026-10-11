@@ -71,7 +71,7 @@ function tooMany(key, limit, windowMs) {
 }
 
 function clientIp(req) {
-  return String(req.headers['x-forwarded-for'] || req.ip || 'unknown').split(',')[0].trim();
+  return String(req.ip || req.socket?.remoteAddress || 'unknown'); // voir « trust proxy » dans server.js
 }
 
 /** Essaie d'authentifier la requête avec le middleware habituel, sans répondre à la place de l'appelant. */

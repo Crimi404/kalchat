@@ -4,6 +4,7 @@ const db = require('../db');
 const authMiddleware = require('../middleware/auth');
 const { extractFilenameFromUrl } = require('../storage');
 const { releaseMedia } = require('../mediaCleanup');
+const { isOwnMediaUrl } = require('../mediaUrl');
 const { notify } = require('../notify');
 const { isBlockedEitherWay } = require('../blocks');
 
@@ -58,7 +59,7 @@ function validateFields(body, { partial = false } = {}) {
   if (body.avatar_url !== undefined) {
     const url = body.avatar_url ? String(body.avatar_url).slice(0, 500) : null;
     // Seules les photos envoyées sur le stockage de Kalchat sont acceptées (pas d'adresse externe)
-    if (url && !extractFilenameFromUrl(url)) return { error: 'Photo invalide' };
+    if (url && (!extractFilenameFromUrl(url) || !isOwnMediaUrl(url))) return { error: 'Photo invalide' };
     out.avatar_url = url;
   }
   if (!partial || body.join_mode !== undefined) {

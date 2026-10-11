@@ -8,6 +8,8 @@ const { isBlockedEitherWay } = require('../blocks');
 const { USERNAME_RE, nextUsernameChangeAt } = require('../usernamePolicy');
 const { releaseMedia, releaseMany } = require('../mediaCleanup');
 const { isMailEnabled, sendMail, passwordChangedEmail } = require('../mailer');
+const otp = require('../otp');
+const { mediaUrlOk, BAD_URL } = require('../mediaUrl');
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -34,6 +36,7 @@ async function canMessage(aId, bId) {
 router.patch('/me', async (req, res) => {
   const { bio, avatar_url, cover_url, location, status_text, first_name, last_name } = req.body;
   const before = await db.prepare('SELECT avatar_url, cover_url FROM users WHERE id = ?').get(req.user.id);
+  if (!(await mediaUrlOk(avatar_url, before?.avatar_url)) || !(await mediaUrlOk(cover_url, before?.cover_url))) return res.status(400).json(BAD_URL);
   await db
     .prepare(
       `UPDATE users SET
@@ -91,10 +94,11 @@ router.patch('/me/settings', async (req, res) => {
 // ---------- Paramètres : changer son mot de passe ----------
 router.post('/me/password', async (req, res) => {
   try {
+    otp.rateLimitKey(`pwd-change:${req.user.id}`, 8, 15 * 60 * 1000); // pas de devinette du mot de passe actuel avec un jeton volé
     const current = String(req.body.current_password ?? '');
     const next = String(req.body.new_password ?? '');
     if (!current || !next) return res.status(400).json({ error: 'Remplis tous les champs' });
-    if (next.length < 6) return res.status(400).json({ error: 'Le nouveau mot de passe doit faire au moins 6 caractères' });
+    if (next.length < 8 || next.length > 72) return res.status(400).json({ error: 'Le nouveau mot de passe doit faire entre 8 et 72 caractères' });
     if (next === current) return res.status(400).json({ error: 'Le nouveau mot de passe doit être différent de l\'ancien' });
 
     const user = await db.prepare('SELECT password_hash FROM users WHERE id = ?').get(req.user.id);
@@ -102,7 +106,9 @@ router.post('/me/password', async (req, res) => {
     // Pas de code 401 ici : le site le prendrait pour une session expirée et te déconnecterait.
     if (!(await bcrypt.compare(current, user.password_hash))) return res.status(403).json({ error: 'Mot de passe actuel incorrect' });
 
-    await db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(await bcrypt.hash(next, 10), req.user.id);
+    // Les autres appareils (et un jeton volé) sont déconnectés ; cet appareil reçoit un nouveau jeton ci-dessous
+    await db.prepare('UPDATE users SET password_hash = ?, password_changed_at = NOW() WHERE id = ?').run(await bcrypt.hash(next, 10), req.user.id);
+    const freshToken = jwt.sign({ id: req.user.id, username: req.user.username }, process.env.JWT_SECRET, { expiresIn: '14d' });
     // Alerte de sécurité par email si l'adresse est vérifiée
     if (isMailEnabled()) {
       const me = await db.prepare('SELECT email, email_verified_at, first_name FROM users WHERE id = ?').get(req.user.id);
@@ -110,8 +116,9 @@ router.post('/me/password', async (req, res) => {
         sendMail({ to: me.email, ...passwordChangedEmail({ firstName: me.first_name }) }).catch((err) => console.error('Email de confirmation non envoyé :', err.message));
       }
     }
-    res.json({ ok: true });
+    res.json({ ok: true, token: freshToken });
   } catch (err) {
+    if (err instanceof otp.HttpError) return otp.sendError(res, err);
     console.error(err);
     res.status(500).json({ error: 'Erreur serveur' });
   }
@@ -120,6 +127,7 @@ router.post('/me/password', async (req, res) => {
 // ---------- Paramètres : supprimer définitivement son compte ----------
 router.delete('/me', async (req, res) => {
   try {
+    otp.rateLimitKey(`acct-delete:${req.user.id}`, 8, 15 * 60 * 1000);
     const password = String(req.body?.password ?? '');
     if (!password) return res.status(400).json({ error: 'Entre ton mot de passe pour confirmer' });
 
@@ -167,6 +175,7 @@ router.delete('/me', async (req, res) => {
     void req.app.get('broadcastPresence')?.();
     res.json({ ok: true });
   } catch (err) {
+    if (err instanceof otp.HttpError) return otp.sendError(res, err);
     console.error(err);
     res.status(500).json({ error: 'Erreur serveur' });
   }
@@ -198,6 +207,7 @@ async function verifyIdentityForUsernameChange(user, body) {
 
 router.post('/me/username', async (req, res) => {
   try {
+    otp.rateLimitKey(`username-change:${req.user.id}`, 8, 15 * 60 * 1000);
     const wanted = String(req.body.username ?? '').trim().replace(/^@/, '').toLowerCase();
     if (!USERNAME_RE.test(wanted)) {
       return res.status(400).json({ error: 'Nom d\'utilisateur : 3 à 20 caractères, minuscules, chiffres et _ uniquement' });
@@ -235,7 +245,7 @@ router.post('/me/username', async (req, res) => {
 
     const row = await db.prepare('SELECT username, username_changed_at FROM users WHERE id = ?').get(req.user.id);
     // Le jeton contient le nom d'utilisateur : on en émet un nouveau avec le bon pseudo.
-    const token = jwt.sign({ id: req.user.id, username: row.username }, process.env.JWT_SECRET, { expiresIn: '30d' });
+    const token = jwt.sign({ id: req.user.id, username: row.username }, process.env.JWT_SECRET, { expiresIn: '14d' });
     res.json({
       token,
       username: row.username,
@@ -243,6 +253,7 @@ router.post('/me/username', async (req, res) => {
       username_next_change_at: nextUsernameChangeAt(row.username_changed_at),
     });
   } catch (err) {
+    if (err instanceof otp.HttpError) return otp.sendError(res, err);
     console.error(err);
     res.status(500).json({ error: 'Erreur serveur' });
   }
