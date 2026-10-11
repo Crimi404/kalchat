@@ -1,6 +1,6 @@
 import { createFileRoute, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import { Bell, Check, EyeOff, FileText, Fingerprint, LifeBuoy, Lock, Mail, LogOut, Moon, Palette, ScrollText, ShieldCheck, Sun, UserRound } from "lucide-react";
+import { Bell, Check, EyeOff, FileText, Fingerprint, LifeBuoy, Lock, Mail, LogOut, Moon, Palette, ScrollText, ShieldCheck, Sun, UserRound, Wifi } from "lucide-react";
 import { TopBar } from "@/components/TopBar";
 import { BottomNav } from "@/components/BottomNav";
 import { useAuth } from "@/lib/auth";
@@ -88,6 +88,7 @@ function ParametresPage() {
           <SettingRow icon={Mail} title="Adresse email" description="Vérifie ton adresse pour récupérer ton mot de passe et te connecter" onClick={() => navigate({ to: "/parametres/email" })} />
           <SettingRow icon={Bell} title="Notifications" description="Active les notifications push sur ton téléphone" onClick={() => navigate({ to: "/parametres/notifications" })} />
           <SettingRow icon={EyeOff} title="Sujets masqués" description="Catégories de publications que tu ne veux plus voir dans ton fil" onClick={() => navigate({ to: "/parametres/sujets" })} />
+          <SettingRow icon={Wifi} title="Données et lecture automatique" description="Lecture automatique des vidéos du fil (Wi-Fi seulement, jamais, toujours) et défilement K-Short" onClick={() => navigate({ to: "/parametres/donnees" })} />
           <SettingRow icon={Lock} title="Changer de mot de passe" description="Change de mot de passe à tout moment" onClick={() => navigate({ to: "/parametres/mot-de-passe" })} />
           {chatThemeSupported() && <SettingRow icon={Palette} title="Fond des discussions" description="Thème, photo de ton téléphone en fond et couleur de tes messages" onClick={() => navigate({ to: "/parametres/discussions" })} />}
           {lockSupported() && <SettingRow icon={Fingerprint} title="Verrouillage" description="Code PIN et empreinte pour protéger l'application ou seulement la messagerie" onClick={() => navigate({ to: "/parametres/verrouillage" })} />}

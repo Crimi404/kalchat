@@ -1,11 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Ban, Bookmark, CalendarDays, Flag, Grid3x3, Loader2, MapPin, MoreHorizontal, Pencil, Settings, Share2 } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { blockUser, unblockUser } from "@/lib/settings";
 import { BadgeList } from "@/components/KalBadge";
 import { PostCard } from "@/components/PostCard";
+import { ShortFeedCard } from "@/components/ShortFeedCard";
+import { fetchShortsStatus, fetchUserShorts } from "@/lib/shorts";
 import { ReportSheet } from "@/components/ReportSheet";
 import { publicUrl, shareLink } from "@/lib/share";
 import { useAuth } from "@/lib/auth";
@@ -69,6 +71,22 @@ export function ProfileView({ username }: { username: string }) {
     queryFn: () => fetchUserPosts(p!.id),
     enabled: !!p,
   });
+  // Les vidéos K-Short du membre apparaissent parmi ses publications (K-Short activé seulement)
+  const shortsStatus = useQuery({ queryKey: ["shortsStatus"], queryFn: fetchShortsStatus, staleTime: 5 * 60_000, retry: false });
+  const shortsQ = useQuery({
+    queryKey: ["shorts", "user", p?.id, user?.id],
+    queryFn: () => fetchUserShorts(p!.id),
+    enabled: !!p && shortsStatus.data?.enabled === true,
+    staleTime: 60_000,
+    retry: false,
+  });
+  const timeline = useMemo(() => {
+    const items = [
+      ...(postsQ.data ?? []).map((post) => ({ kind: "post" as const, id: post.id, t: Date.parse(post.created_at) || 0, post })),
+      ...(shortsQ.data ?? []).map((short) => ({ kind: "short" as const, id: `short-${short.id}`, t: Date.parse(short.published_at) || 0, short })),
+    ];
+    return items.sort((a, b) => b.t - a.t);
+  }, [postsQ.data, shortsQ.data]);
   const isMeEarly = !!user && !!p && user.id === p.id;
   const savedQ = useQuery({
     queryKey: ["savedPosts", user?.id],
@@ -211,7 +229,7 @@ export function ProfileView({ username }: { username: string }) {
         </div>
         <div className="mt-4 grid grid-cols-3 rounded-2xl border border-border bg-card py-3 text-center">
           <div>
-            <p className="text-lg font-bold text-foreground">{stats?.posts ?? "–"}</p>
+            <p className="text-lg font-bold text-foreground">{stats ? stats.posts + (shortsQ.data?.length ?? 0) : "–"}</p>
             <p className="text-[11px] text-muted-foreground">Publications</p>
           </div>
           <button onClick={() => setList("followers")} className="rounded-xl hover:bg-secondary">
@@ -263,8 +281,8 @@ export function ProfileView({ username }: { username: string }) {
           )
         ) : postsQ.isLoading ? (
           <div className="flex justify-center py-10"><Loader2 className="h-5 w-5 animate-spin text-primary" /></div>
-        ) : postsQ.data?.length ? (
-          postsQ.data.map((post) => <PostCard key={post.id} post={post} />)
+        ) : timeline.length ? (
+          timeline.map((e) => (e.kind === "post" ? <PostCard key={e.id} post={e.post} /> : <ShortFeedCard key={e.id} short={e.short} />))
         ) : (
           <p className="py-10 text-center text-sm text-muted-foreground">Aucune publication pour l'instant.</p>
         )}

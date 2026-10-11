@@ -252,6 +252,14 @@ router.get('/mine', wrap(async (req, res) => {
   res.json({ items: rows.map((r) => present(r, req.user.id)) });
 }));
 
+// Vidéos actives d'un membre (affichées dans sa page de profil, parmi ses publications)
+router.get('/user/:userId', wrap(async (req, res) => {
+  const rows = await db
+    .prepare(`${SELECT_SHORT} WHERE s.user_id = ? AND s.status = 'active' AND s.expires_at > NOW() ${NOT_BLOCKED} ORDER BY s.published_at DESC, s.id DESC LIMIT 100`)
+    .all(req.user.id, String(req.params.userId), req.user.id, req.user.id);
+  res.json({ items: rows.map((r) => present(r, req.user.id)) });
+}));
+
 // Vidéos publiées aussi dans le fil classique (« K-Short + fil ») : ce sont les MÊMES vidéos, avec les mêmes likes et commentaires
 router.get('/in-feed', wrap(async (req, res) => {
   const rows = await db

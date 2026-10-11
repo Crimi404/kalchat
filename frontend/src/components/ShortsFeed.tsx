@@ -11,6 +11,7 @@ import { Avatar } from "@/components/PostCard";
 import { ShortUploadSheet } from "@/components/ShortUploadSheet";
 import { publicUrl, shareLink } from "@/lib/share";
 import { useBackHandler } from "@/lib/back";
+import { setShortsAutoScroll, useShortsAutoScroll } from "@/lib/mediaPrefs";
 import {
   addShortComment,
   deleteShort,
@@ -483,13 +484,8 @@ export function ShortsFeed({ header, startId }: { header: ReactNode; startId?: s
   const [active, setActive] = useState(0);
   const [muted, setMuted] = useState(false);
   // Réglage « défilement automatique » : retenu sur le téléphone
-  const [autoScroll, setAutoScrollState] = useState<boolean>(() => {
-    try { return localStorage.getItem("kalchat:shortsAutoScroll") === "1"; } catch { return false; }
-  });
-  function setAutoScroll(v: boolean) {
-    setAutoScrollState(v);
-    try { localStorage.setItem("kalchat:shortsAutoScroll", v ? "1" : "0"); } catch { /* stockage indisponible : on ignore */ }
-  }
+  const autoScroll = useShortsAutoScroll();
+  const setAutoScroll = setShortsAutoScroll;
   const [patches, setPatches] = useState<Record<string, Patch>>({});
   const [commentsFor, setCommentsFor] = useState<string | null>(null);
   const [uploadOpen, setUploadOpen] = useState(false);
@@ -535,6 +531,13 @@ export function ShortsFeed({ header, startId }: { header: ReactNode; startId?: s
       setActive(Math.round(el.scrollTop / el.clientHeight));
     });
   }
+
+  // Touche « Accueil » pressée pendant qu'on est dans K-Short : retour à la première vidéo
+  useEffect(() => {
+    const top = () => scroller.current?.scrollTo({ top: 0, behavior: "smooth" });
+    window.addEventListener("kalchat:shorts-top", top);
+    return () => window.removeEventListener("kalchat:shorts-top", top);
+  }, []);
 
   function goNext() {
     const el = scroller.current;

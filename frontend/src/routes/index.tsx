@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, SlidersHorizontal } from "lucide-react";
 import { TopBar } from "@/components/TopBar";
 import { StoriesRow } from "@/components/StoriesRow";
@@ -80,6 +80,19 @@ function FeedPage() {
   const [tab, setTabState] = useState<FeedTab>(() => (readStartShort() ? "shorts" : readTab()));
   const [startShortId, setStartShortId] = useState<string | null>(readStartShort);
   const [prefsOpen, setPrefsOpen] = useState(false);
+  const qc = useQueryClient();
+  // Touche « Accueil » : remonte en haut et actualise le fil
+  useEffect(() => {
+    const onHome = () => {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      window.dispatchEvent(new Event("kalchat:shorts-top"));
+      void qc.invalidateQueries({ queryKey: ["feed"] });
+      void qc.invalidateQueries({ queryKey: ["shorts"] });
+      void qc.invalidateQueries({ queryKey: ["stories"] });
+    };
+    window.addEventListener("kalchat:home-tap", onHome);
+    return () => window.removeEventListener("kalchat:home-tap", onHome);
+  }, [qc]);
   function setTab(t: FeedTab) {
     setTabState(t);
     try { sessionStorage.setItem("kalchat:feedTab", t); } catch { /* stockage indisponible : on ignore */ }

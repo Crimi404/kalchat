@@ -35,6 +35,12 @@ export function BottomNav() {
           if (!user && item.guest) {
             e.preventDefault();
             openGuestPrompt(item.guest as GuestReason);
+            return;
+          }
+          // Déjà sur l'accueil : on remonte en haut et on actualise le fil (comme sur X ou Facebook)
+          if (item.to === "/" && pathname === "/") {
+            e.preventDefault();
+            window.dispatchEvent(new Event("kalchat:home-tap"));
           }
         }}
         className="relative flex flex-col items-center gap-0.5 px-3 py-1"

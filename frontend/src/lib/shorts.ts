@@ -64,6 +64,12 @@ export async function fetchInFeedShorts(): Promise<ShortItem[]> {
   return r.items;
 }
 
+/** Vidéos K-Short actives d'un membre (pour sa page de profil). */
+export async function fetchUserShorts(userId: string): Promise<ShortItem[]> {
+  const r = await api<{ items: ShortItem[] }>(`/shorts/user/${encodeURIComponent(userId)}`);
+  return r.items;
+}
+
 export function fetchShort(id: string): Promise<ShortItem> {
   return api<ShortItem>(`/shorts/${id}`);
 }
