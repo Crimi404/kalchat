@@ -1,12 +1,14 @@
 import { createFileRoute, Link, redirect, useNavigate } from "@tanstack/react-router";
 import { getToken } from "@/lib/api";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, Hash, Loader2, Search } from "lucide-react";
+import { ArrowLeft, Hash, Loader2, Play, Search } from "lucide-react";
 import { useState } from "react";
 import { TopBar } from "@/components/TopBar";
 import { BottomNav } from "@/components/BottomNav";
 import { BadgeList } from "@/components/KalBadge";
 import { PostCard } from "@/components/PostCard";
+import { ShortFeedCard } from "@/components/ShortFeedCard";
+import { fetchShortsFeed, fetchShortsStatus, fetchShortTrendingTags, searchShorts, timeLeft, type ShortItem } from "@/lib/shorts";
 import { useAuth } from "@/lib/auth";
 import { fetchCategoryPosts, fetchFeed, fetchHashtagPosts, fetchTrendingHashtags, searchUsers } from "@/lib/social";
 import { CATEGORIES, categoryOf } from "@/lib/categories";
@@ -35,6 +37,8 @@ export const Route = createFileRoute("/explorer")({
 function HashtagResults({ tag }: { tag: string }) {
   const navigate = useNavigate();
   const posts = useQuery({ queryKey: ["hashtag", tag], queryFn: () => fetchHashtagPosts(tag) });
+  const videos = useQuery({ queryKey: ["shorts", "hashtag", tag], queryFn: () => searchShorts({ tag }), retry: false });
+  const total = (posts.data?.length ?? 0) + (videos.data?.length ?? 0);
   return (
     <section>
       <div className="flex items-center gap-3 border-b border-border px-4 py-3">
@@ -43,13 +47,16 @@ function HashtagResults({ tag }: { tag: string }) {
         </button>
         <div>
           <h2 className="text-base font-bold text-foreground">#{tag}</h2>
-          {posts.data && <p className="text-xs text-muted-foreground">{posts.data.length} publication{posts.data.length > 1 ? "s" : ""}</p>}
+          {posts.data && <p className="text-xs text-muted-foreground">{total} publication{total > 1 ? "s" : ""}</p>}
         </div>
       </div>
       {posts.isLoading ? (
         <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
-      ) : posts.data?.length ? (
-        posts.data.map((p) => <PostCard key={p.id} post={p} />)
+      ) : total ? (
+        <>
+          {videos.data?.map((v) => <ShortFeedCard key={`short-${v.id}`} short={v} />)}
+          {posts.data?.map((p) => <PostCard key={p.id} post={p} />)}
+        </>
       ) : (
         <p className="py-12 text-center text-sm text-muted-foreground">Aucune publication avec #{tag} pour l'instant.</p>
       )}
@@ -83,6 +90,21 @@ function CategoryResults({ cat }: { cat: string }) {
   );
 }
 
+/** Vignette d'une vidéo K-Short : seule la première image est chargée (peu de données), la vidéo se lance dans K-Short. */
+function VideoTile({ v, onOpen }: { v: ShortItem; onOpen: () => void }) {
+  if (!v.video_url) return null;
+  return (
+    <button onClick={onOpen} aria-label={v.caption ?? "Ouvrir la vidéo"} className="relative aspect-[9/16] w-28 shrink-0 overflow-hidden rounded-xl bg-black text-left">
+      <video src={`${v.video_url}#t=0.1`} muted playsInline preload="metadata" className="h-full w-full object-cover" />
+      <span className="absolute right-1.5 top-1.5 rounded-full bg-black/50 p-1 text-white"><Play className="h-3 w-3 fill-white" /></span>
+      <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-1.5 text-[10px] font-semibold leading-tight text-white">
+        <span className="line-clamp-2">{v.caption || v.author?.username}</span>
+        <span className="block font-normal text-white/70">{timeLeft(v.expires_at)}</span>
+      </span>
+    </button>
+  );
+}
+
 function ExplorerPage() {
   const { user } = useAuth();
   const { tag, cat } = Route.useSearch();
@@ -90,7 +112,38 @@ function ExplorerPage() {
   const [q, setQ] = useState("");
   const term = q.trim().replace(/[%,()]/g, "");
   const hashtagTerm = q.trim().startsWith("#") ? q.trim().slice(1).replace(/[^\p{L}\p{N}_]/gu, "").toLowerCase() : "";
-  const trending = useQuery({ queryKey: ["trendingTags"], queryFn: fetchTrendingHashtags, enabled: !tag && !cat });
+  const shortsStatus = useQuery({ queryKey: ["shortsStatus"], queryFn: fetchShortsStatus, staleTime: 5 * 60_000, retry: false });
+  const shortsOn = shortsStatus.data?.enabled === true;
+  // Tendances : hashtags des publications + hashtags des légendes de vidéos K-Short, additionnés
+  const trending = useQuery({
+    queryKey: ["trendingTags", shortsOn],
+    queryFn: async () => {
+      const [posts, vids] = await Promise.all([fetchTrendingHashtags(), shortsOn ? fetchShortTrendingTags().catch(() => []) : Promise.resolve([])]);
+      const sum = new Map<string, number>();
+      for (const t of [...posts, ...vids]) sum.set(t.tag, (sum.get(t.tag) ?? 0) + t.count);
+      return [...sum.entries()].map(([t, count]) => ({ tag: t, count })).sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag)).slice(0, 10);
+    },
+    enabled: !tag && !cat,
+  });
+  const videoResults = useQuery({
+    queryKey: ["shorts", "search", term],
+    enabled: shortsOn && term.length >= 2 && hashtagTerm.length < 2,
+    queryFn: () => searchShorts({ q: term }),
+    retry: false,
+  });
+  const latestVideos = useQuery({
+    queryKey: ["shorts", "explore-latest"],
+    queryFn: async () => (await fetchShortsFeed()).items.slice(0, 12),
+    enabled: shortsOn && !tag && !cat && term.length < 2,
+    staleTime: 60_000,
+    retry: false,
+  });
+  // Touche une vidéo : on l'ouvre dans l'onglet K-Short de l'accueil
+  function openShort(id: string) {
+    try { sessionStorage.setItem("kalchat:feedTab", "shorts"); } catch { /* stockage indisponible : on ignore */ }
+    void navigate({ to: "/" });
+    window.setTimeout(() => window.dispatchEvent(new CustomEvent<string>("kalchat:open-short", { detail: id })), 150);
+  }
 
   const people = useQuery({
     queryKey: ["search", term],
@@ -113,7 +166,7 @@ function ExplorerPage() {
               onKeyDown={(e) => {
                 if (e.key === "Enter" && hashtagTerm.length >= 2) void navigate({ to: "/explorer", search: { tag: hashtagTerm } });
               }}
-              placeholder="Rechercher un membre ou un #hashtag..."
+              placeholder="Rechercher un membre, une vidéo ou un #hashtag..."
               className="w-full bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground" />
           </div>
         </div>
@@ -138,7 +191,15 @@ function ExplorerPage() {
                   <p className="text-xs text-muted-foreground">@{u.username}</p>
                 </div>
               </Link>
-            )) : !people.isLoading && <p className="py-8 text-center text-sm text-muted-foreground">Aucun membre trouvé.</p>}
+            )) : !people.isLoading && !videoResults.data?.length && !videoResults.isLoading && <p className="py-8 text-center text-sm text-muted-foreground">Aucun résultat.</p>}
+            {!!videoResults.data?.length && (
+              <>
+                <h2 className="mb-1 mt-3 text-sm font-bold text-foreground">Vidéos</h2>
+                <div className="-mx-4">
+                  {videoResults.data.map((v) => <ShortFeedCard key={`short-${v.id}`} short={v} />)}
+                </div>
+              </>
+            )}
           </section>
         ) : (
           <>
@@ -160,6 +221,16 @@ function ExplorerPage() {
                   <Link key={t.tag} to="/explorer" search={{ tag: t.tag }} className="rounded-full border border-border bg-secondary/50 px-3 py-1.5 text-xs font-semibold text-foreground hover:bg-secondary">
                     #{t.tag} <span className="ml-1 font-normal text-muted-foreground">{t.count}</span>
                   </Link>
+                ))}
+              </div>
+            </section>
+          )}
+          {!!latestVideos.data?.length && (
+            <section className="pt-3">
+              <h2 className="mb-2 px-4 text-sm font-bold text-foreground">Dernières vidéos</h2>
+              <div className="no-scrollbar flex gap-2 overflow-x-auto px-4 pb-1">
+                {latestVideos.data.map((v) => (
+                  <VideoTile key={v.id} v={v} onOpen={() => openShort(v.id)} />
                 ))}
               </div>
             </section>

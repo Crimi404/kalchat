@@ -64,6 +64,21 @@ export async function fetchInFeedShorts(): Promise<ShortItem[]> {
   return r.items;
 }
 
+/** Recherche de vidéos par mot (légende, auteur) ou par #hashtag. */
+export async function searchShorts(params: { q?: string; tag?: string }): Promise<ShortItem[]> {
+  const qs = new URLSearchParams();
+  if (params.tag) qs.set("tag", params.tag);
+  else if (params.q) qs.set("q", params.q);
+  const r = await api<{ items: ShortItem[] }>(`/shorts/search?${qs.toString()}`);
+  return r.items;
+}
+
+/** Hashtags des légendes de vidéos (7 derniers jours). */
+export async function fetchShortTrendingTags(): Promise<{ tag: string; count: number }[]> {
+  const rows = await api<{ tag: string; count: number | string }[]>("/shorts/trending-tags");
+  return rows.map((r) => ({ tag: r.tag, count: Number(r.count) || 0 }));
+}
+
 /** Vidéos K-Short actives d'un membre (pour sa page de profil). */
 export async function fetchUserShorts(userId: string): Promise<ShortItem[]> {
   const r = await api<{ items: ShortItem[] }>(`/shorts/user/${encodeURIComponent(userId)}`);

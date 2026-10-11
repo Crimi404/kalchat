@@ -252,6 +252,40 @@ router.get('/mine', wrap(async (req, res) => {
   res.json({ items: rows.map((r) => present(r, req.user.id)) });
 }));
 
+// Recherche de vidéos (légende, auteur ou #hashtag) pour la page Explorer
+router.get('/search', wrap(async (req, res) => {
+  const q = String(req.query.q || '').replace(/[%_\\]/g, '').trim().slice(0, 60);
+  const tag = String(req.query.tag || '').replace(/^#/, '').replace(/[^\p{L}\p{N}_]/gu, '').toLowerCase().slice(0, 50);
+  if (q.length < 2 && tag.length < 2) return res.json({ items: [] });
+  let filter;
+  let args;
+  if (tag.length >= 2) {
+    filter = `AND LOWER(COALESCE(s.caption, '')) ~ ?`;
+    args = [`(^|[^[:alnum:]_#])#${tag}($|[^[:alnum:]_])`];
+  } else {
+    const like = `%${q}%`;
+    filter = `AND (s.caption ILIKE ? OR u.username ILIKE ? OR u.first_name ILIKE ? OR u.last_name ILIKE ?)`;
+    args = [like, like, like, like];
+  }
+  const rows = await db
+    .prepare(`${SELECT_SHORT} WHERE s.status = 'active' AND s.expires_at > NOW() AND s.user_id IS NOT NULL ${NOT_BLOCKED} ${filter} ORDER BY s.published_at DESC, s.id DESC LIMIT 30`)
+    .all(req.user.id, req.user.id, req.user.id, ...args);
+  res.json({ items: rows.map((r) => present(r, req.user.id)) });
+}));
+
+// Hashtags des légendes de vidéos (7 derniers jours), à ajouter aux tendances de la page Explorer
+router.get('/trending-tags', wrap(async (req, res) => {
+  const rows = await db
+    .prepare(
+      `SELECT LOWER(m[2]) AS tag, COUNT(DISTINCT s.id) AS count
+       FROM shorts s, regexp_matches(s.caption, '(^|[^[:alnum:]_#])#([[:alpha:]0-9_]{2,50})', 'g') AS m
+       WHERE s.caption IS NOT NULL AND s.status = 'active' AND s.expires_at > NOW() AND s.published_at > NOW() - INTERVAL '7 days'
+       GROUP BY 1 ORDER BY count DESC, tag ASC LIMIT 10`
+    )
+    .all();
+  res.json(rows);
+}));
+
 // Vidéos actives d'un membre (affichées dans sa page de profil, parmi ses publications)
 router.get('/user/:userId', wrap(async (req, res) => {
   const rows = await db
