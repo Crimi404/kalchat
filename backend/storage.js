@@ -65,11 +65,16 @@ async function downloadFileByUrl(url) {
   return { buffer: Buffer.from(await data.arrayBuffer()), type: data.type || '' };
 }
 
+/** Renvoie true si le fichier est supprimé (ou n'est pas dans notre stockage), false si la suppression a échoué. */
 async function deleteFileByUrl(url) {
   const filename = extractFilenameFromUrl(url);
-  if (!filename) return;
+  if (!filename) return true;
   const { error } = await supabase.storage.from(BUCKET).remove([filename]);
-  if (error) console.error('Erreur suppression fichier Supabase Storage:', error.message);
+  if (error) {
+    console.error('Erreur suppression fichier Supabase Storage:', error.message);
+    return false;
+  }
+  return true;
 }
 
 // ---------- Liste les fichiers à la racine du bucket (avec taille et date d'envoi) ----------

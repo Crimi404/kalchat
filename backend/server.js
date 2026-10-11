@@ -3,7 +3,6 @@ const express = require('express');
 const http = require('http');
 const cors = require('cors');
 const path = require('path');
-const multer = require('multer');
 const { Server } = require('socket.io');
 const jwt = require('jsonwebtoken');
 
@@ -21,8 +20,9 @@ const { startEmailPrompts } = require('./emailPrompt');
 const pushRoutes = require('./routes/push');
 const db = require('./db');
 const storage = require('./storage');
+const { registerUpload } = require('./uploadGuard');
 const { cleanupOldMedia, cleanupExpiredMessages } = require('./cleanup');
-const { cleanupExpiredStories, sweepOrphanFiles } = require('./mediaCleanup');
+const { cleanupExpiredStories, sweepOrphanFiles, processDeleteQueue } = require('./mediaCleanup');
 const ai = require('./ai');
 
 const app = express();
@@ -34,40 +34,8 @@ app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 
 // ---------- Upload de médias (photos, vidéos, avatars) — stockés sur Supabase Storage ----------
-const MAX_UPLOAD_MB = 25;
-const MAX_AUDIO_MB = 3;
-
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_UPLOAD_MB * 1024 * 1024 } });
-
-function handleUpload(req, res, next) {
-  upload.single('file')(req, res, (err) => {
-    if (err) {
-      if (err.code === 'LIMIT_FILE_SIZE') {
-        return res.status(413).json({ error: `Fichier trop volumineux (max ${MAX_UPLOAD_MB} Mo)` });
-      }
-      console.error('Erreur upload (multer):', err.message);
-      return res.status(400).json({ error: 'Fichier invalide ou upload échoué' });
-    }
-    next();
-  });
-}
-
-app.post('/api/upload', handleUpload, async (req, res) => {
-  if (!req.file) return res.status(400).json({ error: 'Aucun fichier reçu' });
-  // Un message vocal dure 2 minutes maximum : au-delà de 3 Mo, ce n'est pas un vocal valide
-  if (req.file.mimetype.startsWith('audio/') && req.file.size > MAX_AUDIO_MB * 1024 * 1024) {
-    return res.status(413).json({ error: `Message vocal trop volumineux (max ${MAX_AUDIO_MB} Mo, 2 minutes)` });
-  }
-  try {
-    const ext = path.extname(req.file.originalname) || '';
-    const filename = `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`;
-    const url = await storage.uploadFile(filename, req.file.buffer, req.file.mimetype);
-    res.json({ url, type: storage.mediaTypeFromMimetype(req.file.mimetype) });
-  } catch (err) {
-    console.error('Erreur upload Supabase Storage:', err.message, err);
-    res.status(500).json({ error: `Échec de l'upload : ${err.message || 'erreur inconnue'}` });
-  }
-});
+// Protégé : membres connectés (25 Mo, quotas) ou visiteur à l'inscription (photo seulement, 3 Mo, très limité). Voir uploadGuard.js
+registerUpload(app, storage);
 
 // ---------- Fil public (visiteurs non connectés) : lecture seule, sans personnalisation ----------
 // Un faux identifiant est utilisé : aucun like, favori, abonnement ni blocage ne lui correspond.
@@ -251,6 +219,10 @@ db.initSchema()
     const sweepStorage = () => sweepOrphanFiles().catch((err) => console.error('Erreur balayage stockage:', err.message));
     setTimeout(sweepStorage, 2 * 60 * 1000);
     setInterval(sweepStorage, 24 * 60 * 60 * 1000);
+    // File de suppressions à retenter : fichiers que le stockage n'a pas pu effacer du premier coup (toutes les 10 minutes)
+    const retryDeletes = () => processDeleteQueue().catch((err) => console.error('Erreur file de suppression:', err.message));
+    setTimeout(retryDeletes, 60 * 1000);
+    setInterval(retryDeletes, 10 * 60 * 1000);
     // Messages éphémères : on supprime ceux dont la durée est écoulée, toutes les 5 minutes
     const purgeEphemeral = () => cleanupExpiredMessages(io).catch((err) => console.error('Erreur messages éphémères:', err.message));
     purgeEphemeral();

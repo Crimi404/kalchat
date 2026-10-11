@@ -260,6 +260,14 @@ async function initSchema() {
     ALTER TABLE posts ADD COLUMN IF NOT EXISTS theme TEXT;
     ALTER TABLE posts ADD COLUMN IF NOT EXISTS font TEXT;
     ALTER TABLE posts ADD COLUMN IF NOT EXISTS allow_download INTEGER NOT NULL DEFAULT 1;
+    -- Fichiers à supprimer du stockage dont la 1re tentative a échoué (réessayés automatiquement)
+    CREATE TABLE IF NOT EXISTS media_delete_queue (
+      url TEXT PRIMARY KEY,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      last_error TEXT,
+      next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
     ALTER TABLE stories ADD COLUMN IF NOT EXISTS theme TEXT;
     ALTER TABLE stories ADD COLUMN IF NOT EXISTS font TEXT;
     ALTER TABLE conversations ADD COLUMN IF NOT EXISTS invite_token TEXT;

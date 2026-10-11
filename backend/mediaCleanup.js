@@ -21,14 +21,54 @@ async function isStillUsed(url) {
   return false;
 }
 
-/** À appeler APRÈS la suppression en base : efface le fichier du stockage s'il n'est plus référencé. */
+/** Met un fichier dans la file de suppression : il sera retenté automatiquement (voir processDeleteQueue). */
+async function enqueueDelete(url, reason) {
+  await db
+    .prepare("INSERT INTO media_delete_queue (url, last_error, next_attempt_at) VALUES (?, ?, NOW() + INTERVAL '5 minutes') ON CONFLICT (url) DO NOTHING")
+    .run(url, String(reason || '').slice(0, 300));
+}
+
+/** À appeler APRÈS la suppression en base : efface le fichier du stockage s'il n'est plus référencé. En cas d'échec, il est retenté plus tard. */
 async function releaseMedia(url) {
   if (!url || !extractFilenameFromUrl(url)) return;
   try {
-    if (!(await isStillUsed(url))) await deleteFileByUrl(url);
+    if (await isStillUsed(url)) return;
+    const ok = await deleteFileByUrl(url);
+    if (!ok) await enqueueDelete(url, 'suppression refusée par le stockage');
   } catch (err) {
     console.error('Erreur libération média:', err.message);
+    await enqueueDelete(url, err.message).catch(() => {});
   }
+}
+
+// ---------- Réessaie les suppressions échouées (délai doublé à chaque échec, 24 h maximum, 10 essais) ----------
+const QUEUE_MAX_ATTEMPTS = 10;
+
+async function processDeleteQueue() {
+  const rows = await db
+    .prepare('SELECT url, attempts FROM media_delete_queue WHERE next_attempt_at <= NOW() AND attempts < ? ORDER BY next_attempt_at LIMIT 100')
+    .all(QUEUE_MAX_ATTEMPTS);
+  let done = 0;
+  for (const row of rows) {
+    try {
+      // Si le fichier est de nouveau utilisé quelque part, on ne le supprime surtout pas
+      if (!(await isStillUsed(row.url))) {
+        const ok = await deleteFileByUrl(row.url);
+        if (!ok) throw new Error('suppression refusée par le stockage');
+      }
+      await db.prepare('DELETE FROM media_delete_queue WHERE url = ?').run(row.url);
+      done++;
+    } catch (err) {
+      const attempts = row.attempts + 1;
+      const delayMinutes = Math.min(5 * 2 ** attempts, 24 * 60);
+      await db
+        .prepare("UPDATE media_delete_queue SET attempts = ?, last_error = ?, next_attempt_at = NOW() + (? * INTERVAL '1 minute') WHERE url = ?")
+        .run(attempts, String(err.message).slice(0, 300), delayMinutes, row.url);
+      if (attempts >= QUEUE_MAX_ATTEMPTS) console.error(`⚠️ Suppression abandonnée après ${attempts} essais : ${row.url}`);
+    }
+  }
+  if (done > 0) console.log(`🧹 File de suppression : ${done} fichier(s) supprimé(s) après nouvelle tentative.`);
+  return done;
 }
 
 async function releaseMany(urls) {
@@ -80,4 +120,4 @@ async function sweepOrphanFiles({ dryRun = false } = {}) {
   return result;
 }
 
-module.exports = { releaseMedia, releaseMany, cleanupExpiredStories, sweepOrphanFiles };
+module.exports = { releaseMedia, releaseMany, cleanupExpiredStories, sweepOrphanFiles, processDeleteQueue };
