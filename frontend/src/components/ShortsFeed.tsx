@@ -717,11 +717,11 @@ function ShortSlide({
             className="absolute inset-x-0 z-10 flex h-7 touch-none items-center"
             style={{ bottom: "calc(4.6rem + env(safe-area-inset-bottom) - 0.75rem)" }}
           >
-            <div ref={trackRef} className={`relative w-full rounded-full bg-white/25 transition-[height] ${scrub ? "h-1.5" : "h-1"}`}>
+            <div ref={trackRef} className={`relative w-full rounded-full bg-white/25 transition-[height] ${scrub ? "h-1.5" : "h-[2px]"}`}>
               <div ref={barRef} className="brand-gradient h-full w-0 rounded-full" />
               <div
                 ref={thumbRef}
-                className={`absolute top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-primary shadow-[0_0_10px_var(--glow)] transition-transform ${scrub ? "scale-125" : "scale-100"}`}
+                className={`absolute top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-primary shadow-[0_0_10px_var(--glow)] transition-all ${scrub ? "scale-125 opacity-100" : "scale-0 opacity-0"}`}
                 style={{ left: "0%" }}
               />
             </div>
