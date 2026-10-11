@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { Link } from "@tanstack/react-router";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Clock, Heart, Loader2, MessageCircle, Play, Plus, Send, Share2, Trash2, Volume2, VolumeX, X } from "lucide-react";
@@ -18,11 +19,58 @@ import {
   fetchShortComments,
   fetchShortsFeed,
   timeLeft,
+  toggleShortCommentLike,
   toggleShortLike,
+  type ShortComment,
   type ShortItem,
 } from "@/lib/shorts";
 
 type Patch = Partial<ShortItem> & { gone?: boolean };
+
+// ---------- Un commentaire (aimer, répondre, supprimer) ----------
+function CommentRow({
+  c,
+  reply,
+  canDelete,
+  deleting,
+  onLike,
+  onReply,
+  onDelete,
+  onClose,
+}: {
+  c: ShortComment;
+  reply?: boolean;
+  canDelete: boolean;
+  deleting: boolean;
+  onLike: (c: ShortComment) => void;
+  onReply: (c: ShortComment) => void;
+  onDelete: (id: string) => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className={`flex gap-2 py-2 ${reply ? "ml-9" : ""}`}>
+      <Link to="/u/$username" params={{ username: c.username }} onClick={onClose}>
+        <Avatar url={c.avatar_url} name={c.username} size={reply ? 24 : 28} />
+      </Link>
+      <div className="min-w-0 flex-1">
+        <p className="text-xs font-semibold text-foreground">{c.username}</p>
+        <p className="whitespace-pre-wrap break-words text-sm text-foreground">{c.content}</p>
+        <div className="mt-1 flex items-center gap-4 text-xs text-muted-foreground">
+          <button onClick={() => onReply(c)} className="font-semibold hover:text-foreground">Répondre</button>
+          {canDelete && (
+            <button onClick={() => onDelete(c.id)} disabled={deleting} aria-label="Supprimer le commentaire" className="hover:text-destructive">
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+      </div>
+      <button onClick={() => onLike(c)} aria-label="J'aime ce commentaire" className="flex flex-col items-center gap-0.5 self-start px-1 pt-1 text-muted-foreground">
+        <Heart className={`h-4 w-4 ${c.liked_by_me ? "fill-red-500 text-red-500" : ""}`} />
+        <span className="text-[11px]">{c.like_count > 0 ? c.like_count : ""}</span>
+      </button>
+    </div>
+  );
+}
 
 // ---------- Commentaires (feuille du bas), aussi utilisée par les vidéos du fil classique ----------
 export function ShortComments({
@@ -42,36 +90,84 @@ export function ShortComments({
   const { user } = useAuth();
   const qc = useQueryClient();
   const [text, setText] = useState("");
+  const [replyTo, setReplyTo] = useState<ShortComment | null>(null);
+  const key = ["shortComments", shortId];
   const list = useQuery({
-    queryKey: ["shortComments", shortId],
+    queryKey: key,
     queryFn: () => fetchShortComments(shortId as string),
     enabled: open && !!shortId,
   });
-  const add = useMutation({
-    mutationFn: () => addShortComment(shortId as string, text.trim()),
-    onSuccess: (r) => {
+
+  // Le compteur de la vidéo suit toujours la vraie liste (ajout, suppression d'un commentaire et de ses réponses)
+  const total = list.data?.length;
+  useEffect(() => {
+    if (open && typeof total === "number") onCountChange(total);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [total, open]);
+
+  useEffect(() => {
+    if (!open) {
       setText("");
-      onCountChange(r.comment_count);
-      void qc.invalidateQueries({ queryKey: ["shortComments", shortId] });
+      setReplyTo(null);
+    }
+  }, [open]);
+
+  const add = useMutation({
+    mutationFn: () => addShortComment(shortId as string, text.trim(), replyTo?.id ?? null),
+    onSuccess: () => {
+      setText("");
+      setReplyTo(null);
+      void qc.invalidateQueries({ queryKey: key });
     },
     onError: (e: Error) => toast.error(e.message),
   });
   const del = useMutation({
     mutationFn: (commentId: string) => deleteShortComment(commentId),
-    onSuccess: () => {
-      onCountChange(Math.max(0, (list.data?.length ?? 1) - 1));
-      void qc.invalidateQueries({ queryKey: ["shortComments", shortId] });
-    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: key }),
     onError: (e: Error) => toast.error(e.message),
   });
+  const like = useMutation({
+    mutationFn: (c: ShortComment) => toggleShortCommentLike(c.id),
+    onMutate: async (c) => {
+      // Le coeur réagit tout de suite
+      await qc.cancelQueries({ queryKey: key });
+      const prev = qc.getQueryData<ShortComment[]>(key);
+      qc.setQueryData<ShortComment[]>(key, (old) =>
+        old?.map((x) => (x.id === c.id ? { ...x, liked_by_me: !x.liked_by_me, like_count: Math.max(0, x.like_count + (x.liked_by_me ? -1 : 1)) } : x)),
+      );
+      return { prev };
+    },
+    onError: (e: Error, _c, ctx) => {
+      if (ctx?.prev) qc.setQueryData(key, ctx.prev);
+      toast.error(e.message);
+    },
+    onSuccess: (r, c) => {
+      qc.setQueryData<ShortComment[]>(key, (old) => old?.map((x) => (x.id === c.id ? { ...x, liked_by_me: r.liked, like_count: r.like_count } : x)));
+    },
+  });
 
-  if (!open || !shortId) return null;
-  return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center">
+  const { roots, replies } = useMemo(() => {
+    const all = list.data ?? [];
+    const byParent = new Map<string, ShortComment[]>();
+    for (const c of all) if (c.parent_id) byParent.set(c.parent_id, [...(byParent.get(c.parent_id) ?? []), c]);
+    return { roots: all.filter((c) => !c.parent_id), replies: byParent };
+  }, [list.data]);
+
+  function startReply(c: ShortComment) {
+    setReplyTo(c);
+    setText((t) => (t ? t : `@${c.username} `));
+  }
+  const canDelete = (c: ShortComment) => c.user_id === user?.id || isOwner;
+  const rowProps = { deleting: del.isPending, onLike: (c: ShortComment) => like.mutate(c), onReply: startReply, onDelete: (id: string) => del.mutate(id), onClose };
+
+  if (!open || !shortId || typeof document === "undefined") return null;
+  // Affichée dans <body> : sinon elle passerait sous la barre du bas de l'application
+  return createPortal(
+    <div className="fixed inset-0 z-[60] flex items-end justify-center">
       <div className="animate-fade-in absolute inset-0 bg-black/60" onClick={onClose} />
-      <div className="animate-sheet-up relative flex max-h-[75vh] w-full max-w-md flex-col rounded-t-3xl border-t border-border bg-card">
+      <div className="animate-sheet-up relative flex max-h-[80dvh] w-full max-w-md flex-col rounded-t-3xl border-t border-border bg-card">
         <div className="flex items-center justify-between px-4 pb-2 pt-4">
-          <p className="text-base font-bold text-foreground">Commentaires</p>
+          <p className="text-base font-bold text-foreground">Commentaires{total ? ` (${total})` : ""}</p>
           <button onClick={onClose} aria-label="Fermer" className="rounded-full p-1.5 hover:bg-secondary"><X className="h-5 w-5" /></button>
         </div>
         <div className="min-h-[8rem] flex-1 overflow-y-auto px-4">
@@ -79,33 +175,31 @@ export function ShortComments({
             <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-primary" /></div>
           ) : list.error ? (
             <p className="py-8 text-center text-sm text-destructive">Impossible de charger les commentaires.</p>
-          ) : list.data?.length ? (
-            list.data.map((c) => (
-              <div key={c.id} className="flex gap-2 py-2">
-                <Link to="/u/$username" params={{ username: c.username }} onClick={onClose}>
-                  <Avatar url={c.avatar_url} name={c.username} size={28} />
-                </Link>
-                <div className="min-w-0 flex-1">
-                  <p className="text-xs font-semibold text-foreground">{c.username}</p>
-                  <p className="whitespace-pre-wrap break-words text-sm text-foreground">{c.content}</p>
-                </div>
-                {(c.user_id === user?.id || isOwner) && (
-                  <button onClick={() => del.mutate(c.id)} disabled={del.isPending} aria-label="Supprimer le commentaire" className="self-start p-1 text-muted-foreground hover:text-destructive">
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                )}
+          ) : roots.length ? (
+            roots.map((c) => (
+              <div key={c.id}>
+                <CommentRow c={c} canDelete={canDelete(c)} {...rowProps} />
+                {(replies.get(c.id) ?? []).map((r) => (
+                  <CommentRow key={r.id} c={r} reply canDelete={canDelete(r)} {...rowProps} />
+                ))}
               </div>
             ))
           ) : (
             <p className="py-8 text-center text-sm text-muted-foreground">Aucun commentaire. Lance la discussion !</p>
           )}
         </div>
+        {replyTo && (
+          <div className="flex items-center justify-between border-t border-border bg-secondary/50 px-4 py-1.5 text-xs text-muted-foreground">
+            <span className="truncate">Réponse à @{replyTo.username}</span>
+            <button onClick={() => { setReplyTo(null); setText(""); }} aria-label="Annuler la réponse" className="p-1"><X className="h-3.5 w-3.5" /></button>
+          </div>
+        )}
         <div className="flex items-center gap-2 border-t border-border px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
           <input
             value={text}
             onChange={(e) => setText(e.target.value)}
             maxLength={500}
-            placeholder="Ajouter un commentaire…"
+            placeholder={replyTo ? "Ta réponse…" : "Ajouter un commentaire…"}
             className="min-w-0 flex-1 rounded-full border border-border bg-background px-4 py-2 text-sm text-foreground outline-none focus:border-primary"
             onKeyDown={(e) => {
               if (e.key === "Enter" && text.trim() && !add.isPending) add.mutate();
@@ -121,7 +215,8 @@ export function ShortComments({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -410,7 +505,11 @@ export function ShortsFeed({ header, startId }: { header: ReactNode; startId?: s
   const commentTarget = list.find((i) => i.id === commentsFor) ?? null;
 
   return (
-    <div className="fixed inset-y-0 left-1/2 z-30 w-full max-w-md -translate-x-1/2 bg-black">
+    <div className="fixed inset-y-0 left-1/2 z-30 flex w-full max-w-md -translate-x-1/2 flex-col bg-black">
+      {/* Barre d'onglets (Pour vous / Abonnements / K-Short / Communautés) dans la bande noire du haut, au-dessus de la vidéo */}
+      <div className="relative z-10 shrink-0 bg-black">{header}</div>
+
+      <div className="relative min-h-0 flex-1">
       <div ref={scroller} onScroll={onScroll} className="no-scrollbar h-full snap-y snap-mandatory overflow-y-scroll overscroll-contain">
         {feed.isLoading ? (
           <div className="flex h-full items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-white" /></div>
@@ -444,18 +543,13 @@ export function ShortsFeed({ header, startId }: { header: ReactNode; startId?: s
         )}
       </div>
 
-      {/* Barre d'onglets (Pour vous / Abonnements / K-Short / Communautés) par-dessus la vidéo */}
-      <div className="pointer-events-none absolute inset-x-0 top-0 z-10 bg-gradient-to-b from-black/70 to-transparent pb-4">
-        <div className="pointer-events-auto">{header}</div>
-      </div>
-
       <button
         onClick={() => setUploadOpen(true)}
-        className="brand-gradient absolute right-3 z-10 flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-bold text-primary-foreground shadow-lg"
-        style={{ top: "calc(3.4rem + env(safe-area-inset-top))" }}
+        className="absolute right-3 top-3 z-10 flex items-center gap-1.5 rounded-full bg-white px-4 py-2 text-sm font-bold text-black shadow-[0_2px_12px_rgba(0,0,0,0.6)] ring-2 ring-black/30 active:scale-95"
       >
-        <Plus className="h-4 w-4" /> Publier
+        <Plus className="h-4 w-4" strokeWidth={3} /> Publier
       </button>
+      </div>
 
       <ShortComments
         shortId={commentsFor}

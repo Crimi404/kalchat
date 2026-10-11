@@ -69,6 +69,14 @@ const SCHEMA = `
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   );
   CREATE INDEX IF NOT EXISTS idx_short_comments_short ON short_comments (short_id, created_at);
+  ALTER TABLE short_comments ADD COLUMN IF NOT EXISTS parent_id TEXT REFERENCES short_comments(id) ON DELETE CASCADE;
+
+  CREATE TABLE IF NOT EXISTS short_comment_likes (
+    comment_id TEXT NOT NULL REFERENCES short_comments(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (comment_id, user_id)
+  );
 `;
 
 // ---------- Outils ----------
@@ -278,14 +286,18 @@ router.get('/:id/comments', wrap(async (req, res) => {
   if (!row) return res.status(404).json({ error: 'Vidéo introuvable' });
   const comments = await db
     .prepare(
-      `SELECT c.id, c.content, c.created_at, c.user_id, u.username, u.avatar_url, u.badge
+      `SELECT c.id, c.content, c.created_at, c.user_id, c.parent_id, u.username, u.avatar_url, u.badge,
+              (SELECT COUNT(*) FROM short_comment_likes cl WHERE cl.comment_id = c.id) AS like_count,
+              EXISTS(SELECT 1 FROM short_comment_likes cl WHERE cl.comment_id = c.id AND cl.user_id = ?) AS liked_by_me
        FROM short_comments c JOIN users u ON u.id = c.user_id
        WHERE c.short_id = ? AND u.is_blocked = 0
          AND NOT EXISTS (SELECT 1 FROM user_blocks b WHERE (b.blocker_id = ? AND b.blocked_id = c.user_id) OR (b.blocker_id = c.user_id AND b.blocked_id = ?))
-       ORDER BY c.created_at ASC LIMIT 200`
+       ORDER BY c.created_at ASC LIMIT 300`
     )
-    .all(row.id, req.user.id, req.user.id);
-  res.json({ items: comments });
+    .all(req.user.id, row.id, req.user.id, req.user.id);
+  res.json({
+    items: comments.map((c) => ({ ...c, like_count: Number(c.like_count || 0), liked_by_me: !!c.liked_by_me })),
+  });
 }));
 
 router.post('/:id/comments', wrap(async (req, res) => {
@@ -294,10 +306,29 @@ router.post('/:id/comments', wrap(async (req, res) => {
   const content = typeof req.body.content === 'string' ? req.body.content.trim() : '';
   if (!content) return res.status(400).json({ error: 'Commentaire vide' });
   if (content.length > COMMENT_MAX) return res.status(400).json({ error: `Commentaire trop long (max ${COMMENT_MAX} caractères)` });
+  // Réponse : on rattache toujours à la racine (un seul niveau de réponses, comme sur les publications)
+  let rootId = null;
+  if (req.body.parent_id) {
+    const parent = await db.prepare('SELECT id, short_id, parent_id FROM short_comments WHERE id = ?').get(String(req.body.parent_id));
+    if (!parent || parent.short_id !== row.id) return res.status(404).json({ error: 'Commentaire introuvable' });
+    rootId = parent.parent_id || parent.id;
+  }
   const id = uuid();
-  await db.prepare('INSERT INTO short_comments (id, short_id, user_id, content) VALUES (?, ?, ?, ?)').run(id, row.id, req.user.id, content);
+  await db.prepare('INSERT INTO short_comments (id, short_id, user_id, content, parent_id) VALUES (?, ?, ?, ?, ?)').run(id, row.id, req.user.id, content, rootId);
   const count = await db.prepare('SELECT COUNT(*) AS n FROM short_comments WHERE short_id = ?').get(row.id);
   res.status(201).json({ id, comment_count: count.n });
+}));
+
+router.post('/comments/:commentId/like', wrap(async (req, res) => {
+  const c = await db.prepare('SELECT id, short_id FROM short_comments WHERE id = ?').get(req.params.commentId);
+  if (!c) return res.status(404).json({ error: 'Commentaire introuvable' });
+  const live = await findLive(c.short_id, req.user.id);
+  if (!live) return res.status(404).json({ error: 'Vidéo introuvable' });
+  const already = await db.prepare('SELECT 1 FROM short_comment_likes WHERE comment_id = ? AND user_id = ?').get(c.id, req.user.id);
+  if (already) await db.prepare('DELETE FROM short_comment_likes WHERE comment_id = ? AND user_id = ?').run(c.id, req.user.id);
+  else await db.prepare('INSERT INTO short_comment_likes (comment_id, user_id) VALUES (?, ?) ON CONFLICT DO NOTHING').run(c.id, req.user.id);
+  const count = await db.prepare('SELECT COUNT(*) AS n FROM short_comment_likes WHERE comment_id = ?').get(c.id);
+  res.json({ liked: !already, like_count: Number(count.n) });
 }));
 
 router.delete('/comments/:commentId', wrap(async (req, res) => {

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
+import { createPortal } from "react-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Film, Loader2, X } from "lucide-react";
 import { toast } from "sonner";
@@ -99,11 +100,12 @@ export function ShortUploadSheet({ open, onClose, onPublished }: { open: boolean
     }
   }
 
-  if (!open) return null;
+  if (!open || typeof document === "undefined") return null;
   const endDate = new Date(Date.now() + days * 86_400_000).toLocaleDateString("fr-FR", { day: "numeric", month: "long" });
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center">
+  // Affichée dans <body> : sinon le bouton Publier passait sous la barre du bas de l'application
+  return createPortal(
+    <div className="fixed inset-0 z-[60] flex items-end justify-center">
       <div className="animate-fade-in absolute inset-0 bg-black/60" onClick={close} />
       <div className="animate-sheet-up relative max-h-[90vh] w-full max-w-md overflow-y-auto rounded-t-3xl border-t border-border bg-card p-4 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
         <div className="flex items-start justify-between gap-3">
@@ -178,6 +180,7 @@ export function ShortUploadSheet({ open, onClose, onPublished }: { open: boolean
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Publier
         </button>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

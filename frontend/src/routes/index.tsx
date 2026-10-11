@@ -14,6 +14,7 @@ import logo from "@/assets/kalchat-logo.png";
 import { ApkDownload } from "@/components/ApkDownload";
 import { EmailBanner } from "@/components/EmailBanner";
 import { ShortsFeed } from "@/components/ShortsFeed";
+import { useBackHandler } from "@/lib/back";
 import { ShortFeedCard } from "@/components/ShortFeedCard";
 import { fetchInFeedShorts, fetchShortsStatus, type ShortItem } from "@/lib/shorts";
 import type { FeedPost } from "@/lib/social";
@@ -98,6 +99,8 @@ function FeedPage() {
   const visibleTabs = TABS.filter((t) => t.key !== "shorts" || shortsOn);
   // Les visiteurs non connectés ne voient que le fil public
   const activeTab: FeedTab = user ? (tab === "shorts" && !shortsOn ? "foryou" : tab) : "foryou";
+  // Bouton retour d'Android dans K-Short : on quitte l'onglet (retour au fil « Pour vous ») au lieu de fermer l'application
+  useBackHandler(() => setTab("foryou"), activeTab === "shorts");
   const feed = useQuery({
     queryKey: ["feed", user?.id ?? "guest", activeTab],
     queryFn: () => (!user ? fetchPublicFeed() : activeTab === "following" ? fetchFollowingFeed() : fetchFeed()),

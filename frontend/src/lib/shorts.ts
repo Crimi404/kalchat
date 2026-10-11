@@ -45,6 +45,9 @@ export interface ShortComment {
   username: string;
   avatar_url: string | null;
   badge?: string | null;
+  parent_id: string | null;
+  like_count: number;
+  liked_by_me: boolean;
 }
 
 // ---------- Appels ----------
@@ -74,8 +77,12 @@ export async function fetchShortComments(id: string): Promise<ShortComment[]> {
   return r.items;
 }
 
-export function addShortComment(id: string, content: string): Promise<{ id: string; comment_count: number }> {
-  return api(`/shorts/${id}/comments`, { method: "POST", body: { content } });
+export function addShortComment(id: string, content: string, parentId?: string | null): Promise<{ id: string; comment_count: number }> {
+  return api(`/shorts/${id}/comments`, { method: "POST", body: { content, parent_id: parentId ?? undefined } });
+}
+
+export function toggleShortCommentLike(commentId: string): Promise<{ liked: boolean; like_count: number }> {
+  return api(`/shorts/comments/${commentId}/like`, { method: "POST" });
 }
 
 export function deleteShortComment(commentId: string): Promise<{ ok: boolean }> {
