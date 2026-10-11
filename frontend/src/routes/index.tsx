@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Loader2, SlidersHorizontal } from "lucide-react";
 import { TopBar } from "@/components/TopBar";
@@ -13,6 +13,10 @@ import { FeedPrefsSheet } from "@/components/FeedPrefsSheet";
 import logo from "@/assets/kalchat-logo.png";
 import { ApkDownload } from "@/components/ApkDownload";
 import { EmailBanner } from "@/components/EmailBanner";
+import { ShortsFeed } from "@/components/ShortsFeed";
+import { ShortFeedCard } from "@/components/ShortFeedCard";
+import { fetchInFeedShorts, fetchShortsStatus, type ShortItem } from "@/lib/shorts";
+import type { FeedPost } from "@/lib/social";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -28,57 +32,125 @@ export const Route = createFileRoute("/")({
   component: FeedPage,
 });
 
-type FeedTab = "foryou" | "following" | "communities";
+type FeedTab = "foryou" | "following" | "shorts" | "communities";
 const TABS: { key: FeedTab; label: string }[] = [
   { key: "foryou", label: "Pour vous" },
   { key: "following", label: "Abonnements" },
+  { key: "shorts", label: "K-Short" },
   { key: "communities", label: "Communautés" },
 ];
 
 function readTab(): FeedTab {
   try {
     const v = sessionStorage.getItem("kalchat:feedTab");
-    return v === "following" || v === "communities" ? v : "foryou";
+    return v === "following" || v === "communities" || v === "shorts" ? v : "foryou";
   } catch {
     return "foryou";
   }
 }
 
+/** Vidéo ouverte depuis un lien de partage (/?k=identifiant). */
+function readStartShort(): string | null {
+  try {
+    return new URLSearchParams(window.location.search).get("k");
+  } catch {
+    return null;
+  }
+}
+
+type FeedEntry = { kind: "post"; post: FeedPost } | { kind: "short"; short: ShortItem };
+
+/** Glisse les vidéos « aussi dans le fil » parmi les publications, sans changer l'ordre des publications. */
+function mixShorts(posts: FeedPost[], shorts: ShortItem[]): FeedEntry[] {
+  const vids = [...shorts].sort((a, b) => Date.parse(b.published_at) - Date.parse(a.published_at));
+  const out: FeedEntry[] = [];
+  let vi = 0;
+  for (const post of posts) {
+    const t = Date.parse(post.created_at) || 0;
+    while (vi < vids.length && Date.parse(vids[vi].published_at) >= t) out.push({ kind: "short", short: vids[vi++] });
+    out.push({ kind: "post", post });
+  }
+  while (vi < vids.length) out.push({ kind: "short", short: vids[vi++] });
+  return out;
+}
+
 function FeedPage() {
   const { user, loading } = useAuth();
-  const [tab, setTabState] = useState<FeedTab>(readTab);
+  const [tab, setTabState] = useState<FeedTab>(() => (readStartShort() ? "shorts" : readTab()));
+  const [startShortId, setStartShortId] = useState<string | null>(readStartShort);
   const [prefsOpen, setPrefsOpen] = useState(false);
   function setTab(t: FeedTab) {
     setTabState(t);
     try { sessionStorage.setItem("kalchat:feedTab", t); } catch { /* stockage indisponible : on ignore */ }
   }
+  // « Ouvrir dans K-Short » depuis une vidéo du fil
+  useEffect(() => {
+    const open = (e: Event) => {
+      setStartShortId((e as CustomEvent<string>).detail);
+      setTab("shorts");
+    };
+    window.addEventListener("kalchat:open-short", open);
+    return () => window.removeEventListener("kalchat:open-short", open);
+  }, []);
+  // K-Short n'apparaît que si le serveur l'a activé (stockage R2 configuré)
+  const shortsStatus = useQuery({ queryKey: ["shortsStatus"], queryFn: fetchShortsStatus, enabled: !!user, staleTime: 5 * 60_000, retry: false });
+  const shortsOn = !!user && shortsStatus.data?.enabled === true;
+  const visibleTabs = TABS.filter((t) => t.key !== "shorts" || shortsOn);
   // Les visiteurs non connectés ne voient que le fil public
-  const activeTab: FeedTab = user ? tab : "foryou";
+  const activeTab: FeedTab = user ? (tab === "shorts" && !shortsOn ? "foryou" : tab) : "foryou";
   const feed = useQuery({
     queryKey: ["feed", user?.id ?? "guest", activeTab],
     queryFn: () => (!user ? fetchPublicFeed() : activeTab === "following" ? fetchFollowingFeed() : fetchFeed()),
-    enabled: !loading && activeTab !== "communities",
+    enabled: !loading && activeTab !== "communities" && activeTab !== "shorts",
   });
+  const inFeedShorts = useQuery({
+    queryKey: ["shorts", "in-feed", user?.id],
+    queryFn: fetchInFeedShorts,
+    enabled: shortsOn && activeTab === "foryou",
+    staleTime: 60_000,
+    retry: false,
+  });
+  const mixed = useMemo(() => mixShorts(feed.data ?? [], activeTab === "foryou" && shortsOn ? inFeedShorts.data ?? [] : []), [feed.data, inFeedShorts.data, activeTab, shortsOn]);
+
+  // Barre d'onglets : Pour vous / Abonnements / K-Short / Communautés (version claire dans l'accueil, version sur fond vidéo dans K-Short)
+  const renderTabs = (overlay: boolean) => (
+    <div className={`flex items-center ${overlay ? "pt-[env(safe-area-inset-top)]" : "border-b border-border"}`}>
+      {visibleTabs.map((t) => (
+        <button
+          key={t.key}
+          onClick={() => setTab(t.key)}
+          aria-pressed={activeTab === t.key}
+          className={`relative flex-1 py-3 font-semibold transition-colors ${visibleTabs.length > 3 ? "text-[13px]" : "text-sm"} ${
+            overlay ? (activeTab === t.key ? "text-white" : "text-white/60") : activeTab === t.key ? "text-foreground" : "text-muted-foreground"
+          }`}
+        >
+          {t.label}
+          {activeTab === t.key && <span className={`absolute bottom-0 left-1/2 h-1 w-10 -translate-x-1/2 rounded-full ${overlay ? "bg-white" : "bg-primary"}`} />}
+        </button>
+      ))}
+      {!overlay && activeTab === "foryou" && (
+        <button onClick={() => setPrefsOpen(true)} aria-label="Personnaliser mon fil" className="px-3 py-3 text-muted-foreground hover:text-foreground">
+          <SlidersHorizontal className="h-5 w-5" />
+        </button>
+      )}
+    </div>
+  );
+
+  // Section K-Short : lecteur vertical plein écran (la barre du bas reste disponible)
+  if (user && activeTab === "shorts") {
+    return (
+      <div className="app-shell">
+        <ShortsFeed header={renderTabs(true)} startId={startShortId} />
+        <BottomNav />
+      </div>
+    );
+  }
 
   return (
     <div className="app-shell">
       <TopBar title="Kalchat" subtitle="Ta vibe, ta communauté" />
       <StoriesRow />
-      {user && (
-        <div className="flex items-center border-b border-border">
-          {TABS.map((t) => (
-            <button key={t.key} onClick={() => setTab(t.key)} aria-pressed={activeTab === t.key} className={`relative flex-1 py-3 text-sm font-semibold transition-colors ${activeTab === t.key ? "text-foreground" : "text-muted-foreground"}`}>
-              {t.label}
-              {activeTab === t.key && <span className="absolute bottom-0 left-1/2 h-1 w-10 -translate-x-1/2 rounded-full bg-primary" />}
-            </button>
-          ))}
-          {activeTab === "foryou" && (
-            <button onClick={() => setPrefsOpen(true)} aria-label="Personnaliser mon fil" className="px-3 py-3 text-muted-foreground hover:text-foreground">
-              <SlidersHorizontal className="h-5 w-5" />
-            </button>
-          )}
-        </div>
-      )}
+      {user && renderTabs(false)}
       <FeedPrefsSheet open={prefsOpen} onClose={() => setPrefsOpen(false)} />
       <main className="pb-28">
         {!user && !loading && (
@@ -106,8 +178,8 @@ function FeedPage() {
           <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
         ) : feed.error ? (
           <p className="py-16 text-center text-sm text-destructive">Impossible de charger le fil.</p>
-        ) : feed.data?.length ? (
-          feed.data.map((post) => <PostCard key={post.id} post={post} />)
+        ) : mixed.length ? (
+          mixed.map((entry) => (entry.kind === "post" ? <PostCard key={entry.post.id} post={entry.post} /> : <ShortFeedCard key={`short-${entry.short.id}`} short={entry.short} />))
         ) : (
           <div className="px-6 py-16 text-center">
             <p className="font-semibold text-foreground">{activeTab === "following" ? "Ton fil Abonnements est vide" : "Aucune publication pour le moment"}</p>
