@@ -41,6 +41,13 @@ router.get('/stats', async (req, res) => {
     n("SELECT COUNT(*) AS n FROM stories WHERE media_type = 'video'"),
     n("SELECT COUNT(*) AS n FROM reports WHERE status = 'open'"),
   ]);
+  // Vidéos K-Short actives (la table n'existe que si K-Short est activé)
+  let shorts = 0;
+  try {
+    shorts = await n("SELECT COUNT(*) AS n FROM shorts WHERE status = 'active' AND expires_at > NOW()");
+  } catch {
+    shorts = 0;
+  }
   res.json({
     users,
     online: countOnline(req.app.get('io')),
@@ -50,7 +57,8 @@ router.get('/stats', async (req, res) => {
     blocked,
     open_reports: openReports,
     photos: postPhotos + storyPhotos,
-    videos: postVideos + storyVideos,
+    videos: postVideos + storyVideos + shorts,
+    shorts,
   });
 });
 

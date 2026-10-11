@@ -66,7 +66,8 @@ function NewPost() {
 
   function pick(f: File | undefined) {
     if (!f) return;
-    if (!f.type.startsWith("image/") && !f.type.startsWith("video/")) { toast.error("Choisis une photo ou une vidéo"); return; }
+    if (f.type.startsWith("video/")) { toast.error("Les vidéos se publient dans K-Short : bouton + puis « Vidéo »"); return; }
+    if (!f.type.startsWith("image/")) { toast.error("Choisis une photo"); return; }
     if (f.size > MAX_UPLOAD_MB * 1024 * 1024) { toast.error(`Fichier trop lourd (${MAX_UPLOAD_MB} Mo max)`); return; }
     setFile(f);
     setTheme(null);
@@ -139,8 +140,8 @@ function NewPost() {
           </div>
         ) : (
           <label className="flex cursor-pointer items-center justify-center gap-2 rounded-2xl border border-dashed border-border py-8 text-sm text-muted-foreground hover:bg-secondary/60">
-            <ImagePlus className="h-5 w-5" /> Ajouter une photo ou une vidéo
-            <input type="file" accept="image/*,video/*" className="hidden" onChange={(e) => pick(e.target.files?.[0])} />
+            <ImagePlus className="h-5 w-5" /> Ajouter une photo
+            <input type="file" accept="image/*" className="hidden" onChange={(e) => pick(e.target.files?.[0])} />
           </label>
         )}
         {file && (

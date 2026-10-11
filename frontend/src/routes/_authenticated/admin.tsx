@@ -35,7 +35,7 @@ function mo(bytes: number) {
   return `${(bytes / 1024 / 1024).toFixed(1)} Mo`;
 }
 
-type Stats = { users: number; online: number; messages: number; posts: number; comments: number; photos: number; videos: number; blocked: number; open_reports: number };
+type Stats = { users: number; online: number; messages: number; posts: number; comments: number; photos: number; videos: number; shorts: number; blocked: number; open_reports: number };
 
 type Report = {
   id: string;
@@ -203,7 +203,9 @@ function AdminPage() {
             { label: "Messages", value: stats.data?.messages },
             { label: "Publications", value: stats.data?.posts },
             { label: "Photos", value: stats.data?.photos },
-            { label: "Vidéos", value: stats.data?.videos },
+            { label: "Vidéos (total)", value: stats.data?.videos },
+            { label: "dont K-Short", value: stats.data?.shorts },
+            { label: "Commentaires", value: stats.data?.comments },
           ].map((c) => (
             <div key={c.label} className="rounded-2xl border border-border bg-card p-3">
               <p className="text-2xl font-bold">{c.value ?? "…"}</p>

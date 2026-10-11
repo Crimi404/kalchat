@@ -40,6 +40,10 @@ router.post('/', async (req, res) => {
   if (!content?.trim() && !media_url) {
     return res.status(400).json({ error: 'Le post doit contenir du texte ou un média' });
   }
+  // Les vidéos ne se publient plus ici (elles saturent le stockage) : elles vont dans K-Short, qui a son propre stockage et une durée de vie limitée
+  if (media_url && ((media_type && media_type !== 'image') || /\.(mp4|webm|mov|m4v|3gp|mkv|avi)(\?|#|$)/i.test(String(media_url)))) {
+    return res.status(400).json({ error: 'Les vidéos se publient dans K-Short (bouton +, option Vidéo)' });
+  }
 
   // Fond coloré : uniquement pour un post texte court, sans média
   let theme = normalizeTheme(req.body.theme);
