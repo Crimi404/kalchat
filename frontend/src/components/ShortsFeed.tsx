@@ -377,6 +377,10 @@ function ShortSlide({
   const [fs, setFs] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const barRef = useRef<HTMLDivElement>(null);
+  const thumbRef = useRef<HTMLDivElement>(null);
+  const trackRef = useRef<HTMLDivElement>(null);
+  const dragging = useRef<{ wasPlaying: boolean } | null>(null);
+  const [scrub, setScrub] = useState<{ cur: number; dur: number } | null>(null);
   const refetching = useRef(false);
   const [src, setSrc] = useState(item.video_url);
   const [paused, setPaused] = useState(false);
@@ -466,10 +470,51 @@ function ShortSlide({
   }
 
   const lastTime = useRef(0);
+
+  function setBarPercent(pct: number) {
+    const p = Math.min(100, Math.max(0, pct));
+    if (barRef.current) barRef.current.style.width = `${p}%`;
+    if (thumbRef.current) thumbRef.current.style.left = `${p}%`;
+  }
+
+  /** Barre de progression : on pose ou on glisse le doigt pour avancer / reculer dans la vidéo. */
+  function seekFromPointer(e: React.PointerEvent<HTMLDivElement>) {
+    const v = videoRef.current;
+    const track = trackRef.current;
+    if (!v || !track || !v.duration) return;
+    const rect = track.getBoundingClientRect();
+    const ratio = Math.min(1, Math.max(0, (e.clientX - rect.left) / (rect.width || 1)));
+    v.currentTime = ratio * v.duration;
+    lastTime.current = v.currentTime; // un retour en arrière à la main n'est pas une nouvelle lecture
+    setBarPercent(ratio * 100);
+    setScrub({ cur: v.currentTime, dur: v.duration });
+  }
+
+  function onScrubStart(e: React.PointerEvent<HTMLDivElement>) {
+    const v = videoRef.current;
+    if (!v || !v.duration) return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    dragging.current = { wasPlaying: !v.paused };
+    v.pause();
+    seekFromPointer(e);
+  }
+
+  function onScrubMove(e: React.PointerEvent<HTMLDivElement>) {
+    if (dragging.current) seekFromPointer(e);
+  }
+
+  function onScrubEnd() {
+    const d = dragging.current;
+    dragging.current = null;
+    setScrub(null);
+    const v = videoRef.current;
+    if (d?.wasPlaying && v) void v.play().catch(() => setPaused(true));
+  }
+
   function onTime() {
     const v = videoRef.current;
     const b = barRef.current;
-    if (v && b && v.duration) b.style.width = `${(v.currentTime / v.duration) * 100}%`;
+    if (v && b && v.duration && !dragging.current) setBarPercent((v.currentTime / v.duration) * 100);
     // Vidéo qui repart en boucle (temps qui retombe près de 0 après avoir été près de la fin) = nouvelle lecture
     if (v && v.loop && v.duration && lastTime.current > v.duration * 0.6 && v.currentTime < v.duration * 0.3) countPlay();
     if (v) lastTime.current = v.currentTime;
@@ -659,8 +704,32 @@ function ShortSlide({
         <>
           <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/70 to-transparent" />
 
-          <div className="absolute inset-x-0 h-0.5 bg-white/20" style={{ bottom: "calc(4.6rem + env(safe-area-inset-bottom))" }}>
-            <div ref={barRef} className="h-full w-0 bg-white/80" />
+          {/* Barre de progression aux couleurs Kalchat, qu'on peut faire glisser (zone tactile large pour la saisir facilement) */}
+          <div
+            role="slider"
+            aria-label="Progression de la vidéo"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            onPointerDown={onScrubStart}
+            onPointerMove={onScrubMove}
+            onPointerUp={onScrubEnd}
+            onPointerCancel={onScrubEnd}
+            className="absolute inset-x-0 z-10 flex h-7 touch-none items-center"
+            style={{ bottom: "calc(4.6rem + env(safe-area-inset-bottom) - 0.75rem)" }}
+          >
+            <div ref={trackRef} className={`relative w-full rounded-full bg-white/25 transition-[height] ${scrub ? "h-1.5" : "h-1"}`}>
+              <div ref={barRef} className="brand-gradient h-full w-0 rounded-full" />
+              <div
+                ref={thumbRef}
+                className={`absolute top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-primary shadow-[0_0_10px_var(--glow)] transition-transform ${scrub ? "scale-125" : "scale-100"}`}
+                style={{ left: "0%" }}
+              />
+            </div>
+            {scrub && (
+              <span className="pointer-events-none absolute -top-5 left-1/2 -translate-x-1/2 rounded-full bg-black/60 px-2 py-0.5 text-xs font-semibold tabular-nums text-white">
+                {fmtTime(scrub.cur)} / {fmtTime(scrub.dur)}
+              </span>
+            )}
           </div>
 
           {/* Boutons à droite (comme sur Reels) */}
@@ -766,6 +835,11 @@ function ShortSlide({
 }
 
 // ---------- Section K-Short ----------
+function fmtTime(s: number): string {
+  if (!Number.isFinite(s) || s < 0) return "0:00";
+  return `${Math.floor(s / 60)}:${Math.floor(s % 60).toString().padStart(2, "0")}`;
+}
+
 export function ShortsFeed({ header, startId }: { header: ReactNode; startId?: string | null }) {
   const { user } = useAuth();
   const scroller = useRef<HTMLDivElement>(null);

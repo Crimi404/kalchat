@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { useMutation } from "@tanstack/react-query";
 import { Clapperboard, Heart, MessageCircle, Share2 } from "lucide-react";
@@ -8,7 +8,7 @@ import { BadgeList } from "@/components/KalBadge";
 import { Avatar } from "@/components/PostCard";
 import { ShortComments } from "@/components/ShortsFeed";
 import { publicUrl, shareLink } from "@/lib/share";
-import { firstFrameUrl, shouldAutoplay, useAutoplayMode } from "@/lib/mediaPrefs";
+import { VideoPlayer } from "@/components/VideoPlayer";
 import { fetchShort, recordShortView, timeLeft, toggleShortLike, type ShortItem } from "@/lib/shorts";
 
 /** Une vidéo K-Short publiée aussi dans le fil : c'est la même vidéo (mêmes j'aime et commentaires) que dans la section K-Short. */
@@ -19,38 +19,6 @@ export function ShortFeedCard({ short }: { short: ShortItem }) {
   const [commentCount, setCommentCount] = useState(short.comment_count);
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [gone, setGone] = useState(false);
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const mode = useAutoplayMode();
-
-  // Lecture automatique (selon le réglage) quand la vidéo est bien visible ; elle s'arrête dès qu'on la dépasse en défilant
-  useEffect(() => {
-    const v = videoRef.current;
-    if (!v || typeof IntersectionObserver === "undefined") return;
-    const io = new IntersectionObserver(
-      ([e]) => {
-        if (e.isIntersecting && e.intersectionRatio >= 0.6) {
-          if (shouldAutoplay(mode)) {
-            v.muted = true; // les navigateurs n'autorisent le lancement automatique que sans le son
-            void v.play().catch(() => {});
-          }
-        } else {
-          v.pause();
-        }
-      },
-      { threshold: [0, 0.6] },
-    );
-    io.observe(v);
-    const onHide = () => {
-      if (document.hidden) v.pause();
-    };
-    document.addEventListener("visibilitychange", onHide);
-    return () => {
-      io.disconnect();
-      document.removeEventListener("visibilitychange", onHide);
-      v.pause();
-    };
-  }, [mode, src, gone]);
-
   const like = useMutation({
     mutationFn: () => toggleShortLike(short.id),
     onSuccess: (r) => {
@@ -93,18 +61,18 @@ export function ShortFeedCard({ short }: { short: ShortItem }) {
 
       {short.caption && <p className="mt-2 whitespace-pre-wrap break-words text-sm text-foreground">{short.caption}</p>}
 
-      <video
-        ref={videoRef}
-        src={firstFrameUrl(src)}
-        controls
-        playsInline
-        preload="metadata"
-        onError={onVideoError}
-        onPlay={(e) => {
+      {/* Pas de barre de contrôle dans le fil : un toucher = son / pause, double toucher à gauche ou à droite = −10 s / +10 s */}
+      <VideoPlayer
+        src={src}
+        bare
+        autoplayInView
+        onVideoError={onVideoError}
+        onPlayStart={(v) => {
           // Une lecture = un départ depuis le début (une reprise après pause ne compte pas) ; chaque nouveau visionnage compte, même par la même personne
-          if (!short.mine && e.currentTarget.currentTime < 1.5) void recordShortView(short.id).catch(() => {});
+          if (!short.mine && v.currentTime < 1.5) void recordShortView(short.id).catch(() => {});
         }}
-        className="mt-2 max-h-[70vh] w-full rounded-2xl bg-black"
+        className="mt-2 max-h-[70vh] rounded-2xl"
+        videoClassName="max-h-[70vh]"
       />
 
       <div className="mt-2 flex items-center gap-5 text-muted-foreground">

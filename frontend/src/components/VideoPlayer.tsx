@@ -13,6 +13,12 @@ interface VideoPlayerProps {
   downloadable?: boolean;
   className?: string;
   videoClassName?: string;
+  /** Mode sans barre de contrôle (fil, profil) : on évite les touches par erreur en défilant. Un toucher = son / pause, double toucher à gauche ou à droite = −10 s / +10 s. */
+  bare?: boolean;
+  /** Appelé à chaque lecture (ex. pour compter une vue). */
+  onPlayStart?: (video: HTMLVideoElement) => void;
+  /** Appelé si la vidéo ne charge pas (ex. adresse temporaire expirée). */
+  onVideoError?: () => void;
 }
 
 const SPEEDS = [0.5, 1, 1.25, 1.5, 2];
@@ -30,7 +36,7 @@ type OrientationLock = { lock?: (o: string) => Promise<void>; unlock?: () => voi
 type WakeLockSentinelLike = { release: () => Promise<void> };
 
 /** Lecteur vidéo Kalchat : lecture/pause, progression, volume, vitesse, double-tap ±10 s, plein écran (avec rotation et écran allumé), téléchargement. */
-export function VideoPlayer({ src, autoPlay = false, autoplayInView = false, downloadable = false, className = "", videoClassName = "" }: VideoPlayerProps) {
+export function VideoPlayer({ src, autoPlay = false, autoplayInView = false, downloadable = false, className = "", videoClassName = "", bare = false, onPlayStart, onVideoError }: VideoPlayerProps) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const hideTimer = useRef<number | undefined>(undefined);
@@ -195,6 +201,21 @@ export function VideoPlayer({ src, autoPlay = false, autoplayInView = false, dow
   const togglePlay = () => {
     const v = videoRef.current;
     if (!v) return;
+    if (bare) {
+      // Sans barre de contrôle : le lancement automatique est muet, le premier toucher active le son, le suivant met en pause
+      if (!v.paused && v.muted) {
+        v.muted = false;
+        setMuted(false);
+        if (v.volume === 0) v.volume = 1;
+        return;
+      }
+      if (v.paused) {
+        v.muted = false;
+        setMuted(false);
+        void v.play().catch(() => undefined);
+      } else v.pause();
+      return;
+    }
     if (v.paused) void v.play().catch(() => undefined);
     else v.pause();
     revealControls();
@@ -218,7 +239,7 @@ export function VideoPlayer({ src, autoPlay = false, autoplayInView = false, dow
     setSkipFlash((prev) => ({ side, n: prev && prev.side === side ? prev.n + SKIP_SECONDS : SKIP_SECONDS }));
     window.clearTimeout(skipTimer.current);
     skipTimer.current = window.setTimeout(() => setSkipFlash(null), 700);
-    revealControls();
+    if (!bare) revealControls();
   };
 
   /** Un toucher = lecture/pause ; deux touchers rapides à gauche / à droite = -10 s / +10 s. */
@@ -286,7 +307,8 @@ export function VideoPlayer({ src, autoPlay = false, autoplayInView = false, dow
         playsInline
         preload="metadata"
         onClick={onSurfaceTap}
-        onPlay={() => { setPlaying(true); revealControls(); void acquireWakeLock(); }}
+        onPlay={(e) => { setPlaying(true); if (!bare) revealControls(); void acquireWakeLock(); onPlayStart?.(e.currentTarget); }}
+        onError={() => onVideoError?.()}
         onPause={() => { setPlaying(false); setShowControls(true); releaseWakeLock(); }}
         onEnded={() => { setPlaying(false); setShowControls(true); releaseWakeLock(); }}
         onTimeUpdate={(e) => setCurrent(e.currentTarget.currentTime)}
@@ -323,7 +345,22 @@ export function VideoPlayer({ src, autoPlay = false, autoplayInView = false, dow
         </div>
       )}
 
+      {/* Petit rappel « son coupé » en mode sans contrôles : un toucher active le son */}
+      {bare && playing && muted && (
+        <span className="pointer-events-none absolute right-2 top-2 rounded-full bg-black/55 p-1.5 text-white">
+          <VolumeX className="h-4 w-4" />
+        </span>
+      )}
+
+      {/* En mode sans contrôles, le téléchargement (si autorisé) reste dans un petit bouton discret en haut à gauche */}
+      {bare && downloadable && (
+        <button type="button" aria-label="Télécharger" onClick={() => void downloadMedia(src, "video")} className="absolute left-2 top-2 rounded-full bg-black/45 p-1.5 text-white">
+          <Download className="h-4 w-4" />
+        </button>
+      )}
+
       {/* Barre de contrôle */}
+      {!bare && (
       <div
         className={`absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent px-3 pb-2 pt-8 transition-opacity duration-200 ${pseudoFs || nativeFs ? "pb-[max(0.5rem,env(safe-area-inset-bottom))]" : ""} ${controlsVisible ? "opacity-100" : "pointer-events-none opacity-0"}`}
       >
@@ -386,6 +423,7 @@ export function VideoPlayer({ src, autoPlay = false, autoplayInView = false, dow
           </button>
         </div>
       </div>
+      )}
     </div>
   );
 }
