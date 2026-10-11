@@ -26,6 +26,7 @@ export interface ShortItem {
   like_count: number;
   comment_count: number;
   repost_count?: number;
+  view_count?: number;
   liked: boolean;
   reposted?: boolean;
   saved?: boolean;
@@ -142,6 +143,28 @@ export function unhideShort(id: string): Promise<{ ok: boolean }> {
 /** L'auteur autorise ou interdit le téléchargement de sa vidéo. */
 export function setShortDownload(id: string, allow: boolean): Promise<{ allow_download: boolean }> {
   return api(`/shorts/${id}/download`, { method: "PATCH", body: { allow } });
+}
+
+export interface ShortLiker {
+  id: string;
+  username: string;
+  avatar_url: string | null;
+  badge?: string | null;
+  role?: string | null;
+  first_name?: string | null;
+  last_name?: string | null;
+  me: boolean;
+  follow_status: ShortFollow;
+}
+
+/** Ceux qui ont aimé la vidéo + nombre de lectures et de j'aime. */
+export function fetchShortLikers(id: string): Promise<{ like_count: number; view_count: number; items: ShortLiker[] }> {
+  return api(`/shorts/${id}/likers`);
+}
+
+/** Compte une lecture (une seule fois par spectateur, côté serveur). */
+export function recordShortView(id: string): Promise<{ view_count: number }> {
+  return api(`/shorts/${id}/view`, { method: "POST" });
 }
 
 export async function fetchSavedShorts(): Promise<ShortItem[]> {

@@ -137,11 +137,11 @@ function FeedPage() {
           onClick={() => setTab(t.key)}
           aria-pressed={activeTab === t.key}
           className={`relative flex-1 py-3 font-semibold transition-colors ${visibleTabs.length > 3 ? "text-[13px]" : "text-sm"} ${
-            overlay ? (activeTab === t.key ? "text-white" : "text-white/60") : activeTab === t.key ? "text-foreground" : "text-muted-foreground"
+            activeTab === t.key ? "text-foreground" : "text-muted-foreground"
           }`}
         >
           {t.label}
-          {activeTab === t.key && <span className={`absolute bottom-0 left-1/2 h-1 w-10 -translate-x-1/2 rounded-full ${overlay ? "bg-white" : "bg-primary"}`} />}
+          {activeTab === t.key && <span className={`absolute bottom-0 left-1/2 h-1 w-10 -translate-x-1/2 rounded-full bg-primary`} />}
         </button>
       ))}
       {!overlay && activeTab === "foryou" && (

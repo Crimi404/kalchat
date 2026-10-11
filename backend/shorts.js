@@ -85,6 +85,12 @@ const SCHEMA = `
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (short_id, user_id)
   );
+  CREATE TABLE IF NOT EXISTS short_views (
+    short_id TEXT NOT NULL REFERENCES shorts(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (short_id, user_id)
+  );
   CREATE TABLE IF NOT EXISTS short_hidden (
     short_id TEXT NOT NULL REFERENCES shorts(id) ON DELETE CASCADE,
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -129,6 +135,7 @@ function present(row, viewerId) {
     like_count: Number(row.like_count || 0),
     comment_count: Number(row.comment_count || 0),
     repost_count: Number(row.repost_count || 0),
+    view_count: Number(row.view_count || 0),
     liked: !!row.liked,
     reposted: !!row.reposted,
     saved: !!row.saved,
@@ -147,6 +154,7 @@ const SELECT_SHORT = `
          (SELECT COUNT(*) FROM short_likes l WHERE l.short_id = s.id) AS like_count,
          (SELECT COUNT(*) FROM short_comments c WHERE c.short_id = s.id) AS comment_count,
          (SELECT COUNT(*) FROM short_reposts rp WHERE rp.short_id = s.id) AS repost_count,
+         (SELECT COUNT(*) FROM short_views vw WHERE vw.short_id = s.id) AS view_count,
          EXISTS (SELECT 1 FROM short_likes l WHERE l.short_id = s.id AND l.user_id = ?) AS liked,
          EXISTS (SELECT 1 FROM short_reposts rp WHERE rp.short_id = s.id AND rp.user_id = ?) AS reposted,
          EXISTS (SELECT 1 FROM short_saves sv WHERE sv.short_id = s.id AND sv.user_id = ?) AS saved,
@@ -418,6 +426,48 @@ router.patch('/:id/download', wrap(async (req, res) => {
   res.json({ allow_download: allow });
 }));
 
+// Une vue : comptée une seule fois par spectateur (pas pour l'auteur)
+router.post('/:id/view', wrap(async (req, res) => {
+  const row = await findLive(req.params.id, req.user.id);
+  if (!row) return res.status(404).json({ error: 'Vidéo introuvable' });
+  if (row.user_id !== req.user.id) {
+    await db.prepare('INSERT INTO short_views (short_id, user_id) VALUES (?, ?) ON CONFLICT DO NOTHING').run(row.id, req.user.id);
+  }
+  const count = await db.prepare('SELECT COUNT(*) AS n FROM short_views WHERE short_id = ?').get(row.id);
+  res.json({ view_count: Number(count.n) });
+}));
+
+// Qui a aimé cette vidéo (hors comptes bloqués), avec mon lien d'abonnement avec chacun
+router.get('/:id/likers', wrap(async (req, res) => {
+  const row = await findLive(req.params.id, req.user.id);
+  if (!row) return res.status(404).json({ error: 'Vidéo introuvable' });
+  const likers = await db
+    .prepare(
+      `SELECT u.id, u.username, u.avatar_url, u.badge, u.role, u.first_name, u.last_name,
+              (SELECT f.status FROM follows f WHERE f.follower_id = ? AND f.followed_id = u.id) AS follow_status
+       FROM short_likes l JOIN users u ON u.id = l.user_id
+       WHERE l.short_id = ? AND u.is_blocked = 0
+         AND NOT EXISTS (SELECT 1 FROM user_blocks b WHERE (b.blocker_id = ? AND b.blocked_id = u.id) OR (b.blocker_id = u.id AND b.blocked_id = ?))
+       ORDER BY l.created_at DESC LIMIT 200`
+    )
+    .all(req.user.id, row.id, req.user.id, req.user.id);
+  res.json({
+    like_count: Number(row.like_count || 0),
+    view_count: Number(row.view_count || 0),
+    items: likers.map((u) => ({
+      id: u.id,
+      username: u.username,
+      avatar_url: u.avatar_url,
+      badge: u.badge,
+      role: u.role,
+      first_name: u.first_name,
+      last_name: u.last_name,
+      me: u.id === req.user.id,
+      follow_status: u.follow_status === 'accepted' || u.follow_status === 'pending' ? u.follow_status : 'none',
+    })),
+  });
+}));
+
 router.get('/:id/comments', wrap(async (req, res) => {
   const row = await findLive(req.params.id, req.user.id);
   if (!row) return res.status(404).json({ error: 'Vidéo introuvable' });
@@ -525,7 +575,7 @@ async function runExpiry() {
   // Interactions des vidéos dont le fichier a bien été effacé
   await db.prepare("DELETE FROM short_comments WHERE short_id IN (SELECT id FROM shorts WHERE status IN ('expired', 'deleted') AND r2_deleted_at IS NOT NULL)").run();
   await db.prepare("DELETE FROM short_likes WHERE short_id IN (SELECT id FROM shorts WHERE status IN ('expired', 'deleted') AND r2_deleted_at IS NOT NULL)").run();
-  for (const t of ['short_saves', 'short_reposts', 'short_hidden']) {
+  for (const t of ['short_saves', 'short_reposts', 'short_hidden', 'short_views']) {
     await db.prepare(`DELETE FROM ${t} WHERE short_id IN (SELECT id FROM shorts WHERE status IN ('expired', 'deleted') AND r2_deleted_at IS NOT NULL)`).run();
   }
   // Traces minimales : supprimées après 90 jours

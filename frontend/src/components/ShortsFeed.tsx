@@ -10,6 +10,7 @@ import { BadgeList } from "@/components/KalBadge";
 import { Avatar } from "@/components/PostCard";
 import { ShortUploadSheet } from "@/components/ShortUploadSheet";
 import { ReportSheet } from "@/components/ReportSheet";
+import { ShortLikesSheet } from "@/components/ShortLikesSheet";
 import { ShortSendSheet } from "@/components/ShortSendSheet";
 import { SUPPORT_EMAIL } from "@/lib/legal";
 import { toggleFollow, type Relationship } from "@/lib/social";
@@ -25,6 +26,7 @@ import {
   fetchShortComments,
   fetchShortsFeed,
   hideShort,
+  recordShortView,
   setShortDownload,
   timeLeft,
   toggleShortCommentLike,
@@ -238,7 +240,7 @@ export function ShortComments({
 // ---------- Menu « ⋮ » d'une vidéo (comme sur Reels) ----------
 function MenuRow({ icon: Icon, label, onClick, danger, right }: { icon: LucideIcon; label: string; onClick: () => void; danger?: boolean; right?: ReactNode }) {
   return (
-    <button onClick={onClick} className={`flex w-full items-center gap-4 px-5 py-2.5 text-left text-sm active:bg-white/5 ${danger ? "text-red-500" : "text-white"}`}>
+    <button onClick={onClick} className={`flex w-full items-center gap-4 px-5 py-2.5 text-left text-sm active:bg-secondary ${danger ? "text-destructive" : "text-foreground"}`}>
       <Icon className="h-5 w-5 shrink-0" />
       <span className="flex-1">{label}</span>
       {right}
@@ -284,19 +286,19 @@ function ShortMenu({
   return createPortal(
     <div className="fixed inset-0 z-[60] flex items-end justify-center">
       <div className="animate-fade-in absolute inset-0 bg-black/60" onClick={onClose} />
-      <div className="animate-sheet-up relative max-h-[85dvh] w-full max-w-md overflow-y-auto rounded-t-3xl bg-neutral-900 pb-[max(0.75rem,env(safe-area-inset-bottom))] text-white">
-        <div className="mx-auto mb-2 mt-2.5 h-1 w-10 rounded-full bg-white/30" />
+      <div className="animate-sheet-up relative max-h-[85dvh] w-full max-w-md overflow-y-auto rounded-t-3xl border-t border-border bg-card pb-[max(0.75rem,env(safe-area-inset-bottom))] text-foreground">
+        <div className="mx-auto mb-2 mt-2.5 h-1 w-10 rounded-full bg-muted-foreground/40" />
         <div className="grid grid-cols-3 gap-2 px-4 pb-3 pt-1 text-center">
-          <button onClick={close(onShare)} className="flex flex-col items-center gap-1.5 rounded-xl py-2 active:bg-white/5">
+          <button onClick={close(onShare)} className="flex flex-col items-center gap-1.5 rounded-xl py-2 active:bg-secondary">
             <Share2 className="h-6 w-6" />
             <span className="text-xs font-semibold">Partager</span>
           </button>
-          <button onClick={close(onCopy)} className="flex flex-col items-center gap-1.5 rounded-xl py-2 active:bg-white/5">
+          <button onClick={close(onCopy)} className="flex flex-col items-center gap-1.5 rounded-xl py-2 active:bg-secondary">
             <Link2 className="h-6 w-6" />
             <span className="text-xs font-semibold">Lien</span>
           </button>
-          <button onClick={close(onSave)} className="flex flex-col items-center gap-1.5 rounded-xl py-2 active:bg-white/5">
-            <Bookmark className={`h-6 w-6 ${item.saved ? "fill-white" : ""}`} />
+          <button onClick={close(onSave)} className="flex flex-col items-center gap-1.5 rounded-xl py-2 active:bg-secondary">
+            <Bookmark className={`h-6 w-6 ${item.saved ? "fill-current" : ""}`} />
             <span className="text-xs font-semibold">{item.saved ? "Enregistrée" : "Enregistrer"}</span>
           </button>
         </div>
@@ -305,7 +307,7 @@ function ShortMenu({
           label="Défilement automatique"
           onClick={() => setAutoScroll(!autoScroll)}
           right={
-            <span role="switch" aria-checked={autoScroll} className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${autoScroll ? "bg-primary" : "bg-white/30"}`}>
+            <span role="switch" aria-checked={autoScroll} className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${autoScroll ? "bg-primary" : "bg-muted-foreground/40"}`}>
               <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all ${autoScroll ? "left-[22px]" : "left-0.5"}`} />
             </span>
           }
@@ -321,11 +323,11 @@ function ShortMenu({
         )}
         {!item.mine && <MenuRow icon={EyeOff} label="Ça ne m'intéresse pas" onClick={close(onHide)} />}
         {!item.mine && <MenuRow icon={Flag} label="Signaler" danger onClick={close(onReport)} />}
-        <div className="mt-1 flex items-start gap-4 border-t border-white/10 px-5 py-3 text-sm">
+        <div className="mt-1 flex items-start gap-4 border-t border-border px-5 py-3 text-sm">
           <TriangleAlert className="mt-0.5 h-5 w-5 shrink-0" />
           <p className="min-w-0 flex-1">
             Est-ce que quelque chose ne fonctionne pas ?{" "}
-            <a href={`mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent("Problème sur K-Short")}`} className="font-semibold text-sky-400">
+            <a href={`mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent("Problème sur K-Short")}`} className="font-semibold text-primary">
               Dites-le nous
             </a>
           </p>
@@ -370,6 +372,8 @@ function ShortSlide({
   const sectionRef = useRef<HTMLElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [sendOpen, setSendOpen] = useState(false);
+  const [likesOpen, setLikesOpen] = useState(false);
+  const viewed = useRef(false);
   const [fs, setFs] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const barRef = useRef<HTMLDivElement>(null);
@@ -480,6 +484,21 @@ function ShortSlide({
     },
     onError: (e: Error) => toast.error(e.message),
   });
+
+  // Une lecture est comptée quand la vidéo reste affichée 1,5 s (pas pour l'auteur ; une seule fois par spectateur côté serveur)
+  useEffect(() => {
+    if (!active || item.mine || viewed.current) return;
+    const t = window.setTimeout(() => {
+      viewed.current = true;
+      recordShortView(item.id)
+        .then((r) => onPatch(item.id, { view_count: r.view_count }))
+        .catch(() => {
+          viewed.current = false;
+        });
+    }, 1500);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, item.id, item.mine]);
 
   // ---------- Plein écran (rotation automatique pour une vidéo horizontale) ----------
   type Orientation = { lock?: (o: string) => Promise<void>; unlock?: () => void };
@@ -634,10 +653,14 @@ function ShortSlide({
 
           {/* Boutons à droite (comme sur Reels) */}
           <div className="absolute right-3 flex flex-col items-center gap-4 text-white" style={{ bottom: railBottom }}>
-            <button onClick={() => like.mutate()} disabled={like.isPending} aria-label="J'aime" className="flex flex-col items-center gap-0.5">
-              <Heart className={`h-7 w-7 drop-shadow ${item.liked ? "fill-red-500 text-red-500" : ""}`} />
-              <span className="text-xs font-semibold drop-shadow">{item.like_count}</span>
-            </button>
+            <div className="flex flex-col items-center">
+              <button onClick={() => like.mutate()} disabled={like.isPending} aria-label="J'aime" className="p-0.5">
+                <Heart className={`h-7 w-7 drop-shadow ${item.liked ? "fill-red-500 text-red-500" : ""}`} />
+              </button>
+              <button onClick={() => setLikesOpen(true)} aria-label="Voir qui a aimé" className="px-2 py-0.5 text-xs font-semibold drop-shadow">
+                {item.like_count}
+              </button>
+            </div>
             <button onClick={() => onOpenComments(item.id)} aria-label="Commentaires" className="flex flex-col items-center gap-0.5">
               <MessageCircle className="h-7 w-7 drop-shadow" />
               <span className="text-xs font-semibold drop-shadow">{item.comment_count}</span>
@@ -705,6 +728,8 @@ function ShortSlide({
           </div>
         </>
       )}
+
+      {likesOpen && <ShortLikesSheet shortId={item.id} onClose={() => setLikesOpen(false)} />}
 
       {sendOpen && <ShortSendSheet shortId={item.id} caption={item.caption} onClose={() => setSendOpen(false)} />}
 
@@ -812,18 +837,18 @@ export function ShortsFeed({ header, startId }: { header: ReactNode; startId?: s
   const commentTarget = list.find((i) => i.id === commentsFor) ?? null;
 
   return (
-    <div className="fixed inset-y-0 left-1/2 z-30 flex w-full max-w-md -translate-x-1/2 flex-col bg-black">
+    <div className="fixed inset-y-0 left-1/2 z-30 flex w-full max-w-md -translate-x-1/2 flex-col bg-background">
       {/* Barre d'onglets (Pour vous / Abonnements / K-Short / Communautés) dans la bande noire du haut, au-dessus de la vidéo */}
-      <div className="relative z-10 shrink-0 bg-black">{header}</div>
+      <div className="relative z-10 shrink-0 bg-background">{header}</div>
 
       <div className="relative min-h-0 flex-1">
       <div ref={scroller} onScroll={onScroll} className="no-scrollbar h-full snap-y snap-mandatory overflow-y-scroll overscroll-contain">
         {feed.isLoading ? (
-          <div className="flex h-full items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-white" /></div>
+          <div className="flex h-full items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-primary" /></div>
         ) : feed.error && !list.length ? (
-          <div className="flex h-full flex-col items-center justify-center gap-3 px-8 text-center text-white">
+          <div className="flex h-full flex-col items-center justify-center gap-3 px-8 text-center text-foreground">
             <p className="text-sm">Impossible de charger K-Short.</p>
-            <button onClick={() => void feed.refetch()} className="rounded-full border border-white/40 px-5 py-2 text-sm font-semibold">Réessayer</button>
+            <button onClick={() => void feed.refetch()} className="rounded-full border border-border px-5 py-2 text-sm font-semibold">Réessayer</button>
           </div>
         ) : list.length ? (
           list.map((item, i) => (
@@ -845,14 +870,14 @@ export function ShortsFeed({ header, startId }: { header: ReactNode; startId?: s
             />
           ))
         ) : (
-          <div className="flex h-full flex-col items-center justify-center gap-3 px-8 text-center text-white">
+          <div className="flex h-full flex-col items-center justify-center gap-3 px-8 text-center text-foreground">
             <p className="text-base font-bold">Aucune vidéo pour le moment</p>
-            <p className="text-sm text-white/70">Sois le premier à publier une vidéo K-Short !</p>
+            <p className="text-sm text-muted-foreground">Sois le premier à publier une vidéo K-Short !</p>
             <button onClick={() => setUploadOpen(true)} className="brand-gradient mt-2 rounded-full px-6 py-2.5 text-sm font-bold text-primary-foreground">Publier une vidéo</button>
           </div>
         )}
         {feed.isFetchingNextPage && (
-          <div className="flex h-16 items-center justify-center"><Loader2 className="h-5 w-5 animate-spin text-white" /></div>
+          <div className="flex h-16 items-center justify-center"><Loader2 className="h-5 w-5 animate-spin text-primary" /></div>
         )}
       </div>
 

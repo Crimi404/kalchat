@@ -8,11 +8,13 @@ Copier ces fichiers dans le projet, aux mêmes emplacements (ils remplacent les 
   frontend/src/lib/reports.ts
   frontend/src/components/ShortsFeed.tsx
   frontend/src/components/ShortSendSheet.tsx   (nouveau)
+  frontend/src/components/ShortLikesSheet.tsx  (nouveau)
+  frontend/src/routes/index.tsx
   frontend/src/components/ShortFeedCard.tsx
   frontend/src/components/ReportSheet.tsx
   frontend/src/components/ProfileView.tsx
   frontend/src/routes/_authenticated/admin.tsx
 
 Aucune variable Render à ajouter. Les nouvelles tables (enregistrements, republications,
-vidéos masquées) et la colonne « téléchargement autorisé » sont créées toutes seules au
+vidéos masquées, lectures) et la colonne « téléchargement autorisé » sont créées toutes seules au
 démarrage du serveur. Déployer le serveur d'abord, puis le site / l'APK.
