@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Link } from "@tanstack/react-router";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Clock, Heart, Loader2, MessageCircle, Play, Plus, Send, Share2, Trash2, Volume2, VolumeX, X } from "lucide-react";
+import { ChevronsDown, Clock, Heart, Loader2, MessageCircle, Play, Plus, Send, Share2, Trash2, Volume2, VolumeX, X } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
 import { ApiError, displayName, toBadges } from "@/lib/api";
@@ -227,6 +227,10 @@ function ShortSlide({
   near,
   muted,
   setMuted,
+  autoScroll,
+  setAutoScroll,
+  hasNext,
+  onNext,
   onPatch,
   onOpenComments,
 }: {
@@ -235,6 +239,10 @@ function ShortSlide({
   near: boolean;
   muted: boolean;
   setMuted: (m: boolean) => void;
+  autoScroll: boolean;
+  setAutoScroll: (v: boolean) => void;
+  hasNext: boolean;
+  onNext: () => void;
   onPatch: (id: string, patch: Patch) => void;
   onOpenComments: (id: string) => void;
 }) {
@@ -361,12 +369,24 @@ function ShortSlide({
           src={src}
           className="absolute inset-0 h-full w-full object-contain"
           playsInline
-          loop
+          loop={!autoScroll}
           muted={muted}
           preload={active ? "auto" : "metadata"}
           onClick={togglePlay}
           onError={onVideoError}
           onTimeUpdate={onTime}
+          onEnded={() => {
+            // Défilement automatique : à la fin de la vidéo on passe à la suivante (sur la dernière, on la rejoue)
+            if (!autoScroll) return;
+            if (hasNext) onNext();
+            else {
+              const v = videoRef.current;
+              if (v) {
+                v.currentTime = 0;
+                void v.play().catch(() => setPaused(true));
+              }
+            }
+          }}
         />
       ) : null}
 
@@ -384,11 +404,6 @@ function ShortSlide({
 
       {/* Boutons à droite */}
       <div className="absolute right-3 flex flex-col items-center gap-5 text-white" style={{ bottom: railBottom }}>
-        {author && (
-          <Link to="/u/$username" params={{ username: author.username }} aria-label={`Profil de ${name}`}>
-            <Avatar url={author.avatar_url} name={name} size={44} />
-          </Link>
-        )}
         <button onClick={() => like.mutate()} disabled={like.isPending} aria-label="J'aime" className="flex flex-col items-center gap-1">
           <Heart className={`h-8 w-8 drop-shadow ${item.liked ? "fill-red-500 text-red-500" : ""}`} />
           <span className="text-xs font-semibold drop-shadow">{item.like_count}</span>
@@ -404,6 +419,18 @@ function ShortSlide({
         >
           <Share2 className="h-7 w-7 drop-shadow" />
           <span className="text-xs font-semibold drop-shadow">Partager</span>
+        </button>
+        <button
+          onClick={() => {
+            setAutoScroll(!autoScroll);
+            toast(autoScroll ? "Défilement automatique désactivé" : "Défilement automatique activé");
+          }}
+          aria-pressed={autoScroll}
+          aria-label={autoScroll ? "Désactiver le défilement automatique" : "Activer le défilement automatique"}
+          className={`flex flex-col items-center gap-0.5 rounded-full p-2 ${autoScroll ? "bg-white text-black" : "bg-black/40 text-white"}`}
+        >
+          <ChevronsDown className="h-5 w-5" />
+          <span className="text-[9px] font-bold leading-none">AUTO</span>
         </button>
         <button onClick={() => setMuted(!muted)} aria-label={muted ? "Activer le son" : "Couper le son"} className="rounded-full bg-black/40 p-2">
           {muted ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}
@@ -425,7 +452,10 @@ function ShortSlide({
       {/* Infos en bas à gauche */}
       <div className="absolute left-4 right-20 text-white" style={{ bottom: infoBottom }}>
         {author && (
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-2">
+            <Link to="/u/$username" params={{ username: author.username }} aria-label={`Profil de ${name}`} className="shrink-0 rounded-full ring-2 ring-white/80">
+              <Avatar url={author.avatar_url} name={name} size={36} />
+            </Link>
             <Link to="/u/$username" params={{ username: author.username }} className="truncate text-sm font-bold drop-shadow hover:underline">
               {name}
             </Link>
@@ -452,6 +482,14 @@ export function ShortsFeed({ header, startId }: { header: ReactNode; startId?: s
   const raf = useRef(0);
   const [active, setActive] = useState(0);
   const [muted, setMuted] = useState(false);
+  // Réglage « défilement automatique » : retenu sur le téléphone
+  const [autoScroll, setAutoScrollState] = useState<boolean>(() => {
+    try { return localStorage.getItem("kalchat:shortsAutoScroll") === "1"; } catch { return false; }
+  });
+  function setAutoScroll(v: boolean) {
+    setAutoScrollState(v);
+    try { localStorage.setItem("kalchat:shortsAutoScroll", v ? "1" : "0"); } catch { /* stockage indisponible : on ignore */ }
+  }
   const [patches, setPatches] = useState<Record<string, Patch>>({});
   const [commentsFor, setCommentsFor] = useState<string | null>(null);
   const [uploadOpen, setUploadOpen] = useState(false);
@@ -498,6 +536,11 @@ export function ShortsFeed({ header, startId }: { header: ReactNode; startId?: s
     });
   }
 
+  function goNext() {
+    const el = scroller.current;
+    if (el) el.scrollTo({ top: (active + 1) * el.clientHeight, behavior: "smooth" });
+  }
+
   function patch(id: string, p: Patch) {
     setPatches((prev) => ({ ...prev, [id]: { ...(prev[id] ?? {}), ...p } }));
   }
@@ -527,6 +570,10 @@ export function ShortsFeed({ header, startId }: { header: ReactNode; startId?: s
               near={Math.abs(i - active) <= 1}
               muted={muted}
               setMuted={setMuted}
+              autoScroll={autoScroll}
+              setAutoScroll={setAutoScroll}
+              hasNext={i < list.length - 1}
+              onNext={goNext}
               onPatch={patch}
               onOpenComments={setCommentsFor}
             />
