@@ -82,7 +82,7 @@ export function ShortFeedCard({ short }: { short: ShortItem }) {
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
             <Link to="/u/$username" params={{ username: author.username }} className="truncate text-sm font-bold text-foreground hover:underline">{name}</Link>
-            <BadgeList badges={toBadges(author.id, author.badge, null)} />
+            <BadgeList badges={toBadges(author.id, author.badge, author.role)} />
           </div>
           <p className="text-xs text-muted-foreground">Disparaît dans {timeLeft(short.expires_at)}</p>
         </div>

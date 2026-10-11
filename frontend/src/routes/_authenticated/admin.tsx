@@ -39,7 +39,7 @@ type Stats = { users: number; online: number; messages: number; posts: number; c
 
 type Report = {
   id: string;
-  target_type: "post" | "comment" | "message" | "user";
+  target_type: "post" | "comment" | "message" | "user" | "short";
   target_id: string;
   reason: string;
   details: string | null;
@@ -56,7 +56,7 @@ type Report = {
   comment_post_id: string | null;
 };
 
-const TARGET_LABEL: Record<Report["target_type"], string> = { post: "Publication", comment: "Commentaire", message: "Message privé", user: "Compte" };
+const TARGET_LABEL: Record<Report["target_type"], string> = { post: "Publication", comment: "Commentaire", message: "Message privé", user: "Compte", short: "Vidéo K-Short" };
 
 interface RawMember {
   id: string;
@@ -173,6 +173,9 @@ function AdminPage() {
                         <Link to="/post/$id" params={{ id: r.target_id }} className={btn}>Voir</Link>
                         <button className={`${btn} text-destructive`} onClick={() => run(api(`/posts/${r.target_id}`, { method: "DELETE" }).then(() => api(`/admin/reports/${r.id}`, { method: "PATCH", body: { status: "resolved" } })), "Publication supprimée")}>Supprimer la publication</button>
                       </>
+                    )}
+                    {r.target_type === "short" && r.target_exists && (
+                      <button className={`${btn} text-destructive`} onClick={() => run(api(`/shorts/${r.target_id}`, { method: "DELETE" }).then(() => api(`/admin/reports/${r.id}`, { method: "PATCH", body: { status: "resolved" } })), "Vidéo supprimée")}>Supprimer la vidéo</button>
                     )}
                     {r.target_type === "comment" && r.target_exists && (
                       <>

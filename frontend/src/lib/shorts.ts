@@ -1,4 +1,5 @@
 import { api, ApiError } from "@/lib/api";
+import { downloadMedia } from "@/lib/download";
 
 // ---------- Types ----------
 export interface ShortAuthor {
@@ -6,9 +7,12 @@ export interface ShortAuthor {
   username: string;
   avatar_url: string | null;
   badge?: string | null;
+  role?: string | null;
   first_name?: string | null;
   last_name?: string | null;
 }
+
+export type ShortFollow = "none" | "pending" | "accepted";
 
 export interface ShortItem {
   id: string;
@@ -21,7 +25,14 @@ export interface ShortItem {
   expires_at: string;
   like_count: number;
   comment_count: number;
+  repost_count?: number;
   liked: boolean;
+  reposted?: boolean;
+  saved?: boolean;
+  /** L'auteur autorise-t-il le téléchargement ? (activé par défaut) */
+  allow_download?: boolean;
+  /** Mon lien avec l'auteur : pas abonné, demande envoyée ou abonné. */
+  follow_status?: ShortFollow;
   mine: boolean;
   /** Adresse temporaire de lecture (valable ~30 min). null si la vidéo n'est plus disponible. */
   video_url: string | null;
@@ -45,6 +56,7 @@ export interface ShortComment {
   username: string;
   avatar_url: string | null;
   badge?: string | null;
+  role?: string | null;
   parent_id: string | null;
   like_count: number;
   liked_by_me: boolean;
@@ -108,6 +120,50 @@ export function toggleShortCommentLike(commentId: string): Promise<{ liked: bool
 
 export function deleteShortComment(commentId: string): Promise<{ ok: boolean }> {
   return api(`/shorts/comments/${commentId}`, { method: "DELETE" });
+}
+
+export function toggleShortSave(id: string): Promise<{ saved: boolean }> {
+  return api(`/shorts/${id}/save`, { method: "POST" });
+}
+
+export function toggleShortRepost(id: string): Promise<{ reposted: boolean; repost_count: number }> {
+  return api(`/shorts/${id}/repost`, { method: "POST" });
+}
+
+/** « Ça ne m'intéresse pas » : la vidéo disparaît de mon flux. */
+export function hideShort(id: string): Promise<{ ok: boolean }> {
+  return api(`/shorts/${id}/hide`, { method: "POST" });
+}
+
+export function unhideShort(id: string): Promise<{ ok: boolean }> {
+  return api(`/shorts/${id}/hide`, { method: "DELETE" });
+}
+
+/** L'auteur autorise ou interdit le téléchargement de sa vidéo. */
+export function setShortDownload(id: string, allow: boolean): Promise<{ allow_download: boolean }> {
+  return api(`/shorts/${id}/download`, { method: "PATCH", body: { allow } });
+}
+
+export async function fetchSavedShorts(): Promise<ShortItem[]> {
+  const r = await api<{ items: ShortItem[] }>("/shorts/saved");
+  return r.items;
+}
+
+/** Télécharge la vidéo (galerie du téléphone dans l'APK). Le serveur refuse si l'auteur a interdit le téléchargement. */
+export async function downloadShort(id: string): Promise<void> {
+  const r = await api<{ url: string }>(`/shorts/${id}/download-url`);
+  const cap = (window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor;
+  if (cap?.isNativePlatform?.()) {
+    await downloadMedia(r.url, "video");
+    return;
+  }
+  // Navigateur : l'adresse force déjà l'enregistrement du fichier
+  const a = document.createElement("a");
+  a.href = r.url;
+  a.rel = "noopener";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
 }
 
 export function deleteShort(id: string): Promise<{ ok: boolean }> {

@@ -1,6 +1,6 @@
 import { api } from "@/lib/api";
 
-export type ReportTarget = "post" | "comment" | "message" | "user";
+export type ReportTarget = "post" | "comment" | "message" | "user" | "short";
 
 export const REPORT_REASONS: { value: string; label: string; hint?: string }[] = [
   { value: "spam", label: "Spam ou publicité", hint: "Contenu répétitif, liens douteux, faux comptes" },

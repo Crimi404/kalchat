@@ -71,6 +71,27 @@ const SCHEMA = `
   CREATE INDEX IF NOT EXISTS idx_short_comments_short ON short_comments (short_id, created_at);
   ALTER TABLE short_comments ADD COLUMN IF NOT EXISTS parent_id TEXT REFERENCES short_comments(id) ON DELETE CASCADE;
 
+  ALTER TABLE shorts ADD COLUMN IF NOT EXISTS allow_download BOOLEAN NOT NULL DEFAULT TRUE;
+
+  CREATE TABLE IF NOT EXISTS short_saves (
+    short_id TEXT NOT NULL REFERENCES shorts(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (short_id, user_id)
+  );
+  CREATE TABLE IF NOT EXISTS short_reposts (
+    short_id TEXT NOT NULL REFERENCES shorts(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (short_id, user_id)
+  );
+  CREATE TABLE IF NOT EXISTS short_hidden (
+    short_id TEXT NOT NULL REFERENCES shorts(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (short_id, user_id)
+  );
+
   CREATE TABLE IF NOT EXISTS short_comment_likes (
     comment_id TEXT NOT NULL REFERENCES short_comments(id) ON DELETE CASCADE,
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -99,7 +120,7 @@ function present(row, viewerId) {
   return {
     id: row.id,
     caption: row.caption,
-    author: row.user_id ? { id: row.user_id, username: row.username, avatar_url: row.avatar_url, badge: row.badge, first_name: row.first_name, last_name: row.last_name } : null,
+    author: row.user_id ? { id: row.user_id, username: row.username, avatar_url: row.avatar_url, badge: row.badge, role: row.role, first_name: row.first_name, last_name: row.last_name } : null,
     content_type: row.content_type,
     duration_seconds: row.duration_seconds,
     in_feed: !!row.in_feed,
@@ -107,7 +128,12 @@ function present(row, viewerId) {
     expires_at: row.expires_at,
     like_count: Number(row.like_count || 0),
     comment_count: Number(row.comment_count || 0),
+    repost_count: Number(row.repost_count || 0),
     liked: !!row.liked,
+    reposted: !!row.reposted,
+    saved: !!row.saved,
+    allow_download: row.allow_download !== false,
+    follow_status: row.follow_status === 'accepted' || row.follow_status === 'pending' ? row.follow_status : 'none',
     mine: row.user_id === viewerId,
     video_url: live ? r2.signedUrl('GET', row.r2_key, { expiresSec: GET_TTL_SEC }) : null,
     video_url_ttl: live ? GET_TTL_SEC : null,
@@ -116,14 +142,21 @@ function present(row, viewerId) {
 
 const SELECT_SHORT = `
   SELECT s.id, s.user_id, s.caption, s.r2_key, s.content_type, s.duration_seconds, s.in_feed, s.status, s.published_at, s.expires_at,
-         u.username, u.avatar_url, u.badge, u.first_name, u.last_name,
+         s.allow_download, u.username, u.avatar_url, u.badge, u.role, u.first_name, u.last_name,
          to_char(s.published_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS published_cursor,
          (SELECT COUNT(*) FROM short_likes l WHERE l.short_id = s.id) AS like_count,
          (SELECT COUNT(*) FROM short_comments c WHERE c.short_id = s.id) AS comment_count,
-         EXISTS (SELECT 1 FROM short_likes l WHERE l.short_id = s.id AND l.user_id = ?) AS liked
+         (SELECT COUNT(*) FROM short_reposts rp WHERE rp.short_id = s.id) AS repost_count,
+         EXISTS (SELECT 1 FROM short_likes l WHERE l.short_id = s.id AND l.user_id = ?) AS liked,
+         EXISTS (SELECT 1 FROM short_reposts rp WHERE rp.short_id = s.id AND rp.user_id = ?) AS reposted,
+         EXISTS (SELECT 1 FROM short_saves sv WHERE sv.short_id = s.id AND sv.user_id = ?) AS saved,
+         (SELECT f.status FROM follows f WHERE f.follower_id = ? AND f.followed_id = s.user_id) AS follow_status
   FROM shorts s
   LEFT JOIN users u ON u.id = s.user_id
 `;
+
+// SELECT_SHORT attend 4 fois l'identifiant du spectateur (aimé, republié, enregistré, abonnement), avant les autres paramètres
+const V4 = (v) => [v, v, v, v];
 
 // Hors blocages dans les deux sens et comptes bloqués par l'équipe
 const NOT_BLOCKED = `
@@ -135,7 +168,7 @@ const NOT_BLOCKED = `
 async function findLive(id, viewerId) {
   return db
     .prepare(`${SELECT_SHORT} WHERE s.id = ? AND s.status = 'active' AND s.expires_at > NOW() AND s.user_id IS NOT NULL ${NOT_BLOCKED}`)
-    .get(viewerId, id, viewerId, viewerId);
+    .get(...V4(viewerId), id, viewerId, viewerId);
 }
 
 // ---------- Routes (membres connectés) ----------
@@ -224,7 +257,7 @@ router.post('/:id/complete', wrap(async (req, res) => {
 
 // Flux : vidéos actives, de la plus récente à la plus ancienne (curseur = « date|id » de la dernière vidéo reçue)
 router.get('/feed', wrap(async (req, res) => {
-  const params = [req.user.id, req.user.id, req.user.id];
+  const params = [...V4(req.user.id), req.user.id, req.user.id, req.user.id];
   let cursorSql = '';
   if (req.query.cursor) {
     const [ts, cid] = String(req.query.cursor).split('|');
@@ -234,7 +267,7 @@ router.get('/feed', wrap(async (req, res) => {
   }
   params.push(FEED_PAGE + 1);
   const rows = await db
-    .prepare(`${SELECT_SHORT} WHERE s.status = 'active' AND s.expires_at > NOW() AND s.user_id IS NOT NULL ${NOT_BLOCKED} ${cursorSql} ORDER BY s.published_at DESC, s.id DESC LIMIT ?`)
+    .prepare(`${SELECT_SHORT} WHERE s.status = 'active' AND s.expires_at > NOW() AND s.user_id IS NOT NULL ${NOT_BLOCKED} AND NOT EXISTS (SELECT 1 FROM short_hidden h WHERE h.short_id = s.id AND h.user_id = ?) ${cursorSql} ORDER BY s.published_at DESC, s.id DESC LIMIT ?`)
     .all(...params);
   const page = rows.slice(0, FEED_PAGE);
   const last = page[page.length - 1];
@@ -248,7 +281,7 @@ router.get('/feed', wrap(async (req, res) => {
 router.get('/mine', wrap(async (req, res) => {
   const rows = await db
     .prepare(`${SELECT_SHORT} WHERE s.user_id = ? AND s.status = 'active' AND s.expires_at > NOW() ORDER BY s.published_at DESC, s.id DESC LIMIT 100`)
-    .all(req.user.id, req.user.id);
+    .all(...V4(req.user.id), req.user.id);
   res.json({ items: rows.map((r) => present(r, req.user.id)) });
 }));
 
@@ -269,7 +302,7 @@ router.get('/search', wrap(async (req, res) => {
   }
   const rows = await db
     .prepare(`${SELECT_SHORT} WHERE s.status = 'active' AND s.expires_at > NOW() AND s.user_id IS NOT NULL ${NOT_BLOCKED} ${filter} ORDER BY s.published_at DESC, s.id DESC LIMIT 30`)
-    .all(req.user.id, req.user.id, req.user.id, ...args);
+    .all(...V4(req.user.id), req.user.id, req.user.id, ...args);
   res.json({ items: rows.map((r) => present(r, req.user.id)) });
 }));
 
@@ -290,15 +323,23 @@ router.get('/trending-tags', wrap(async (req, res) => {
 router.get('/user/:userId', wrap(async (req, res) => {
   const rows = await db
     .prepare(`${SELECT_SHORT} WHERE s.user_id = ? AND s.status = 'active' AND s.expires_at > NOW() ${NOT_BLOCKED} ORDER BY s.published_at DESC, s.id DESC LIMIT 100`)
-    .all(req.user.id, String(req.params.userId), req.user.id, req.user.id);
+    .all(...V4(req.user.id), String(req.params.userId), req.user.id, req.user.id);
   res.json({ items: rows.map((r) => present(r, req.user.id)) });
 }));
 
 // Vidéos publiées aussi dans le fil classique (« K-Short + fil ») : ce sont les MÊMES vidéos, avec les mêmes likes et commentaires
 router.get('/in-feed', wrap(async (req, res) => {
   const rows = await db
-    .prepare(`${SELECT_SHORT} WHERE s.status = 'active' AND s.expires_at > NOW() AND s.in_feed = TRUE AND s.user_id IS NOT NULL ${NOT_BLOCKED} ORDER BY s.published_at DESC, s.id DESC LIMIT 20`)
-    .all(req.user.id, req.user.id, req.user.id);
+    .prepare(`${SELECT_SHORT} WHERE s.status = 'active' AND s.expires_at > NOW() AND (s.in_feed = TRUE OR EXISTS (SELECT 1 FROM short_reposts rp2 WHERE rp2.short_id = s.id AND (rp2.user_id = ? OR rp2.user_id IN (SELECT f2.followed_id FROM follows f2 WHERE f2.follower_id = ? AND f2.status = 'accepted')))) AND s.user_id IS NOT NULL ${NOT_BLOCKED} ORDER BY s.published_at DESC, s.id DESC LIMIT 20`)
+    .all(...V4(req.user.id), req.user.id, req.user.id, req.user.id, req.user.id);
+  res.json({ items: rows.map((r) => present(r, req.user.id)) });
+}));
+
+// Mes vidéos enregistrées (actives et non expirées)
+router.get('/saved', wrap(async (req, res) => {
+  const rows = await db
+    .prepare(`${SELECT_SHORT} WHERE s.status = 'active' AND s.expires_at > NOW() AND s.user_id IS NOT NULL ${NOT_BLOCKED} AND EXISTS (SELECT 1 FROM short_saves sv2 WHERE sv2.short_id = s.id AND sv2.user_id = ?) ORDER BY s.published_at DESC, s.id DESC LIMIT 100`)
+    .all(...V4(req.user.id), req.user.id, req.user.id, req.user.id);
   res.json({ items: rows.map((r) => present(r, req.user.id)) });
 }));
 
@@ -323,12 +364,66 @@ router.post('/:id/like', wrap(async (req, res) => {
   res.json({ liked: !already, like_count: count.n });
 }));
 
+// Enregistrer / ne plus enregistrer une vidéo
+router.post('/:id/save', wrap(async (req, res) => {
+  const row = await findLive(req.params.id, req.user.id);
+  if (!row) return res.status(404).json({ error: 'Vidéo introuvable' });
+  const already = await db.prepare('SELECT 1 FROM short_saves WHERE short_id = ? AND user_id = ?').get(row.id, req.user.id);
+  if (already) await db.prepare('DELETE FROM short_saves WHERE short_id = ? AND user_id = ?').run(row.id, req.user.id);
+  else await db.prepare('INSERT INTO short_saves (short_id, user_id) VALUES (?, ?) ON CONFLICT DO NOTHING').run(row.id, req.user.id);
+  res.json({ saved: !already });
+}));
+
+// Republier / annuler : la vidéo apparaît aussi dans le fil de la personne et de ses abonnés
+router.post('/:id/repost', wrap(async (req, res) => {
+  const row = await findLive(req.params.id, req.user.id);
+  if (!row) return res.status(404).json({ error: 'Vidéo introuvable' });
+  if (row.user_id === req.user.id) return res.status(400).json({ error: 'Tu ne peux pas republier ta propre vidéo' });
+  const already = await db.prepare('SELECT 1 FROM short_reposts WHERE short_id = ? AND user_id = ?').get(row.id, req.user.id);
+  if (already) await db.prepare('DELETE FROM short_reposts WHERE short_id = ? AND user_id = ?').run(row.id, req.user.id);
+  else await db.prepare('INSERT INTO short_reposts (short_id, user_id) VALUES (?, ?) ON CONFLICT DO NOTHING').run(row.id, req.user.id);
+  const count = await db.prepare('SELECT COUNT(*) AS n FROM short_reposts WHERE short_id = ?').get(row.id);
+  res.json({ reposted: !already, repost_count: Number(count.n) });
+}));
+
+// « Ça ne m'intéresse pas » : la vidéo n'apparaît plus dans MON flux (annulable)
+router.post('/:id/hide', wrap(async (req, res) => {
+  const row = await findLive(req.params.id, req.user.id);
+  if (!row) return res.status(404).json({ error: 'Vidéo introuvable' });
+  if (row.user_id === req.user.id) return res.status(400).json({ error: 'C\'est ta propre vidéo' });
+  await db.prepare('INSERT INTO short_hidden (short_id, user_id) VALUES (?, ?) ON CONFLICT DO NOTHING').run(row.id, req.user.id);
+  res.json({ ok: true });
+}));
+router.delete('/:id/hide', wrap(async (req, res) => {
+  await db.prepare('DELETE FROM short_hidden WHERE short_id = ? AND user_id = ?').run(req.params.id, req.user.id);
+  res.json({ ok: true });
+}));
+
+// Téléchargement : adresse temporaire qui force l'enregistrement du fichier. Refusé si l'auteur l'a interdit (sauf pour lui-même).
+router.get('/:id/download-url', wrap(async (req, res) => {
+  const row = await findLive(req.params.id, req.user.id);
+  if (!row) return res.status(404).json({ error: 'Vidéo introuvable' });
+  if (row.user_id !== req.user.id && row.allow_download === false) return res.status(403).json({ error: 'Le téléchargement est désactivé pour cette vidéo' });
+  const ext = row.r2_key.includes('.') ? row.r2_key.split('.').pop() : 'mp4';
+  res.json({ url: r2.signedUrl('GET', row.r2_key, { expiresSec: 300, downloadName: `kalchat-${row.id.slice(0, 8)}.${ext}` }) });
+}));
+
+// L'auteur autorise ou interdit le téléchargement de sa vidéo
+router.patch('/:id/download', wrap(async (req, res) => {
+  const s = await db.prepare('SELECT id, user_id FROM shorts WHERE id = ?').get(req.params.id);
+  if (!s) return res.status(404).json({ error: 'Vidéo introuvable' });
+  if (s.user_id !== req.user.id) return res.status(403).json({ error: 'Action non autorisée' });
+  const allow = parseBool(req.body.allow);
+  await db.prepare('UPDATE shorts SET allow_download = ? WHERE id = ?').run(allow, s.id);
+  res.json({ allow_download: allow });
+}));
+
 router.get('/:id/comments', wrap(async (req, res) => {
   const row = await findLive(req.params.id, req.user.id);
   if (!row) return res.status(404).json({ error: 'Vidéo introuvable' });
   const comments = await db
     .prepare(
-      `SELECT c.id, c.content, c.created_at, c.user_id, c.parent_id, u.username, u.avatar_url, u.badge,
+      `SELECT c.id, c.content, c.created_at, c.user_id, c.parent_id, u.username, u.avatar_url, u.badge, u.role,
               (SELECT COUNT(*) FROM short_comment_likes cl WHERE cl.comment_id = c.id) AS like_count,
               EXISTS(SELECT 1 FROM short_comment_likes cl WHERE cl.comment_id = c.id AND cl.user_id = ?) AS liked_by_me
        FROM short_comments c JOIN users u ON u.id = c.user_id
@@ -430,6 +525,9 @@ async function runExpiry() {
   // Interactions des vidéos dont le fichier a bien été effacé
   await db.prepare("DELETE FROM short_comments WHERE short_id IN (SELECT id FROM shorts WHERE status IN ('expired', 'deleted') AND r2_deleted_at IS NOT NULL)").run();
   await db.prepare("DELETE FROM short_likes WHERE short_id IN (SELECT id FROM shorts WHERE status IN ('expired', 'deleted') AND r2_deleted_at IS NOT NULL)").run();
+  for (const t of ['short_saves', 'short_reposts', 'short_hidden']) {
+    await db.prepare(`DELETE FROM ${t} WHERE short_id IN (SELECT id FROM shorts WHERE status IN ('expired', 'deleted') AND r2_deleted_at IS NOT NULL)`).run();
+  }
   // Traces minimales : supprimées après 90 jours
   await db
     .prepare("DELETE FROM shorts WHERE status IN ('expired', 'deleted', 'abandoned', 'rejected') AND r2_deleted_at IS NOT NULL AND r2_deleted_at < NOW() - (? * INTERVAL '1 day')")

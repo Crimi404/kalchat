@@ -10,6 +10,7 @@ const TITLES: Record<ReportTarget, string> = {
   comment: "Signaler ce commentaire",
   message: "Signaler ce message",
   user: "Signaler ce compte",
+  short: "Signaler cette vidéo",
 };
 
 /** Feuille de signalement : choix du motif + précisions facultatives. */

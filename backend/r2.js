@@ -34,7 +34,7 @@ const encodePath = (p) => p.split('/').map(uriEncode).join('/');
  * Construit une URL présignée (AWS SigV4, charge utile non signée).
  * `signedHeaders` : en-têtes que le client DEVRA envoyer à l'identique (ex. content-type pour un envoi).
  */
-function presign({ method, host, path, accessKeyId, secretAccessKey, region = REGION, service = 's3', expiresSec, now = new Date(), signedHeaders = {} }) {
+function presign({ method, host, path, accessKeyId, secretAccessKey, region = REGION, service = 's3', expiresSec, now = new Date(), signedHeaders = {}, extraQuery = {} }) {
   const amzDate = now.toISOString().replace(/[:-]|\.\d{3}/g, '');
   const dateStamp = amzDate.slice(0, 8);
   const scope = `${dateStamp}/${region}/${service}/aws4_request`;
@@ -50,6 +50,7 @@ function presign({ method, host, path, accessKeyId, secretAccessKey, region = RE
     'X-Amz-Date': amzDate,
     'X-Amz-Expires': String(expiresSec),
     'X-Amz-SignedHeaders': signedHeaderNames,
+    ...extraQuery,
   };
   const canonicalQuery = Object.keys(query)
     .sort()
@@ -70,7 +71,7 @@ function presign({ method, host, path, accessKeyId, secretAccessKey, region = RE
 }
 
 /** URL temporaire pour UN objet. method : GET (lecture), PUT (envoi, avec contentType imposé), HEAD, DELETE. */
-function signedUrl(method, key, { expiresSec = 600, contentType = null, contentLength = null, now } = {}) {
+function signedUrl(method, key, { expiresSec = 600, contentType = null, contentLength = null, now, downloadName = null } = {}) {
   const c = config();
   if (!c) throw new Error('R2 non configuré');
   return presign({
@@ -81,6 +82,8 @@ function signedUrl(method, key, { expiresSec = 600, contentType = null, contentL
     secretAccessKey: c.secretAccessKey,
     expiresSec,
     now,
+    // Nom de fichier : le stockage répond « attachment » (téléchargement) au lieu de lire la vidéo
+    extraQuery: downloadName ? { 'response-content-disposition': `attachment; filename="${String(downloadName).replace(/[^A-Za-z0-9._-]/g, '_')}"` } : {},
     signedHeaders: { ...(contentType ? { 'content-type': contentType } : {}), ...(contentLength ? { 'content-length': contentLength } : {}) },
   });
 }

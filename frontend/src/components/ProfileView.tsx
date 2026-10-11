@@ -7,7 +7,7 @@ import { blockUser, unblockUser } from "@/lib/settings";
 import { BadgeList } from "@/components/KalBadge";
 import { PostCard } from "@/components/PostCard";
 import { ShortFeedCard } from "@/components/ShortFeedCard";
-import { fetchShortsStatus, fetchUserShorts } from "@/lib/shorts";
+import { fetchSavedShorts, fetchShortsStatus, fetchUserShorts } from "@/lib/shorts";
 import { ReportSheet } from "@/components/ReportSheet";
 import { publicUrl, shareLink } from "@/lib/share";
 import { useAuth } from "@/lib/auth";
@@ -92,6 +92,11 @@ export function ProfileView({ username }: { username: string }) {
     queryKey: ["savedPosts", user?.id],
     queryFn: () => fetchSavedPosts(),
     enabled: isMeEarly && tab === "saved",
+  });
+  const savedShortsQ = useQuery({
+    queryKey: ["savedShorts", user?.id],
+    queryFn: () => fetchSavedShorts(),
+    enabled: isMeEarly && tab === "saved" && !!shortsStatus.data?.enabled,
   });
   const navigate = useNavigate();
   const follow = useMutation({
@@ -274,8 +279,11 @@ export function ProfileView({ username }: { username: string }) {
         {isMe && tab === "saved" ? (
           savedQ.isLoading ? (
             <div className="flex justify-center py-10"><Loader2 className="h-5 w-5 animate-spin text-primary" /></div>
-          ) : savedQ.data?.length ? (
-            savedQ.data.map((post) => <PostCard key={post.id} post={post} />)
+          ) : savedQ.data?.length || savedShortsQ.data?.length ? (
+            <>
+              {(savedShortsQ.data ?? []).map((short) => <ShortFeedCard key={`short-${short.id}`} short={short} />)}
+              {(savedQ.data ?? []).map((post) => <PostCard key={post.id} post={post} />)}
+            </>
           ) : (
             <p className="py-10 text-center text-sm text-muted-foreground">Aucune publication enregistrée. Touche le signet sous un post pour le retrouver ici.</p>
           )

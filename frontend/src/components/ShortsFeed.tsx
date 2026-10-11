@@ -2,27 +2,38 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Link } from "@tanstack/react-router";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronsDown, Clock, Heart, Loader2, MessageCircle, Play, Plus, Send, Share2, Trash2, Volume2, VolumeX, X } from "lucide-react";
+import { Ban, Bookmark, Clock, Download, EllipsisVertical, EyeOff, Flag, Heart, Link2, Loader2, Maximize2, MessageCircle, Play, Plus, Repeat2, Send, Share2, Trash2, TriangleAlert, Volume2, VolumeX, X, type LucideIcon } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
 import { ApiError, displayName, toBadges } from "@/lib/api";
 import { BadgeList } from "@/components/KalBadge";
 import { Avatar } from "@/components/PostCard";
 import { ShortUploadSheet } from "@/components/ShortUploadSheet";
-import { publicUrl, shareLink } from "@/lib/share";
+import { ReportSheet } from "@/components/ReportSheet";
+import { ShortSendSheet } from "@/components/ShortSendSheet";
+import { SUPPORT_EMAIL } from "@/lib/legal";
+import { toggleFollow, type Relationship } from "@/lib/social";
+import { copyLink, publicUrl, shareLink } from "@/lib/share";
 import { useBackHandler } from "@/lib/back";
 import { setShortsAutoScroll, useShortsAutoScroll } from "@/lib/mediaPrefs";
 import {
   addShortComment,
   deleteShort,
   deleteShortComment,
+  downloadShort,
   fetchShort,
   fetchShortComments,
   fetchShortsFeed,
+  hideShort,
+  setShortDownload,
   timeLeft,
   toggleShortCommentLike,
   toggleShortLike,
+  toggleShortRepost,
+  toggleShortSave,
+  unhideShort,
   type ShortComment,
+  type ShortFollow,
   type ShortItem,
 } from "@/lib/shorts";
 
@@ -54,7 +65,10 @@ function CommentRow({
         <Avatar url={c.avatar_url} name={c.username} size={reply ? 24 : 28} />
       </Link>
       <div className="min-w-0 flex-1">
-        <p className="text-xs font-semibold text-foreground">{c.username}</p>
+        <p className="flex items-center gap-1 text-xs font-semibold text-foreground">
+          <span className="truncate">{c.username}</span>
+          <BadgeList badges={toBadges(c.user_id, c.badge, c.role)} size={12} />
+        </p>
         <p className="whitespace-pre-wrap break-words text-sm text-foreground">{c.content}</p>
         <div className="mt-1 flex items-center gap-4 text-xs text-muted-foreground">
           <button onClick={() => onReply(c)} className="font-semibold hover:text-foreground">Répondre</button>
@@ -221,6 +235,107 @@ export function ShortComments({
   );
 }
 
+// ---------- Menu « ⋮ » d'une vidéo (comme sur Reels) ----------
+function MenuRow({ icon: Icon, label, onClick, danger, right }: { icon: LucideIcon; label: string; onClick: () => void; danger?: boolean; right?: ReactNode }) {
+  return (
+    <button onClick={onClick} className={`flex w-full items-center gap-4 px-5 py-2.5 text-left text-sm active:bg-white/5 ${danger ? "text-red-500" : "text-white"}`}>
+      <Icon className="h-5 w-5 shrink-0" />
+      <span className="flex-1">{label}</span>
+      {right}
+    </button>
+  );
+}
+
+function ShortMenu({
+  item,
+  autoScroll,
+  setAutoScroll,
+  onClose,
+  onShare,
+  onCopy,
+  onSave,
+  onFullscreen,
+  onDownload,
+  onToggleDownload,
+  onHide,
+  onReport,
+}: {
+  item: ShortItem;
+  autoScroll: boolean;
+  setAutoScroll: (v: boolean) => void;
+  onClose: () => void;
+  onShare: () => void;
+  onCopy: () => void;
+  onSave: () => void;
+  onFullscreen: () => void;
+  onDownload: () => void;
+  onToggleDownload: () => void;
+  onHide: () => void;
+  onReport: () => void;
+}) {
+  useBackHandler(onClose, true);
+  const canDownload = item.mine || item.allow_download !== false;
+  const close = (fn: () => void) => () => {
+    onClose();
+    fn();
+  };
+  if (typeof document === "undefined") return null;
+  // Affiché dans <body> : sinon il serait coincé dans la zone de la vidéo et passerait sous la barre du bas
+  return createPortal(
+    <div className="fixed inset-0 z-[60] flex items-end justify-center">
+      <div className="animate-fade-in absolute inset-0 bg-black/60" onClick={onClose} />
+      <div className="animate-sheet-up relative max-h-[85dvh] w-full max-w-md overflow-y-auto rounded-t-3xl bg-neutral-900 pb-[max(0.75rem,env(safe-area-inset-bottom))] text-white">
+        <div className="mx-auto mb-2 mt-2.5 h-1 w-10 rounded-full bg-white/30" />
+        <div className="grid grid-cols-3 gap-2 px-4 pb-3 pt-1 text-center">
+          <button onClick={close(onShare)} className="flex flex-col items-center gap-1.5 rounded-xl py-2 active:bg-white/5">
+            <Share2 className="h-6 w-6" />
+            <span className="text-xs font-semibold">Partager</span>
+          </button>
+          <button onClick={close(onCopy)} className="flex flex-col items-center gap-1.5 rounded-xl py-2 active:bg-white/5">
+            <Link2 className="h-6 w-6" />
+            <span className="text-xs font-semibold">Lien</span>
+          </button>
+          <button onClick={close(onSave)} className="flex flex-col items-center gap-1.5 rounded-xl py-2 active:bg-white/5">
+            <Bookmark className={`h-6 w-6 ${item.saved ? "fill-white" : ""}`} />
+            <span className="text-xs font-semibold">{item.saved ? "Enregistrée" : "Enregistrer"}</span>
+          </button>
+        </div>
+        <MenuRow
+          icon={Play}
+          label="Défilement automatique"
+          onClick={() => setAutoScroll(!autoScroll)}
+          right={
+            <span role="switch" aria-checked={autoScroll} className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${autoScroll ? "bg-primary" : "bg-white/30"}`}>
+              <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all ${autoScroll ? "left-[22px]" : "left-0.5"}`} />
+            </span>
+          }
+        />
+        <MenuRow icon={Maximize2} label="Voir en plein écran" onClick={close(onFullscreen)} />
+        {canDownload && <MenuRow icon={Download} label="Télécharger" onClick={close(onDownload)} />}
+        {item.mine && (
+          <MenuRow
+            icon={item.allow_download === false ? Download : Ban}
+            label={item.allow_download === false ? "Autoriser le téléchargement" : "Interdire le téléchargement"}
+            onClick={close(onToggleDownload)}
+          />
+        )}
+        {!item.mine && <MenuRow icon={EyeOff} label="Ça ne m'intéresse pas" onClick={close(onHide)} />}
+        {!item.mine && <MenuRow icon={Flag} label="Signaler" danger onClick={close(onReport)} />}
+        <div className="mt-1 flex items-start gap-4 border-t border-white/10 px-5 py-3 text-sm">
+          <TriangleAlert className="mt-0.5 h-5 w-5 shrink-0" />
+          <p className="min-w-0 flex-1">
+            Est-ce que quelque chose ne fonctionne pas ?{" "}
+            <a href={`mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent("Problème sur K-Short")}`} className="font-semibold text-sky-400">
+              Dites-le nous
+            </a>
+          </p>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 // ---------- Une vidéo plein écran ----------
 function ShortSlide({
   item,
@@ -234,6 +349,8 @@ function ShortSlide({
   onNext,
   onPatch,
   onOpenComments,
+  onFollow,
+  onReport,
 }: {
   item: ShortItem;
   active: boolean;
@@ -246,7 +363,14 @@ function ShortSlide({
   onNext: () => void;
   onPatch: (id: string, patch: Patch) => void;
   onOpenComments: (id: string) => void;
+  onFollow: (authorId: string, status: ShortFollow) => void;
+  onReport: (id: string) => void;
 }) {
+  const qc = useQueryClient();
+  const sectionRef = useRef<HTMLElement>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [sendOpen, setSendOpen] = useState(false);
+  const [fs, setFs] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const barRef = useRef<HTMLDivElement>(null);
   const refetching = useRef(false);
@@ -357,13 +481,107 @@ function ShortSlide({
     onError: (e: Error) => toast.error(e.message),
   });
 
+  // ---------- Plein écran (rotation automatique pour une vidéo horizontale) ----------
+  type Orientation = { lock?: (o: string) => Promise<void>; unlock?: () => void };
+  useEffect(() => {
+    const onFs = () => {
+      const on = document.fullscreenElement === sectionRef.current;
+      setFs(on);
+      if (!on) {
+        try {
+          (screen.orientation as unknown as Orientation)?.unlock?.();
+        } catch {
+          /* rien à faire */
+        }
+      }
+    };
+    document.addEventListener("fullscreenchange", onFs);
+    return () => {
+      document.removeEventListener("fullscreenchange", onFs);
+      if (document.fullscreenElement === sectionRef.current) void document.exitFullscreen().catch(() => undefined);
+    };
+  }, []);
+
+  async function enterFullscreen() {
+    const el = sectionRef.current;
+    if (!el?.requestFullscreen) {
+      toast.info("Plein écran indisponible sur cet appareil");
+      return;
+    }
+    try {
+      await el.requestFullscreen();
+      const v = videoRef.current;
+      if (v && v.videoWidth >= v.videoHeight) await (screen.orientation as unknown as Orientation)?.lock?.("landscape");
+    } catch {
+      /* plein écran refusé, ou rotation non autorisée : on garde ce qui a marché */
+    }
+  }
+  // Bouton retour d'Android : sort du plein écran avant de quitter la page
+  useBackHandler(() => void document.exitFullscreen().catch(() => undefined), fs);
+
+  const repost = useMutation({
+    mutationFn: () => toggleShortRepost(item.id),
+    onSuccess: (r) => {
+      onPatch(item.id, { reposted: r.reposted, repost_count: r.repost_count });
+      toast(r.reposted ? "Vidéo republiée" : "Republication annulée");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+  const save = useMutation({
+    mutationFn: () => toggleShortSave(item.id),
+    onSuccess: (r) => {
+      onPatch(item.id, { saved: r.saved });
+      void qc.invalidateQueries({ queryKey: ["savedShorts"] });
+      toast(r.saved ? "Vidéo enregistrée" : "Retirée de tes enregistrements");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+  const hide = useMutation({
+    mutationFn: () => hideShort(item.id),
+    onSuccess: () => {
+      onPatch(item.id, { gone: true });
+      toast("Tu verras moins de vidéos comme celle-ci", {
+        action: {
+          label: "Annuler",
+          onClick: () => void unhideShort(item.id).then(() => onPatch(item.id, { gone: false })).catch((e: Error) => toast.error(e.message)),
+        },
+      });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+  const allowDownload = useMutation({
+    mutationFn: (allow: boolean) => setShortDownload(item.id, allow),
+    onSuccess: (r) => {
+      onPatch(item.id, { allow_download: r.allow_download });
+      toast.success(r.allow_download ? "Téléchargement autorisé" : "Téléchargement interdit");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+  const follow = useMutation({
+    mutationFn: () => toggleFollow(item.author!.username, (item.follow_status ?? "none") as Relationship),
+    onSuccess: (status) => {
+      onFollow(item.author!.id, status as ShortFollow);
+      toast.success(status === "pending" ? "Demande d'abonnement envoyée" : status === "accepted" ? `Tu suis @${item.author!.username}` : `Tu ne suis plus @${item.author!.username}`);
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const shareVideo = () => void shareLink({ url: publicUrl(`/?k=${item.id}`), title: "K-Short sur Kalchat", text: item.caption ?? "Regarde cette vidéo sur Kalchat" });
+  function onRepost() {
+    if (item.mine) {
+      toast.info("Tu ne peux pas republier ta propre vidéo");
+      return;
+    }
+    repost.mutate();
+  }
+
   const author = item.author;
   const name = author ? displayName({ username: author.username, first_name: author.first_name, last_name: author.last_name }) : "Membre";
   const railBottom = "calc(6rem + env(safe-area-inset-bottom))";
   const infoBottom = "calc(5.5rem + env(safe-area-inset-bottom))";
 
   return (
-    <section className="relative h-full w-full snap-start snap-always overflow-hidden bg-black">
+    <section ref={sectionRef} className="relative h-full w-full snap-start snap-always overflow-hidden bg-black">
       {near && src ? (
         <video
           ref={videoRef}
@@ -397,81 +615,115 @@ function ShortSlide({
         </button>
       )}
 
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/70 to-transparent" />
-
-      <div className="absolute inset-x-0 h-0.5 bg-white/20" style={{ bottom: "calc(4.6rem + env(safe-area-inset-bottom))" }}>
-        <div ref={barRef} className="h-full w-0 bg-white/80" />
-      </div>
-
-      {/* Boutons à droite */}
-      <div className="absolute right-3 flex flex-col items-center gap-5 text-white" style={{ bottom: railBottom }}>
-        <button onClick={() => like.mutate()} disabled={like.isPending} aria-label="J'aime" className="flex flex-col items-center gap-1">
-          <Heart className={`h-8 w-8 drop-shadow ${item.liked ? "fill-red-500 text-red-500" : ""}`} />
-          <span className="text-xs font-semibold drop-shadow">{item.like_count}</span>
-        </button>
-        <button onClick={() => onOpenComments(item.id)} aria-label="Commentaires" className="flex flex-col items-center gap-1">
-          <MessageCircle className="h-8 w-8 drop-shadow" />
-          <span className="text-xs font-semibold drop-shadow">{item.comment_count}</span>
-        </button>
+      {fs ? (
         <button
-          onClick={() => void shareLink({ url: publicUrl(`/?k=${item.id}`), title: "K-Short sur Kalchat", text: item.caption ?? "Regarde cette vidéo sur Kalchat" })}
-          aria-label="Partager"
-          className="flex flex-col items-center gap-1"
+          onClick={() => void document.exitFullscreen().catch(() => undefined)}
+          aria-label="Quitter le plein écran"
+          className="absolute left-3 top-3 z-10 rounded-full bg-black/50 p-2 text-white"
+          style={{ top: "calc(0.75rem + env(safe-area-inset-top))" }}
         >
-          <Share2 className="h-7 w-7 drop-shadow" />
-          <span className="text-xs font-semibold drop-shadow">Partager</span>
+          <X className="h-5 w-5" />
         </button>
-        <button
-          onClick={() => {
-            setAutoScroll(!autoScroll);
-            toast(autoScroll ? "Défilement automatique désactivé" : "Défilement automatique activé");
-          }}
-          aria-pressed={autoScroll}
-          aria-label={autoScroll ? "Désactiver le défilement automatique" : "Activer le défilement automatique"}
-          className={`flex flex-col items-center gap-0.5 rounded-full p-2 ${autoScroll ? "bg-white text-black" : "bg-black/40 text-white"}`}
-        >
-          <ChevronsDown className="h-5 w-5" />
-          <span className="text-[9px] font-bold leading-none">AUTO</span>
-        </button>
-        <button onClick={() => setMuted(!muted)} aria-label={muted ? "Activer le son" : "Couper le son"} className="rounded-full bg-black/40 p-2">
-          {muted ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}
-        </button>
-        {item.mine && (
-          <button
-            onClick={() => {
-              if (window.confirm("Supprimer cette vidéo ? Elle disparaîtra immédiatement.")) remove.mutate();
-            }}
-            disabled={remove.isPending}
-            aria-label="Supprimer ma vidéo"
-            className="rounded-full bg-black/40 p-2"
-          >
-            <Trash2 className="h-5 w-5" />
-          </button>
-        )}
-      </div>
+      ) : (
+        <>
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/70 to-transparent" />
 
-      {/* Infos en bas à gauche */}
-      <div className="absolute left-4 right-20 text-white" style={{ bottom: infoBottom }}>
-        {author && (
-          <div className="flex items-center gap-2">
-            <Link to="/u/$username" params={{ username: author.username }} aria-label={`Profil de ${name}`} className="shrink-0 rounded-full ring-2 ring-white/80">
-              <Avatar url={author.avatar_url} name={name} size={36} />
-            </Link>
-            <Link to="/u/$username" params={{ username: author.username }} className="truncate text-sm font-bold drop-shadow hover:underline">
-              {name}
-            </Link>
-            <BadgeList badges={toBadges(author.id, author.badge, null)} size={14} />
+          <div className="absolute inset-x-0 h-0.5 bg-white/20" style={{ bottom: "calc(4.6rem + env(safe-area-inset-bottom))" }}>
+            <div ref={barRef} className="h-full w-0 bg-white/80" />
           </div>
-        )}
-        {item.caption && (
-          <p onClick={() => setExpanded(!expanded)} className={`mt-1 whitespace-pre-wrap break-words text-sm drop-shadow ${expanded ? "" : "line-clamp-2"}`}>
-            {item.caption}
-          </p>
-        )}
-        <p className="mt-1 flex items-center gap-1 text-[11px] text-white/70">
-          <Clock className="h-3 w-3" /> Disparaît dans {timeLeft(item.expires_at)}
-        </p>
-      </div>
+
+          {/* Boutons à droite (comme sur Reels) */}
+          <div className="absolute right-3 flex flex-col items-center gap-4 text-white" style={{ bottom: railBottom }}>
+            <button onClick={() => like.mutate()} disabled={like.isPending} aria-label="J'aime" className="flex flex-col items-center gap-0.5">
+              <Heart className={`h-7 w-7 drop-shadow ${item.liked ? "fill-red-500 text-red-500" : ""}`} />
+              <span className="text-xs font-semibold drop-shadow">{item.like_count}</span>
+            </button>
+            <button onClick={() => onOpenComments(item.id)} aria-label="Commentaires" className="flex flex-col items-center gap-0.5">
+              <MessageCircle className="h-7 w-7 drop-shadow" />
+              <span className="text-xs font-semibold drop-shadow">{item.comment_count}</span>
+            </button>
+            <button onClick={onRepost} disabled={repost.isPending} aria-label={item.reposted ? "Annuler la republication" : "Republier"} aria-pressed={!!item.reposted} className="flex flex-col items-center gap-0.5">
+              <Repeat2 className={`h-7 w-7 drop-shadow ${item.reposted ? "text-green-400" : ""}`} />
+              <span className="text-xs font-semibold drop-shadow">{item.repost_count ?? 0}</span>
+            </button>
+            <button onClick={() => setSendOpen(true)} aria-label="Envoyer à un contact" className="flex flex-col items-center gap-0.5">
+              <Send className="h-7 w-7 drop-shadow" />
+            </button>
+            <button onClick={() => setMenuOpen(true)} aria-label="Plus d'options" className="p-1">
+              <EllipsisVertical className="h-6 w-6 drop-shadow" />
+            </button>
+            <button onClick={() => setMuted(!muted)} aria-label={muted ? "Activer le son" : "Couper le son"} className="rounded-full bg-black/40 p-2">
+              {muted ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}
+            </button>
+            {item.mine && (
+              <button
+                onClick={() => {
+                  if (window.confirm("Supprimer cette vidéo ? Elle disparaîtra immédiatement.")) remove.mutate();
+                }}
+                disabled={remove.isPending}
+                aria-label="Supprimer ma vidéo"
+                className="rounded-full bg-black/40 p-2"
+              >
+                <Trash2 className="h-5 w-5" />
+              </button>
+            )}
+          </div>
+
+          {/* Infos en bas à gauche */}
+          <div className="absolute left-4 right-20 text-white" style={{ bottom: infoBottom }}>
+            {author && (
+              <div className="flex items-center gap-2">
+                <Link to="/u/$username" params={{ username: author.username }} aria-label={`Profil de ${name}`} className="shrink-0 rounded-full ring-2 ring-white/80">
+                  <Avatar url={author.avatar_url} name={name} size={36} />
+                </Link>
+                <Link to="/u/$username" params={{ username: author.username }} className="min-w-0 truncate text-sm font-bold drop-shadow hover:underline">
+                  {name}
+                </Link>
+                <BadgeList badges={toBadges(author.id, author.badge, author.role)} size={14} />
+                {!item.mine && (
+                  <button
+                    onClick={() => {
+                      if (item.follow_status === "accepted" && !window.confirm(`Ne plus suivre @${author.username} ?`)) return;
+                      follow.mutate();
+                    }}
+                    disabled={follow.isPending}
+                    className={`shrink-0 rounded-md border px-2.5 py-0.5 text-xs font-semibold ${item.follow_status === "none" || !item.follow_status ? "border-white/80 text-white" : "border-white/40 text-white/80"}`}
+                  >
+                    {item.follow_status === "accepted" ? "Abonné" : item.follow_status === "pending" ? "Demandé" : "Suivre"}
+                  </button>
+                )}
+              </div>
+            )}
+            {item.caption && (
+              <p onClick={() => setExpanded(!expanded)} className={`mt-1 whitespace-pre-wrap break-words text-sm drop-shadow ${expanded ? "" : "line-clamp-2"}`}>
+                {item.caption}
+              </p>
+            )}
+            <p className="mt-1 flex items-center gap-1 text-[11px] text-white/70">
+              <Clock className="h-3 w-3" /> Disparaît dans {timeLeft(item.expires_at)}
+            </p>
+          </div>
+        </>
+      )}
+
+      {sendOpen && <ShortSendSheet shortId={item.id} caption={item.caption} onClose={() => setSendOpen(false)} />}
+
+      {menuOpen && (
+        <ShortMenu
+          item={item}
+          autoScroll={autoScroll}
+          setAutoScroll={setAutoScroll}
+          onClose={() => setMenuOpen(false)}
+          onShare={shareVideo}
+          onCopy={() => void copyLink(publicUrl(`/?k=${item.id}`))}
+          onSave={() => save.mutate()}
+          onFullscreen={() => void enterFullscreen()}
+          onDownload={() => void downloadShort(item.id).catch((e: Error) => toast.error(e.message))}
+          onToggleDownload={() => allowDownload.mutate(item.allow_download === false)}
+          onHide={() => hide.mutate()}
+          onReport={() => onReport(item.id)}
+        />
+      )}
     </section>
   );
 }
@@ -489,6 +741,9 @@ export function ShortsFeed({ header, startId }: { header: ReactNode; startId?: s
   const [patches, setPatches] = useState<Record<string, Patch>>({});
   const [commentsFor, setCommentsFor] = useState<string | null>(null);
   const [uploadOpen, setUploadOpen] = useState(false);
+  const [reportFor, setReportFor] = useState<string | null>(null);
+  // Abonnement à un auteur : valable pour toutes ses vidéos affichées
+  const [follows, setFollows] = useState<Record<string, ShortFollow>>({});
 
   const feed = useInfiniteQuery({
     queryKey: ["shorts", "feed", user?.id],
@@ -513,8 +768,14 @@ export function ShortsFeed({ header, startId }: { header: ReactNode; startId?: s
   const list = useMemo(() => {
     const base = (feed.data?.pages ?? []).flatMap((p) => p.items);
     const all = start.data && !base.some((b) => b.id === start.data!.id) ? [start.data, ...base] : base;
-    return all.filter((i) => !patches[i.id]?.gone).map((i) => ({ ...i, ...(patches[i.id] ?? {}) }) as ShortItem);
-  }, [feed.data, start.data, patches]);
+    return all
+      .filter((i) => !patches[i.id]?.gone)
+      .map((i) => {
+        const merged = { ...i, ...(patches[i.id] ?? {}) } as ShortItem;
+        const f = i.author ? follows[i.author.id] : undefined;
+        return f ? { ...merged, follow_status: f } : merged;
+      });
+  }, [feed.data, start.data, patches, follows]);
 
   // Charge la suite quand on approche de la fin
   useEffect(() => {
@@ -579,6 +840,8 @@ export function ShortsFeed({ header, startId }: { header: ReactNode; startId?: s
               onNext={goNext}
               onPatch={patch}
               onOpenComments={setCommentsFor}
+              onFollow={(authorId, status) => setFollows((prev) => ({ ...prev, [authorId]: status }))}
+              onReport={setReportFor}
             />
           ))
         ) : (
@@ -608,6 +871,7 @@ export function ShortsFeed({ header, startId }: { header: ReactNode; startId?: s
         onClose={() => setCommentsFor(null)}
         onCountChange={(n) => commentsFor && patch(commentsFor, { comment_count: n })}
       />
+      {reportFor && createPortal(<ReportSheet type="short" targetId={reportFor} onClose={() => setReportFor(null)} />, document.body)}
       <ShortUploadSheet open={uploadOpen} onClose={() => setUploadOpen(false)} onPublished={() => void feed.refetch()} />
     </div>
   );

@@ -6,7 +6,7 @@ const authMiddleware = require('../middleware/auth');
 const router = express.Router();
 router.use(authMiddleware);
 
-const TYPES = ['post', 'comment', 'message', 'user'];
+const TYPES = ['post', 'comment', 'message', 'user', 'short'];
 const REASONS = ['spam', 'harcelement', 'haine', 'violence', 'nudite', 'usurpation', 'arnaque', 'autre'];
 const MAX_REPORTS_PER_DAY = 20;
 
@@ -50,6 +50,11 @@ router.post('/', async (req, res) => {
     if (!c) return res.status(404).json({ error: 'Commentaire introuvable' });
     targetUserId = c.user_id;
     snapshot = c.content;
+  } else if (type === 'short') {
+    const s = await db.prepare("SELECT id, user_id, caption FROM shorts WHERE id = ? AND status = 'active'").get(targetId);
+    if (!s || !s.user_id) return res.status(404).json({ error: 'Vidéo introuvable' });
+    targetUserId = s.user_id;
+    snapshot = ['[vidéo K-Short]', s.caption].filter(Boolean).join('\n');
   } else if (type === 'user') {
     const u = await db.prepare('SELECT id, username, bio FROM users WHERE id = ?').get(targetId);
     if (!u) return res.status(404).json({ error: 'Compte introuvable' });

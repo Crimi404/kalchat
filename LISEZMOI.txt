@@ -1,0 +1,18 @@
+Kalchat - K-Short v2 (style Reels)
+
+Copier ces fichiers dans le projet, aux mêmes emplacements (ils remplacent les anciens) :
+  backend/r2.js
+  backend/shorts.js
+  backend/routes/reports.js
+  frontend/src/lib/shorts.ts
+  frontend/src/lib/reports.ts
+  frontend/src/components/ShortsFeed.tsx
+  frontend/src/components/ShortSendSheet.tsx   (nouveau)
+  frontend/src/components/ShortFeedCard.tsx
+  frontend/src/components/ReportSheet.tsx
+  frontend/src/components/ProfileView.tsx
+  frontend/src/routes/_authenticated/admin.tsx
+
+Aucune variable Render à ajouter. Les nouvelles tables (enregistrements, republications,
+vidéos masquées) et la colonne « téléchargement autorisé » sont créées toutes seules au
+démarrage du serveur. Déployer le serveur d'abord, puis le site / l'APK.
