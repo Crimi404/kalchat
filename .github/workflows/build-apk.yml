@@ -76,7 +76,17 @@ jobs:
               <uses-feature android:name="android.hardware.camera" android:required="false" />
               <uses-feature android:name="android.hardware.microphone" android:required="false" />
           """
-          s = s.replace("</manifest>", perms + "</manifest>")
+          # Android 11+ : sans cette déclaration, Kalchat ne « voit » pas les navigateurs installés (nécessaire pour ouvrir le téléchargement de la mise à jour)
+          queries = """
+              <queries>
+                  <intent>
+                      <action android:name="android.intent.action.VIEW" />
+                      <category android:name="android.intent.category.BROWSABLE" />
+                      <data android:scheme="https" />
+                  </intent>
+              </queries>
+          """
+          s = s.replace("</manifest>", perms + queries + "</manifest>")
           open(p, "w", encoding="utf-8").write(s)
           PY
 
