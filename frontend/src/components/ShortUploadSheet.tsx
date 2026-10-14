@@ -1,12 +1,21 @@
-import { useEffect, useRef, useState, type ChangeEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import { createPortal } from "react-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Film, Loader2, X } from "lucide-react";
 import { toast } from "sonner";
 import { useBackHandler } from "@/lib/back";
 import { fetchShortsStatus, publishShort, readVideoDuration, type ShortItem } from "@/lib/shorts";
+import { canCompressVideo, compressVideo, type VerticalMode } from "@/lib/videoCompress";
 
 const QUICK_DAYS = [1, 7, 30, 60];
+// Avec la compression, on accepte des fichiers plus lourds au départ : c'est la version compressée qui doit tenir dans la limite
+const PICK_FACTOR = 6;
+
+const VERTICAL_CHOICES: { value: VerticalMode; label: string; hint: string }[] = [
+  { value: "crop", label: "Vertical", hint: "Recadré plein écran (9:16)" },
+  { value: "fit", label: "Vertical + bandes", hint: "Image entière, bandes noires" },
+  { value: "off", label: "Original", hint: "Garde le format d'origine" },
+];
 
 /** Publier une vidéo K-Short : fichier, légende, durée de disponibilité (60 jours maximum) et option « aussi dans le fil ». */
 export function ShortUploadSheet({ open, onClose, onPublished }: { open: boolean; onClose: () => void; onPublished: (s: ShortItem) => void }) {
@@ -21,6 +30,10 @@ export function ShortUploadSheet({ open, onClose, onPublished }: { open: boolean
   const [inFeed, setInFeed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [phase, setPhase] = useState<"compress" | "upload">("upload");
+  const [compress, setCompress] = useState(true);
+  const [vertical, setVertical] = useState<VerticalMode>("off");
+  const canCompress = useMemo(() => canCompressVideo(), []);
 
   const maxDays = status.data?.max_days ?? 60;
   const maxMb = status.data?.max_mb ?? 50;
@@ -47,6 +60,9 @@ export function ShortUploadSheet({ open, onClose, onPublished }: { open: boolean
     setDays(status.data?.default_days ?? 30);
     setInFeed(false);
     setProgress(0);
+    setPhase("upload");
+    setCompress(true);
+    setVertical("off");
   }
 
   function close() {
@@ -64,8 +80,9 @@ export function ShortUploadSheet({ open, onClose, onPublished }: { open: boolean
       toast.error("Format non accepté (MP4, WebM ou MOV)");
       return;
     }
-    if (f.size > maxMb * 1024 * 1024) {
-      toast.error(`Vidéo trop lourde (max ${maxMb} Mo)`);
+    const pickLimitMb = canCompress ? maxMb * PICK_FACTOR : maxMb;
+    if (f.size > pickLimitMb * 1024 * 1024) {
+      toast.error(`Vidéo trop lourde (max ${pickLimitMb} Mo)`);
       return;
     }
     try {
@@ -87,7 +104,24 @@ export function ShortUploadSheet({ open, onClose, onPublished }: { open: boolean
     setBusy(true);
     setProgress(0);
     try {
-      const s = await publishShort({ file, caption: caption.trim(), days, inFeed, duration, onProgress: setProgress });
+      let toSend = file;
+      const wantsProcessing = canCompress && (compress || vertical !== "off");
+      if (wantsProcessing) {
+        setPhase("compress");
+        const r = await compressVideo(file, { vertical, onProgress: setProgress });
+        toSend = r.file;
+        if (!r.processed && vertical !== "off") {
+          // Le mode vertical n'a pas pu être appliqué : on le dit clairement au lieu de publier en silence
+          toast.message(`Mise en vertical impossible (${r.reason ?? "erreur inconnue"}). La vidéo est envoyée telle quelle.`);
+        }
+      }
+      if (toSend.size > maxMb * 1024 * 1024) {
+        toast.error(`Vidéo trop lourde après traitement (${(toSend.size / 1024 / 1024).toFixed(0)} Mo, max ${maxMb} Mo). Choisis une vidéo plus courte.`);
+        return;
+      }
+      setPhase("upload");
+      setProgress(0);
+      const s = await publishShort({ file: toSend, caption: caption.trim(), days, inFeed, duration, onProgress: setProgress });
       toast.success("Vidéo publiée !");
       void qc.invalidateQueries({ queryKey: ["shorts"] });
       onPublished(s);
@@ -120,7 +154,18 @@ export function ShortUploadSheet({ open, onClose, onPublished }: { open: boolean
 
         {file && preview ? (
           <div className="mt-4 flex items-center gap-3 rounded-2xl border border-border p-2">
-            <video src={preview} muted playsInline preload="metadata" className="h-24 w-16 rounded-xl bg-black object-cover" />
+            <video
+              src={preview}
+              muted
+              playsInline
+              preload="metadata"
+              onLoadedMetadata={(e) => {
+                // Vidéo pas encore en format vertical : on propose le recadrage 9:16 par défaut
+                const v = e.currentTarget;
+                if (v.videoWidth && v.videoHeight) setVertical(v.videoHeight / v.videoWidth < 1.6 ? "crop" : "off");
+              }}
+              className="h-24 w-16 rounded-xl bg-black object-cover"
+            />
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-semibold text-foreground">{file.name}</p>
               <p className="text-xs text-muted-foreground">
@@ -134,6 +179,43 @@ export function ShortUploadSheet({ open, onClose, onPublished }: { open: boolean
             <Film className="h-8 w-8" />
             <span className="text-sm font-semibold text-foreground">Choisir une vidéo</span>
           </button>
+        )}
+
+        {file && canCompress && (
+          <div className="mt-3 rounded-2xl border border-border p-3">
+            <p className="text-sm font-semibold text-foreground">Format de la vidéo</p>
+            <div className="mt-2 grid grid-cols-3 gap-2">
+              {VERTICAL_CHOICES.map((c) => (
+                <button
+                  key={c.value}
+                  type="button"
+                  disabled={busy}
+                  onClick={() => setVertical(c.value)}
+                  aria-pressed={vertical === c.value}
+                  className={`rounded-xl border px-2 py-2 text-center text-xs font-semibold disabled:opacity-50 ${vertical === c.value ? "border-primary bg-primary/15 text-foreground" : "border-border text-muted-foreground"}`}
+                >
+                  {c.label}
+                </button>
+              ))}
+            </div>
+            <p className="mt-2 text-xs text-muted-foreground">{VERTICAL_CHOICES.find((c) => c.value === vertical)?.hint}</p>
+
+            <button
+              type="button"
+              disabled={busy || vertical !== "off"}
+              onClick={() => setCompress(!compress)}
+              aria-pressed={compress || vertical !== "off"}
+              className="mt-3 flex w-full items-center gap-3 text-left disabled:opacity-70"
+            >
+              <span className={`flex h-5 w-5 items-center justify-center rounded-md border ${compress || vertical !== "off" ? "border-primary bg-primary text-primary-foreground" : "border-border"}`}>
+                {(compress || vertical !== "off") && <Check className="h-3.5 w-3.5" />}
+              </span>
+              <span>
+                <span className="block text-sm font-semibold text-foreground">Compresser la vidéo</span>
+                <span className="block text-xs text-muted-foreground">Plus légère et plus rapide à envoyer. Le traitement dure aussi longtemps que la vidéo.</span>
+              </span>
+            </button>
+          </div>
         )}
 
         <textarea
@@ -172,7 +254,9 @@ export function ShortUploadSheet({ open, onClose, onPublished }: { open: boolean
         {busy && (
           <div className="mt-3">
             <div className="h-2 overflow-hidden rounded-full bg-secondary"><div className="brand-gradient h-full transition-all" style={{ width: `${progress}%` }} /></div>
-            <p className="mt-1 text-center text-xs text-muted-foreground">{progress < 100 ? `Envoi en cours… ${progress} %` : "Vérification…"}</p>
+            <p className="mt-1 text-center text-xs text-muted-foreground">
+              {phase === "compress" ? `Compression en cours… ${progress} % (garde l'application ouverte)` : progress < 100 ? `Envoi en cours… ${progress} %` : "Vérification…"}
+            </p>
           </div>
         )}
 
