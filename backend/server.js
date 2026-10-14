@@ -19,6 +19,7 @@ const emailRoutes = require('./routes/email');
 const { startEmailPrompts } = require('./emailPrompt');
 const { setupShorts } = require('./shorts');
 const pushRoutes = require('./routes/push');
+const activityRoutes = require('./routes/activity');
 const db = require('./db');
 const storage = require('./storage');
 const { registerUpload } = require('./uploadGuard');
@@ -75,6 +76,7 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/reports', reportsRoutes);
 app.use('/api/email', emailRoutes);
 app.use('/api/push', pushRoutes);
+app.use('/api/activity', activityRoutes);
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 

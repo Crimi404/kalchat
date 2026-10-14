@@ -20,6 +20,8 @@ export interface ShortItem {
   author: ShortAuthor | null;
   content_type: string;
   duration_seconds: number | null;
+  /** Catégorie choisie par l'auteur (« divers » par défaut). */
+  category?: string;
   in_feed: boolean;
   published_at: string;
   expires_at: string;
@@ -167,6 +169,11 @@ export function recordShortView(id: string): Promise<{ view_count: number }> {
   return api(`/shorts/${id}/view`, { method: "POST" });
 }
 
+/** Temps réellement regardé (en secondes) : nourrit le flux personnalisé. Sans importance si l'envoi échoue. */
+export function recordShortWatch(id: string, seconds: number, completed: boolean): Promise<{ ok: boolean }> {
+  return api(`/shorts/${id}/watch`, { method: "POST", body: { seconds: Math.max(0, Math.round(seconds * 10) / 10), completed } });
+}
+
 export async function fetchSavedShorts(): Promise<ShortItem[]> {
   const r = await api<{ items: ShortItem[] }>("/shorts/saved");
   return r.items;
@@ -233,6 +240,8 @@ export interface PublishInput {
   caption: string;
   days: number;
   inFeed: boolean;
+  /** Catégorie choisie par l'auteur (clé de lib/categories). */
+  category: string;
   duration: number | null;
   onProgress: (pct: number) => void;
 }
@@ -248,6 +257,7 @@ export async function publishShort(input: PublishInput): Promise<ShortItem> {
       days: input.days,
       caption: input.caption,
       in_feed: input.inFeed,
+      category: input.category,
     },
   });
   await putToStorage(start.upload_url, start.headers, input.file, input.onProgress);

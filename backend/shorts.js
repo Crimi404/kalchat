@@ -3,6 +3,8 @@ const { v4: uuid } = require('uuid');
 const db = require('./db');
 const r2 = require('./r2');
 const authMiddleware = require('./middleware/auth');
+const { normalizeCategory } = require('./categories');
+const { scoreCandidate, composePage } = require('./shortsRanking');
 
 // =====================================================================================
 // K-Short — vidéos courtes verticales (phase 1 : serveur)
@@ -25,6 +27,14 @@ const COMMENT_MAX = 500;
 const CAPTION_MAX = 500;
 const DELETE_MAX_ATTEMPTS = 10;
 const TOMBSTONE_DAYS = 90; // trace minimale conservée après expiration (modération, liens partagés)
+
+// Flux personnalisé « Pour vous » : on note un lot de vidéos récentes puis on compose chaque page
+const FEED_POOL = 300; // nombre de vidéos récentes examinées à chaque page
+const SESSION_MINUTES = 3; // une vidéo montrée il y a moins de 3 min n'est jamais remontrée (même page de défilement)
+const COOLDOWN_HOURS = 6; // une vidéo déjà montrée n'est remontrée qu'après ce délai (sauf s'il n'y a plus rien d'autre)
+const TASTE_DAYS = 30; // fenêtre des goûts retenus (j'aime, vues, enregistrements…)
+// 10 places par page : P = selon tes goûts (7), POP = populaire (2), R = au hasard pour découvrir (1)
+const PAGE_PATTERN = ['P', 'P', 'P', 'POP', 'P', 'P', 'R', 'P', 'POP', 'P'];
 
 const ALLOWED_TYPES = { 'video/mp4': 'mp4', 'video/webm': 'webm', 'video/quicktime': 'mov' };
 
@@ -107,6 +117,29 @@ const SCHEMA = `
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (comment_id, user_id)
   );
+
+  -- Catégorie choisie par l'auteur (mêmes clés que les publications ; « divers » par défaut, y compris pour les anciennes vidéos)
+  ALTER TABLE shorts ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT 'divers';
+
+  -- Temps réellement regardé par membre et par vidéo (signal principal du flux personnalisé)
+  CREATE TABLE IF NOT EXISTS short_watch (
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    short_id TEXT NOT NULL REFERENCES shorts(id) ON DELETE CASCADE,
+    watched_seconds REAL NOT NULL DEFAULT 0,
+    completed BOOLEAN NOT NULL DEFAULT FALSE,
+    plays INTEGER NOT NULL DEFAULT 1,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (user_id, short_id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_short_watch_user ON short_watch (user_id, updated_at DESC);
+
+  -- Vidéos déjà proposées à un membre (pour ne pas les remontrer tout de suite)
+  CREATE TABLE IF NOT EXISTS short_served (
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    short_id TEXT NOT NULL REFERENCES shorts(id) ON DELETE CASCADE,
+    served_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (user_id, short_id)
+  );
 `;
 
 // ---------- Outils ----------
@@ -132,6 +165,7 @@ function present(row, viewerId) {
     author: row.user_id ? { id: row.user_id, username: row.username, avatar_url: row.avatar_url, badge: row.badge, role: row.role, first_name: row.first_name, last_name: row.last_name } : null,
     content_type: row.content_type,
     duration_seconds: row.duration_seconds,
+    category: row.category || 'divers',
     in_feed: !!row.in_feed,
     published_at: row.published_at,
     expires_at: row.expires_at,
@@ -152,7 +186,7 @@ function present(row, viewerId) {
 
 const SELECT_SHORT = `
   SELECT s.id, s.user_id, s.caption, s.r2_key, s.content_type, s.duration_seconds, s.in_feed, s.status, s.published_at, s.expires_at,
-         s.allow_download, u.username, u.avatar_url, u.badge, u.role, u.first_name, u.last_name,
+         s.allow_download, s.category, u.username, u.avatar_url, u.badge, u.role, u.first_name, u.last_name,
          to_char(s.published_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS published_cursor,
          (SELECT COUNT(*) FROM short_likes l WHERE l.short_id = s.id) AS like_count,
          (SELECT COUNT(*) FROM short_comments c WHERE c.short_id = s.id) AS comment_count,
@@ -209,6 +243,8 @@ router.post('/upload-url', wrap(async (req, res) => {
   if (days > MAX_DAYS) return res.status(400).json({ error: `La durée maximale est de ${MAX_DAYS} jours` });
 
   const caption = typeof req.body.caption === 'string' ? req.body.caption.trim().slice(0, CAPTION_MAX) : '';
+  // Catégorie choisie par l'auteur ; toute valeur inconnue devient « divers »
+  const category = normalizeCategory(req.body.category);
 
   const recent = await db.prepare("SELECT COUNT(*) AS n FROM shorts WHERE user_id = ? AND created_at > NOW() - INTERVAL '24 hours'").get(req.user.id);
   if (recent.n >= SHORTS_PER_DAY) return res.status(429).json({ error: `Limite atteinte : ${SHORTS_PER_DAY} vidéos par 24 h` });
@@ -218,8 +254,8 @@ router.post('/upload-url', wrap(async (req, res) => {
   const id = uuid();
   const key = `shorts/${req.user.id}/${id}.${ext}`;
   await db
-    .prepare('INSERT INTO shorts (id, user_id, caption, r2_key, content_type, size_bytes, duration_seconds, retention_days, in_feed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
-    .run(id, req.user.id, caption || null, key, contentType, size, duration, days, parseBool(req.body.in_feed));
+    .prepare('INSERT INTO shorts (id, user_id, caption, r2_key, content_type, size_bytes, duration_seconds, retention_days, in_feed, category) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(id, req.user.id, caption || null, key, contentType, size, duration, days, parseBool(req.body.in_feed), category);
 
   res.json({
     id,
@@ -266,25 +302,85 @@ router.post('/:id/complete', wrap(async (req, res) => {
   res.json(present(row, req.user.id));
 }));
 
-// Flux : vidéos actives, de la plus récente à la plus ancienne (curseur = « date|id » de la dernière vidéo reçue)
-router.get('/feed', wrap(async (req, res) => {
-  const params = [...V4(req.user.id), req.user.id, req.user.id, req.user.id];
-  let cursorSql = '';
-  if (req.query.cursor) {
-    const [ts, cid] = String(req.query.cursor).split('|');
-    if (!ts || !cid || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/.test(ts)) return res.status(400).json({ error: 'Curseur invalide' });
-    cursorSql = 'AND (s.published_at, s.id) < (?::timestamptz, ?)';
-    params.push(ts, cid);
-  }
-  params.push(FEED_PAGE + 1);
+// Goûts du membre sur les 30 derniers jours : poids cumulé par catégorie et par auteur.
+// j'aime / enregistrement = +3, republication = +2, vidéo regardée jusqu'au bout = +2, à moitié = +1, passée en moins de 2 s = -1, « pas intéressé » = -3.
+async function loadTaste(userId) {
   const rows = await db
-    .prepare(`${SELECT_SHORT} WHERE s.status = 'active' AND s.expires_at > NOW() AND s.user_id IS NOT NULL ${NOT_BLOCKED} AND NOT EXISTS (SELECT 1 FROM short_hidden h WHERE h.short_id = s.id AND h.user_id = ?) ${cursorSql} ORDER BY s.published_at DESC, s.id DESC LIMIT ?`)
-    .all(...params);
-  const page = rows.slice(0, FEED_PAGE);
-  const last = page[page.length - 1];
+    .prepare(
+      `WITH signals AS (
+         SELECT short_id, 3.0::float8 AS w FROM short_likes WHERE user_id = ? AND created_at > NOW() - INTERVAL '${TASTE_DAYS} days'
+         UNION ALL SELECT short_id, 3.0::float8 FROM short_saves WHERE user_id = ? AND created_at > NOW() - INTERVAL '${TASTE_DAYS} days'
+         UNION ALL SELECT short_id, 2.0::float8 FROM short_reposts WHERE user_id = ? AND created_at > NOW() - INTERVAL '${TASTE_DAYS} days'
+         UNION ALL SELECT short_id, (-3.0)::float8 FROM short_hidden WHERE user_id = ? AND created_at > NOW() - INTERVAL '${TASTE_DAYS} days'
+         UNION ALL SELECT sw.short_id,
+                (CASE WHEN sw.completed THEN 2.0
+                      WHEN sw.watched_seconds >= 0.5 * COALESCE(sh.duration_seconds, 15) THEN 1.0
+                      WHEN sw.watched_seconds < 2 THEN -1.0
+                      ELSE 0.0 END)::float8
+           FROM short_watch sw JOIN shorts sh ON sh.id = sw.short_id
+           WHERE sw.user_id = ? AND sw.updated_at > NOW() - INTERVAL '${TASTE_DAYS} days'
+       )
+       SELECT s.category, s.user_id AS author_id, SUM(g.w) AS w
+       FROM signals g JOIN shorts s ON s.id = g.short_id
+       GROUP BY s.category, s.user_id`
+    )
+    .all(userId, userId, userId, userId, userId);
+  const catWeights = new Map();
+  const authorWeights = new Map();
+  for (const r of rows) {
+    const w = Number(r.w) || 0;
+    catWeights.set(r.category || 'divers', (catWeights.get(r.category || 'divers') || 0) + w);
+    if (r.author_id) authorWeights.set(r.author_id, (authorWeights.get(r.author_id) || 0) + w);
+  }
+  return { catWeights, authorWeights };
+}
+
+// Flux « Pour vous » : personnalisé et un peu aléatoire. Chaque page = 7 vidéos selon les goûts, 2 populaires, 1 au hasard.
+// Les vidéos déjà montrées ne reviennent pas tout de suite (voir SESSION_MINUTES et COOLDOWN_HOURS). Le curseur n'est qu'un témoin « il y a encore des nouveautés ».
+router.get('/feed', wrap(async (req, res) => {
+  const uid = req.user.id;
+  const now = Date.now();
+  const [rows, taste, servedRows, doneRows] = await Promise.all([
+    db
+      .prepare(`${SELECT_SHORT} WHERE s.status = 'active' AND s.expires_at > NOW() AND s.user_id IS NOT NULL ${NOT_BLOCKED} AND NOT EXISTS (SELECT 1 FROM short_hidden h WHERE h.short_id = s.id AND h.user_id = ?) ORDER BY s.published_at DESC, s.id DESC LIMIT ?`)
+      .all(...V4(uid), uid, uid, uid, FEED_POOL),
+    loadTaste(uid),
+    db.prepare("SELECT short_id, served_at FROM short_served WHERE user_id = ? AND served_at > NOW() - INTERVAL '7 days'").all(uid),
+    db.prepare('SELECT short_id FROM short_watch WHERE user_id = ? AND completed = TRUE').all(uid),
+  ]);
+
+  const servedAt = new Map(servedRows.map((r) => [r.short_id, new Date(r.served_at).getTime()]));
+  const ctx = { userId: uid, catWeights: taste.catWeights, authorWeights: taste.authorWeights, completed: new Set(doneRows.map((r) => r.short_id)), random: Math.random };
+  const scored = rows.map((r) => ({ ...r, ...scoreCandidate(r, ctx, now) }));
+
+  // Ancienneté de la dernière fois où la vidéo a été montrée (infinie si jamais)
+  const since = (c) => (servedAt.has(c.id) ? now - servedAt.get(c.id) : Infinity);
+  const sessionMs = SESSION_MINUTES * 60_000;
+  const cooldownMs = COOLDOWN_HOURS * 3_600_000;
+
+  const fresh = scored.filter((c) => since(c) >= cooldownMs);
+  let page = composePage(fresh, PAGE_PATTERN);
+  // Pas assez de nouveautés : on complète avec les vidéos montrées il y a le plus longtemps (jamais celles de la session en cours)
+  if (page.length < FEED_PAGE) {
+    const have = new Set(page.map((c) => c.id));
+    const older = scored.filter((c) => !have.has(c.id) && since(c) < cooldownMs && since(c) >= sessionMs).sort((a, b) => since(b) - since(a));
+    page = page.concat(older.slice(0, FEED_PAGE - page.length));
+  }
+  // Dernier recours : tout a été montré à l'instant, on ne renvoie pas un flux vide
+  if (!page.length) page = [...scored].sort((a, b) => since(b) - since(a)).slice(0, FEED_PAGE);
+
+  const pageIds = new Set(page.map((c) => c.id));
+  const hasMore = fresh.some((c) => !pageIds.has(c.id));
+
+  if (page.length) {
+    await db
+      .prepare('INSERT INTO short_served (user_id, short_id) SELECT ?::text, UNNEST(?::text[]) ON CONFLICT (user_id, short_id) DO UPDATE SET served_at = NOW()')
+      .run(uid, page.map((c) => c.id));
+  }
+
   res.json({
-    items: page.map((r) => present(r, req.user.id)),
-    next_cursor: rows.length > FEED_PAGE && last ? `${last.published_cursor}|${last.id}` : null,
+    items: page.map((r) => present(r, uid)),
+    next_cursor: hasMore ? 'more' : null,
   });
 }));
 
@@ -453,6 +549,30 @@ router.post('/:id/view', wrap(async (req, res) => {
   res.json({ view_count: Number(count.n) });
 }));
 
+// Temps regardé : envoyé quand on quitte la vidéo (ou que l'appli passe en arrière-plan). Signal principal du flux personnalisé.
+// Garde la meilleure valeur par membre et par vidéo ; « plays » compte les passages. Rien n'est enregistré pour l'auteur lui-même.
+router.post('/:id/watch', wrap(async (req, res) => {
+  const s = await db.prepare("SELECT id, user_id, duration_seconds FROM shorts WHERE id = ? AND status = 'active' AND expires_at > NOW()").get(req.params.id);
+  if (!s) return res.status(404).json({ error: 'Vidéo introuvable' });
+  if (s.user_id === req.user.id) return res.json({ ok: true });
+  const duration = Number(s.duration_seconds) > 0 ? Number(s.duration_seconds) : MAX_SECONDS;
+  const raw = Number(req.body?.seconds);
+  if (!Number.isFinite(raw) || raw < 0) return res.status(400).json({ error: 'Durée invalide' });
+  const seconds = Math.min(raw, duration + 5); // on ne croit pas un temps plus long que la vidéo
+  const completed = parseBool(req.body?.completed) || seconds >= duration * 0.9;
+  await db
+    .prepare(
+      `INSERT INTO short_watch (user_id, short_id, watched_seconds, completed) VALUES (?, ?, ?, ?)
+       ON CONFLICT (user_id, short_id) DO UPDATE SET
+         watched_seconds = GREATEST(short_watch.watched_seconds, EXCLUDED.watched_seconds),
+         completed = short_watch.completed OR EXCLUDED.completed,
+         plays = short_watch.plays + 1,
+         updated_at = NOW()`
+    )
+    .run(req.user.id, s.id, seconds, completed);
+  res.json({ ok: true });
+}));
+
 // Qui a aimé cette vidéo (hors comptes bloqués), avec mon lien d'abonnement avec chacun
 router.get('/:id/likers', wrap(async (req, res) => {
   const row = await findLive(req.params.id, req.user.id);
@@ -594,6 +714,8 @@ async function runExpiry() {
   for (const t of ['short_saves', 'short_reposts', 'short_hidden', 'short_views']) {
     await db.prepare(`DELETE FROM ${t} WHERE short_id IN (SELECT id FROM shorts WHERE status IN ('expired', 'deleted') AND r2_deleted_at IS NOT NULL)`).run();
   }
+  // Journal des vidéos montrées : inutile au-delà d'une semaine
+  await db.prepare("DELETE FROM short_served WHERE served_at < NOW() - INTERVAL '7 days'").run();
   // Traces minimales : supprimées après 90 jours
   await db
     .prepare("DELETE FROM shorts WHERE status IN ('expired', 'deleted', 'abandoned', 'rejected') AND r2_deleted_at IS NOT NULL AND r2_deleted_at < NOW() - (? * INTERVAL '1 day')")

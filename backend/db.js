@@ -313,6 +313,15 @@ async function initSchema() {
     CREATE INDEX IF NOT EXISTS idx_reports_status ON reports(status, created_at);
     CREATE INDEX IF NOT EXISTS idx_reports_target ON reports(target_type, target_id);
 
+    -- Temps passé dans l'application, par membre et par jour (jour UTC) : sert aux utilisateurs actifs et aux badges d'activité
+    CREATE TABLE IF NOT EXISTS user_activity_daily (
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      day DATE NOT NULL,
+      seconds INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (user_id, day)
+    );
+    CREATE INDEX IF NOT EXISTS idx_activity_day ON user_activity_daily(day);
+
     -- Réglages de Kora IA (page Administration) et journal pour ses statistiques
     CREATE TABLE IF NOT EXISTS kora_settings (
       key TEXT PRIMARY KEY,

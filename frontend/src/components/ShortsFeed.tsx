@@ -27,6 +27,7 @@ import {
   fetchShortsFeed,
   hideShort,
   recordShortView,
+  recordShortWatch,
   setShortDownload,
   timeLeft,
   toggleShortCommentLike,
@@ -470,6 +471,8 @@ function ShortSlide({
   }
 
   const lastTime = useRef(0);
+  // Temps réellement regardé sur le passage en cours (hors déplacements du curseur) : envoyé au serveur en quittant la vidéo
+  const played = useRef(0);
 
   function setBarPercent(pct: number) {
     const p = Math.min(100, Math.max(0, pct));
@@ -517,6 +520,10 @@ function ShortSlide({
     if (v && b && v.duration && !dragging.current) setBarPercent((v.currentTime / v.duration) * 100);
     // Vidéo qui repart en boucle (temps qui retombe près de 0 après avoir été près de la fin) = nouvelle lecture
     if (v && v.loop && v.duration && lastTime.current > v.duration * 0.6 && v.currentTime < v.duration * 0.3) countPlay();
+    if (v && !dragging.current && !v.paused) {
+      const delta = v.currentTime - lastTime.current;
+      if (delta > 0 && delta < 1.5) played.current += delta;
+    }
     if (v) lastTime.current = v.currentTime;
   }
 
@@ -553,6 +560,31 @@ function ShortSlide({
       countPlay();
     }, 1500);
     return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, item.id, item.mine]);
+
+  // Signal pour le flux personnalisé : temps regardé, envoyé quand on quitte la vidéo ou que l'appli passe en arrière-plan.
+  // Moins de 0,4 s = simple défilement rapide, on n'envoie rien. Pas de signal pour ses propres vidéos.
+  useEffect(() => {
+    if (!active || item.mine) return;
+    played.current = 0;
+    let lastSent = -1;
+    const flush = () => {
+      const secs = played.current;
+      if (secs < 0.4 || secs - lastSent < 0.5) return;
+      lastSent = secs;
+      const v = videoRef.current;
+      const dur = v && Number.isFinite(v.duration) && v.duration > 0 ? v.duration : item.duration_seconds ?? 0;
+      void recordShortWatch(item.id, secs, dur > 0 && secs >= dur * 0.9).catch(() => undefined);
+    };
+    const onHide = () => {
+      if (document.hidden) flush();
+    };
+    document.addEventListener("visibilitychange", onHide);
+    return () => {
+      document.removeEventListener("visibilitychange", onHide);
+      flush();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, item.id, item.mine]);
 
@@ -862,6 +894,11 @@ export function ShortsFeed({ header, startId }: { header: ReactNode; startId?: s
     initialPageParam: null as string | null,
     getNextPageParam: (last) => last.next_cursor,
     enabled: !!user,
+    // Le flux est personnalisé et change à chaque demande : on ne le recharge pas en revenant sur la fenêtre, sinon les vidéos
+    // changeraient sous les doigts. Il se renouvelle quand la page est quittée un moment, ou après une publication.
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
 
   // Vidéo ouverte depuis un lien de partage
@@ -877,7 +914,9 @@ export function ShortsFeed({ header, startId }: { header: ReactNode; startId?: s
   }, [start.error]);
 
   const list = useMemo(() => {
-    const base = (feed.data?.pages ?? []).flatMap((p) => p.items);
+    // Sécurité : une même vidéo ne doit jamais apparaître deux fois dans la liste
+    const seen = new Set<string>();
+    const base = (feed.data?.pages ?? []).flatMap((p) => p.items).filter((i) => (seen.has(i.id) ? false : (seen.add(i.id), true)));
     const all = start.data && !base.some((b) => b.id === start.data!.id) ? [start.data, ...base] : base;
     return all
       .filter((i) => !patches[i.id]?.gone)

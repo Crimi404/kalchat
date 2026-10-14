@@ -1,0 +1,23 @@
+KALCHAT - Étapes 1 et 2 : signaux + feed K-Short personnalisé
+
+Comment l'appliquer : copie ces fichiers dans ton repo en gardant les mêmes chemins (ils remplacent ou ajoutent), puis commit + push.
+Aucune variable Render à ajouter, aucune migration SQL à lancer (les tables se créent au démarrage).
+Aucune nouvelle APK nécessaire : l'APK charge le site.
+
+NOUVEAUX FICHIERS
+  backend/shortsRanking.js              calcul du score et composition d'une page (7 goûts / 2 populaires / 1 hasard)
+  backend/routes/activity.js            POST /api/activity/ping (temps passé par jour)
+  frontend/src/components/ActivityPing.tsx   envoie le temps passé toutes les 60 s (appli au premier plan seulement)
+
+FICHIERS MODIFIÉS
+  backend/db.js                         table user_activity_daily
+  backend/server.js                     branche /api/activity
+  backend/shorts.js                     catégorie, short_watch, short_served, POST /:id/watch, nouveau GET /feed
+  frontend/src/lib/shorts.ts            category, recordShortWatch, catégorie envoyée à la publication
+  frontend/src/components/ShortUploadSheet.tsx   choix de la catégorie + rappel des #hashtags
+  frontend/src/components/ShortsFeed.tsx         envoi du temps regardé, flux stable (pas de rechargement au retour sur la fenêtre)
+  frontend/src/routes/__root.tsx        monte ActivityPing
+
+À SAVOIR
+  - Les anciennes vidéos passent en catégorie « divers » automatiquement.
+  - Le flux évite de remontrer une vidéo déjà vue pendant 6 h (sauf s'il n'y a plus rien d'autre).

@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Film, Loader2, X } from "lucide-react";
 import { toast } from "sonner";
 import { useBackHandler } from "@/lib/back";
+import { CATEGORIES, DEFAULT_CATEGORY } from "@/lib/categories";
 import { fetchShortsStatus, publishShort, readVideoDuration, type ShortItem } from "@/lib/shorts";
 import { canCompressVideo, compressVideo, type VerticalMode } from "@/lib/videoCompress";
 
@@ -28,6 +29,7 @@ export function ShortUploadSheet({ open, onClose, onPublished }: { open: boolean
   const [caption, setCaption] = useState("");
   const [days, setDays] = useState(30);
   const [inFeed, setInFeed] = useState(false);
+  const [category, setCategory] = useState(DEFAULT_CATEGORY);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(0);
   const [phase, setPhase] = useState<"compress" | "upload">("upload");
@@ -59,6 +61,7 @@ export function ShortUploadSheet({ open, onClose, onPublished }: { open: boolean
     setCaption("");
     setDays(status.data?.default_days ?? 30);
     setInFeed(false);
+    setCategory(DEFAULT_CATEGORY);
     setProgress(0);
     setPhase("upload");
     setCompress(true);
@@ -121,7 +124,7 @@ export function ShortUploadSheet({ open, onClose, onPublished }: { open: boolean
       }
       setPhase("upload");
       setProgress(0);
-      const s = await publishShort({ file: toSend, caption: caption.trim(), days, inFeed, duration, onProgress: setProgress });
+      const s = await publishShort({ file: toSend, caption: caption.trim(), days, inFeed, category, duration, onProgress: setProgress });
       toast.success("Vidéo publiée !");
       void qc.invalidateQueries({ queryKey: ["shorts"] });
       onPublished(s);
@@ -226,6 +229,26 @@ export function ShortUploadSheet({ open, onClose, onPublished }: { open: boolean
           placeholder="Écris une légende…"
           className="mt-3 w-full resize-none rounded-2xl border border-border bg-background px-4 py-2.5 text-sm text-foreground outline-none focus:border-primary"
         />
+        <p className="mt-1 px-1 text-xs text-muted-foreground">Ajoute des #hashtags dans la légende : ils aident ta vidéo à être trouvée dans Explorer.</p>
+
+        <div className="mt-3 rounded-2xl border border-border p-3">
+          <p className="text-sm font-semibold text-foreground">Catégorie</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">Pour montrer ta vidéo aux personnes que ce sujet intéresse.</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {CATEGORIES.map((c) => (
+              <button
+                key={c.value}
+                type="button"
+                disabled={busy}
+                onClick={() => setCategory(c.value)}
+                aria-pressed={category === c.value}
+                className={`rounded-full border px-3 py-1 text-xs font-semibold disabled:opacity-50 ${category === c.value ? "border-primary bg-primary/15 text-foreground" : "border-border text-muted-foreground"}`}
+              >
+                {c.emoji} {c.label}
+              </button>
+            ))}
+          </div>
+        </div>
 
         <div className="mt-3 rounded-2xl border border-border p-3">
           <div className="flex items-center justify-between">

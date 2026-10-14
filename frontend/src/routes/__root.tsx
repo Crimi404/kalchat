@@ -12,6 +12,7 @@ import { DeepLinkHandler } from "@/components/DeepLinkHandler";
 import { UpdateGate } from "@/components/UpdateGate";
 import { ShareReceiver } from "@/components/ShareReceiver";
 import { OfflineBanner } from "@/components/OfflineBanner";
+import { ActivityPing } from "@/components/ActivityPing";
 
 function NotFoundComponent() {
   return (
@@ -93,6 +94,7 @@ function RootComponent() {
             <ShareReceiver />
             <OfflineBanner />
             <UpdateGate />
+            <ActivityPing />
             <Toaster position="top-center" richColors />
           </PresenceProvider>
         </ThemeProvider>
