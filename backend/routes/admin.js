@@ -62,6 +62,68 @@ router.get('/stats', async (req, res) => {
   });
 });
 
+// ---------- Activité des membres (cases « Utilisateurs » et « En ligne » de la page Administration) ----------
+// Temps passé = somme des « pings » de l'appli au premier plan (table user_activity_daily, jours UTC).
+// Un membre est « actif » s'il a utilisé Kalchat au moins ACTIVE_MIN_DAYS jour(s) sur les 7 derniers jours.
+const ACTIVE_MIN_DAYS = 1;
+router.get('/activity', async (req, res) => {
+  try {
+    const rows = await db
+      .prepare(
+        `SELECT u.id, u.username, u.first_name, u.last_name, u.avatar_url, u.badge, u.role, u.is_admin, u.created_at,
+                COALESCE(SUM(a.seconds) FILTER (WHERE a.day = (NOW() AT TIME ZONE 'UTC')::date), 0) AS today_seconds,
+                COALESCE(SUM(a.seconds) FILTER (WHERE a.day > (NOW() AT TIME ZONE 'UTC')::date - 7), 0) AS week_seconds,
+                COUNT(a.day) FILTER (WHERE a.day > (NOW() AT TIME ZONE 'UTC')::date - 7 AND a.seconds > 0) AS days_active_7d,
+                COALESCE(SUM(a.seconds), 0) AS total_seconds,
+                MAX(a.day) AS last_day
+         FROM users u
+         LEFT JOIN user_activity_daily a ON a.user_id = u.id
+         WHERE u.id != 'kalchat-ai'
+         GROUP BY u.id
+         ORDER BY week_seconds DESC, u.created_at DESC
+         LIMIT 500`
+      )
+      .all();
+    const since = await db.prepare('SELECT MIN(day) AS d FROM user_activity_daily').get();
+
+    const onlineIds = new Set();
+    for (const s of req.app.get('io').sockets.sockets.values()) if (s.user?.id) onlineIds.add(s.user.id);
+
+    const members = rows.map((r) => ({
+      id: r.id,
+      username: r.username,
+      first_name: r.first_name,
+      last_name: r.last_name,
+      avatar_url: r.avatar_url,
+      badge: r.badge,
+      role: r.role,
+      is_admin: !!r.is_admin,
+      created_at: r.created_at,
+      today_seconds: Number(r.today_seconds),
+      week_seconds: Number(r.week_seconds),
+      days_active_7d: Number(r.days_active_7d),
+      total_seconds: Number(r.total_seconds),
+      last_day: r.last_day ? new Date(r.last_day).toISOString().slice(0, 10) : null,
+      online: onlineIds.has(r.id),
+      active: Number(r.days_active_7d) >= ACTIVE_MIN_DAYS,
+    }));
+    res.json({
+      tracking_since: since?.d ? new Date(since.d).toISOString().slice(0, 10) : null,
+      active_min_days: ACTIVE_MIN_DAYS,
+      summary: {
+        online: members.filter((m) => m.online).length,
+        active_7d: members.filter((m) => m.active).length,
+        today_seconds: members.reduce((n, m) => n + m.today_seconds, 0),
+        week_seconds: members.reduce((n, m) => n + m.week_seconds, 0),
+      },
+      members,
+    });
+  } catch (err) {
+    console.error('Admin (activité) :', err.message);
+    res.status(500).json({ error: "Impossible de charger l'activité" });
+  }
+});
+
 // ---------- Liste des utilisateurs (recherche optionnelle par pseudo ou nom) ----------
 router.get('/users', async (req, res) => {
   const q = (req.query.q || '').trim();

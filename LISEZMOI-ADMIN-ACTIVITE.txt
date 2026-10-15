@@ -1,0 +1,9 @@
+KALCHAT - Admin : cases « Utilisateurs » et « En ligne » cliquables
+
+Copie ces fichiers dans ton repo (mêmes chemins), commit + push. Aucune variable ni migration, pas de nouvelle APK.
+
+  backend/routes/admin.js                              nouvelle route GET /api/admin/activity
+  frontend/src/components/AdminActivitySheet.tsx       panneau de détails (nouveau)
+  frontend/src/routes/_authenticated/admin.tsx         les 2 cases deviennent des boutons « Détails ›»
+
+Le temps passé s'accumule depuis la mise en ligne des étapes 1-2 : au début, les chiffres sont petits.

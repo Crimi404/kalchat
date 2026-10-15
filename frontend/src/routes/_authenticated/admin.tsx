@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { TopBar } from "@/components/TopBar";
 import { BottomNav } from "@/components/BottomNav";
 import { KoraAdmin } from "@/components/KoraAdmin";
+import { AdminActivitySheet } from "@/components/AdminActivitySheet";
 import { BadgeList, KalBadge, TIERS, type BadgeRow, type BadgeType } from "@/components/KalBadge";
 import { api, displayName, toBadges } from "@/lib/api";
 import { REPORT_REASON_LABEL } from "@/lib/reports";
@@ -80,6 +81,8 @@ function AdminPage() {
   const [closed, setClosed] = useState(false);
   const [storage, setStorage] = useState<StorageInfo | null>(null);
   const [storageBusy, setStorageBusy] = useState(false);
+  // Case de stats ouverte en panneau de détails (« En ligne » ou « Utilisateurs »)
+  const [sheet, setSheet] = useState<"online" | "users" | null>(null);
 
   const online = useOnline();
 
@@ -200,22 +203,39 @@ function AdminPage() {
         )}
         {tab === "members" && <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Rechercher un membre…" className="w-full rounded-xl border border-border bg-secondary/60 px-3 py-2 text-sm outline-none focus:border-primary" />}
         {tab === "members" && <div className="grid grid-cols-2 gap-2">
-          {[
-            { label: "Utilisateurs", value: stats.data?.users },
-            { label: "En ligne", value: stats.data?.online ?? online.size },
+          {([
+            { label: "Utilisateurs", value: stats.data?.users, sheet: "users" },
+            { label: "En ligne", value: stats.data?.online ?? online.size, sheet: "online" },
             { label: "Messages", value: stats.data?.messages },
             { label: "Publications", value: stats.data?.posts },
             { label: "Photos", value: stats.data?.photos },
             { label: "Vidéos (total)", value: stats.data?.videos },
             { label: "dont K-Short", value: stats.data?.shorts },
             { label: "Commentaires", value: stats.data?.comments },
-          ].map((c) => (
-            <div key={c.label} className="rounded-2xl border border-border bg-card p-3">
-              <p className="text-2xl font-bold">{c.value ?? "…"}</p>
-              <p className="text-xs text-muted-foreground">{c.label}</p>
-            </div>
-          ))}
+          ] as { label: string; value: number | undefined; sheet?: "online" | "users" }[]).map((c) =>
+            c.sheet ? (
+              // Case-bouton : un appui ouvre le détail (temps passé, actifs sur 7 jours…) sans quitter la page
+              <button
+                key={c.label}
+                type="button"
+                onClick={() => setSheet(c.sheet!)}
+                className="rounded-2xl border border-primary/40 bg-card p-3 text-left transition active:scale-[0.98] hover:bg-secondary/40"
+              >
+                <p className="text-2xl font-bold">{c.value ?? "…"}</p>
+                <p className="flex items-center justify-between text-xs text-muted-foreground">
+                  <span>{c.label}</span>
+                  <span className="font-semibold text-primary">Détails ›</span>
+                </p>
+              </button>
+            ) : (
+              <div key={c.label} className="rounded-2xl border border-border bg-card p-3">
+                <p className="text-2xl font-bold">{c.value ?? "…"}</p>
+                <p className="text-xs text-muted-foreground">{c.label}</p>
+              </div>
+            ),
+          )}
         </div>}
+        <AdminActivitySheet mode={sheet} onClose={() => setSheet(null)} />
         {tab === "kora" && isAdmin && <KoraAdmin />}
         {tab === "members" && isAdmin && (
           <div className="rounded-2xl border border-border bg-card p-3">
