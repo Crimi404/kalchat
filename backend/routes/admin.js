@@ -6,6 +6,8 @@ const koraSettings = require('../koraSettings');
 const authMiddleware = require('../middleware/auth');
 const staffMiddleware = require('../middleware/staff');
 const { notify } = require('../notify');
+const { sendPushToAll } = require('../push');
+const { v4: uuid } = require('uuid');
 
 const router = express.Router();
 router.use(authMiddleware, staffMiddleware);
@@ -121,6 +123,82 @@ router.get('/activity', async (req, res) => {
   } catch (err) {
     console.error('Admin (activité) :', err.message);
     res.status(500).json({ error: "Impossible de charger l'activité" });
+  }
+});
+
+// ---------- Annonces (administrateurs uniquement) : bannière en haut du fil des membres, push optionnel ----------
+const ANN_TITLE_MAX = 80;
+const ANN_BODY_MAX = 500;
+const ANN_MAX_DAYS = 30;
+const ANN_DEFAULT_DAYS = 7;
+
+router.get('/announcements', async (req, res) => {
+  if (!req.staff.is_admin) return res.status(403).json({ error: 'Réservé aux administrateurs' });
+  try {
+    const rows = await db
+      .prepare(
+        `SELECT a.id, a.title, a.body, a.created_at, a.expires_at, a.deleted_at, a.push_requested, a.push_sent,
+                (SELECT COUNT(*) FROM announcement_dismissed d WHERE d.announcement_id = a.id) AS dismissed_count
+         FROM announcements a
+         ORDER BY a.created_at DESC
+         LIMIT 30`
+      )
+      .all();
+    res.json(
+      rows.map((r) => ({
+        ...r,
+        push_requested: !!r.push_requested,
+        push_sent: Number(r.push_sent),
+        dismissed_count: Number(r.dismissed_count),
+        status: r.deleted_at ? 'removed' : new Date(r.expires_at) > new Date() ? 'live' : 'expired',
+      }))
+    );
+  } catch (err) {
+    console.error('Admin (annonces) :', err.message);
+    res.status(500).json({ error: 'Impossible de charger les annonces' });
+  }
+});
+
+router.post('/announcements', async (req, res) => {
+  if (!req.staff.is_admin) return res.status(403).json({ error: 'Réservé aux administrateurs' });
+  try {
+    const title = typeof req.body.title === 'string' ? req.body.title.trim() : '';
+    const body = typeof req.body.body === 'string' ? req.body.body.trim() : '';
+    if (title.length < 2 || title.length > ANN_TITLE_MAX) return res.status(400).json({ error: `Le titre doit faire entre 2 et ${ANN_TITLE_MAX} caractères` });
+    if (body.length < 2 || body.length > ANN_BODY_MAX) return res.status(400).json({ error: `Le message doit faire entre 2 et ${ANN_BODY_MAX} caractères` });
+    const days = req.body.days === undefined || req.body.days === null || req.body.days === '' ? ANN_DEFAULT_DAYS : Number(req.body.days);
+    if (!Number.isInteger(days) || days < 1 || days > ANN_MAX_DAYS) return res.status(400).json({ error: `La durée doit être de 1 à ${ANN_MAX_DAYS} jours` });
+    const wantPush = req.body.push === true || req.body.push === 'true';
+
+    const id = uuid();
+    await db
+      .prepare("INSERT INTO announcements (id, title, body, created_by, expires_at, push_requested) VALUES (?, ?, ?, ?, NOW() + (? * INTERVAL '1 day'), ?)")
+      .run(id, title, body, req.user.id, days, wantPush);
+
+    // Le push part en arrière-plan : la réponse ne dépend pas du nombre d'appareils à prévenir
+    if (wantPush) {
+      const cut = (t, n) => (t.length > n ? `${t.slice(0, n - 1)}…` : t);
+      sendPushToAll({ title: `📢 ${cut(title, 60)}`, body: cut(body.replace(/\s+/g, ' '), 140), url: '/', tag: `ann-${id}`, type: 'announcement', priority: 'normal' })
+        .then((n) => db.prepare('UPDATE announcements SET push_sent = ? WHERE id = ?').run(n, id))
+        .catch((err) => console.error('Annonce (push) :', err.message));
+    }
+    res.status(201).json({ id, days, push: wantPush });
+  } catch (err) {
+    console.error('Admin (nouvelle annonce) :', err.message);
+    res.status(500).json({ error: "Impossible de publier l'annonce" });
+  }
+});
+
+// Retirer une annonce : elle disparaît tout de suite chez tous les membres
+router.delete('/announcements/:id', async (req, res) => {
+  if (!req.staff.is_admin) return res.status(403).json({ error: 'Réservé aux administrateurs' });
+  try {
+    const r = await db.prepare('UPDATE announcements SET deleted_at = NOW() WHERE id = ? AND deleted_at IS NULL').run(req.params.id);
+    if (!r.changes) return res.status(404).json({ error: 'Annonce introuvable ou déjà retirée' });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('Admin (retrait annonce) :', err.message);
+    res.status(500).json({ error: "Impossible de retirer l'annonce" });
   }
 });
 

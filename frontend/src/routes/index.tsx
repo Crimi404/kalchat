@@ -13,6 +13,7 @@ import { FeedPrefsSheet } from "@/components/FeedPrefsSheet";
 import logo from "@/assets/kalchat-logo.png";
 import { ApkDownload } from "@/components/ApkDownload";
 import { EmailBanner } from "@/components/EmailBanner";
+import { AnnouncementBanner } from "@/components/AnnouncementBanner";
 import { ShortsFeed } from "@/components/ShortsFeed";
 import { useBackHandler } from "@/lib/back";
 import { ShortFeedCard } from "@/components/ShortFeedCard";
@@ -181,6 +182,7 @@ function FeedPage() {
             <ApkDownload variant="button" />
           </section>
         )}
+        {user && <AnnouncementBanner />}
         {user && <EmailBanner />}
         {user && <ApkDownload variant="banner" />}
         {user && activeTab !== "communities" && (

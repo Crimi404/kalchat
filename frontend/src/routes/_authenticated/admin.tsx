@@ -6,6 +6,8 @@ import { TopBar } from "@/components/TopBar";
 import { BottomNav } from "@/components/BottomNav";
 import { KoraAdmin } from "@/components/KoraAdmin";
 import { AdminActivitySheet } from "@/components/AdminActivitySheet";
+import { AdminAnnouncementsSheet } from "@/components/AdminAnnouncementsSheet";
+import { Megaphone } from "lucide-react";
 import { BadgeList, KalBadge, TIERS, type BadgeRow, type BadgeType } from "@/components/KalBadge";
 import { api, displayName, toBadges } from "@/lib/api";
 import { REPORT_REASON_LABEL } from "@/lib/reports";
@@ -83,6 +85,7 @@ function AdminPage() {
   const [storageBusy, setStorageBusy] = useState(false);
   // Case de stats ouverte en panneau de détails (« En ligne » ou « Utilisateurs »)
   const [sheet, setSheet] = useState<"online" | "users" | null>(null);
+  const [annOpen, setAnnOpen] = useState(false);
 
   const online = useOnline();
 
@@ -236,6 +239,22 @@ function AdminPage() {
           )}
         </div>}
         <AdminActivitySheet mode={sheet} onClose={() => setSheet(null)} />
+        {tab === "members" && isAdmin && (
+          // Case-bouton « Annonces » : écrire une annonce pour tous les membres (bannière + notification optionnelle)
+          <button
+            type="button"
+            onClick={() => setAnnOpen(true)}
+            className="flex w-full items-center gap-3 rounded-2xl border border-primary/40 bg-card p-3 text-left transition active:scale-[0.99] hover:bg-secondary/40"
+          >
+            <span className="brand-gradient flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-primary-foreground"><Megaphone className="h-5 w-5" /></span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-semibold">Annonces</span>
+              <span className="block text-xs text-muted-foreground">Écrire un message visible par tous les membres</span>
+            </span>
+            <span className="text-xs font-semibold text-primary">Ouvrir ›</span>
+          </button>
+        )}
+        <AdminAnnouncementsSheet open={annOpen && isAdmin} onClose={() => setAnnOpen(false)} />
         {tab === "kora" && isAdmin && <KoraAdmin />}
         {tab === "members" && isAdmin && (
           <div className="rounded-2xl border border-border bg-card p-3">

@@ -322,6 +322,26 @@ async function initSchema() {
     );
     CREATE INDEX IF NOT EXISTS idx_activity_day ON user_activity_daily(day);
 
+    -- Annonces de l'équipe (page Administration) : bannière en haut du fil, fermable par chaque membre
+    CREATE TABLE IF NOT EXISTS announcements (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      body TEXT NOT NULL,
+      created_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      expires_at TIMESTAMPTZ NOT NULL,
+      deleted_at TIMESTAMPTZ,
+      push_requested BOOLEAN NOT NULL DEFAULT FALSE,
+      push_sent INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS idx_announcements_active ON announcements(expires_at, created_at DESC);
+    CREATE TABLE IF NOT EXISTS announcement_dismissed (
+      announcement_id TEXT NOT NULL REFERENCES announcements(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (announcement_id, user_id)
+    );
+
     -- Réglages de Kora IA (page Administration) et journal pour ses statistiques
     CREATE TABLE IF NOT EXISTS kora_settings (
       key TEXT PRIMARY KEY,

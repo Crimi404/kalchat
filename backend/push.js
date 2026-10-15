@@ -112,6 +112,26 @@ async function sendPushToUser(userId, payload) {
   return sent;
 }
 
+/**
+ * Envoie la même notification push à tous les membres qui ont au moins un appareil enregistré (comptes bloqués exclus).
+ * Utilisé pour les annonces de l'équipe. Renvoie le nombre de membres atteints. Un échec sur un membre n'arrête pas les autres.
+ */
+async function sendPushToAll(payload) {
+  if (!isPushEnabled()) return 0;
+  const users = await db
+    .prepare('SELECT DISTINCT t.user_id FROM push_tokens t JOIN users u ON u.id = t.user_id WHERE u.is_blocked = 0')
+    .all();
+  let reached = 0;
+  for (const { user_id } of users) {
+    try {
+      if ((await sendPushToUser(user_id, payload)) > 0) reached++;
+    } catch (err) {
+      console.error('Push (annonce) :', err.message);
+    }
+  }
+  return reached;
+}
+
 // ---------- Texte des notifications ----------
 const cut = (text, max) => {
   const t = String(text || '').replace(/\s+/g, ' ').trim();
@@ -239,4 +259,4 @@ function pushConfigError() {
   return configError;
 }
 
-module.exports = { isPushEnabled, pushConfigError, sendPushToUser, pushForNotification, getPushPrefs, savePushPrefs };
+module.exports = { isPushEnabled, pushConfigError, sendPushToUser, sendPushToAll, pushForNotification, getPushPrefs, savePushPrefs };

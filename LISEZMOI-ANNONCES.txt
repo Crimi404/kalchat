@@ -1,0 +1,25 @@
+KALCHAT - Annonces (+ cases « Utilisateurs » / « En ligne » cliquables)
+
+Ce zip CONTIENT aussi le zip précédent (admin activité) : copie seulement celui-ci.
+Copie les fichiers dans ton repo (mêmes chemins), commit + push. Aucune variable Render, aucune migration (tables créées au démarrage), pas de nouvelle APK.
+
+NOUVEAUX
+  backend/routes/announcements.js                     GET /api/announcements, POST /api/announcements/:id/dismiss (membres)
+  frontend/src/lib/announcements.ts                   appels API
+  frontend/src/components/AnnouncementBanner.tsx      bannière en haut du fil
+  frontend/src/components/AdminAnnouncementsSheet.tsx panneau « Annonces » de l'admin
+  frontend/src/components/AdminActivitySheet.tsx      (du zip précédent) détails En ligne / Utilisateurs
+
+MODIFIÉS
+  backend/db.js            tables announcements + announcement_dismissed
+  backend/push.js          sendPushToAll (notification à tous les membres ayant l'appli Android)
+  backend/server.js        branche /api/announcements
+  backend/routes/admin.js  routes admin : annonces (publier, lister, retirer) + activité
+  frontend/src/routes/_authenticated/admin.tsx   bouton « Annonces » + cases cliquables
+  frontend/src/routes/index.tsx                  affiche la bannière au-dessus du rappel email
+
+RÈGLES
+  - Seuls les administrateurs publient / retirent (pas les modérateurs).
+  - Titre 2 à 80 caractères, message 2 à 500, durée de 1 à 30 jours (7 par défaut), 3 annonces affichées au maximum.
+  - Chaque membre peut fermer une annonce ; elle ne revient plus pour lui.
+  - La notification push est optionnelle (décochée par défaut) ; elle ignore les comptes bloqués.
