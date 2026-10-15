@@ -9,6 +9,7 @@ const { releaseMedia } = require('../mediaCleanup');
 const { mediaUrlOk, BAD_URL } = require('../mediaUrl');
 const ai = require('../ai');
 const { THEMED_POST_MAX_CHARS, normalizeTheme, normalizeFont } = require('../themes');
+const { scorePost, composeFeed, seededRandom, stableWindowStart } = require('../postsRanking');
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -345,6 +346,10 @@ async function listPosts(req, res) {
   }
   const whereClause = `WHERE ${conditions.join(' AND ')}`;
 
+  // Fil « Pour vous » personnalisé : seulement sur demande explicite de l'accueil (?rank=foryou), pour un membre connecté,
+  // et jamais pour un profil, un hashtag, une catégorie, une communauté ou l'onglet Abonnements (qui restent par date).
+  const personalised = req.query.rank === 'foryou' && req.user.id !== '__guest__' && !user_id && !hashtag && !category && !communityId && !followingOnly;
+
   const rows = await db
     .prepare(
       `SELECT p.id, p.user_id, u.username, u.avatar_url, u.badge, u.role, u.first_name, u.last_name, p.content, p.media_url, p.media_type, p.allow_download, p.created_at,
@@ -362,11 +367,86 @@ async function listPosts(req, res) {
        LEFT JOIN users su ON su.id = so.user_id
        ${whereClause}
        ORDER BY p.created_at DESC
-       LIMIT 100`
+       LIMIT ${personalised ? RANK_POOL : 100}`
     )
     .all(req.user.id, req.user.id, req.user.id, ...extraParams);
-  res.json(rows);
+  if (!personalised) return res.json(rows);
+
+  try {
+    res.json(await rankForYou(rows, req.user.id));
+  } catch (err) {
+    // Le classement ne doit jamais empêcher d'afficher le fil : en cas d'erreur, on revient à l'ordre par date
+    console.error('Fil Pour vous (classement) :', err.message);
+    res.json(rows.slice(0, 100));
+  }
 }
+
+// ---------- Fil « Pour vous » : classement personnalisé ----------
+const RANK_POOL = 300; // publications récentes examinées
+const TASTE_DAYS = 30;
+
+/** Goûts du membre sur 30 jours : poids cumulé par catégorie et par auteur (j'aime, favoris, commentaires, repartages = positif ; masquées = négatif). */
+async function loadPostTaste(userId) {
+  const rows = await db
+    .prepare(
+      `WITH signals AS (
+         SELECT post_id, 3.0::float8 AS w FROM post_likes WHERE user_id = ? AND created_at > NOW() - INTERVAL '${TASTE_DAYS} days'
+         UNION ALL SELECT post_id, 3.0::float8 FROM post_bookmarks WHERE user_id = ? AND created_at > NOW() - INTERVAL '${TASTE_DAYS} days'
+         UNION ALL SELECT post_id, 2.5::float8 FROM post_comments WHERE user_id = ? AND created_at > NOW() - INTERVAL '${TASTE_DAYS} days'
+         UNION ALL SELECT shared_from_id, 2.0::float8 FROM posts WHERE user_id = ? AND shared_from_id IS NOT NULL AND created_at > NOW() - INTERVAL '${TASTE_DAYS} days'
+         UNION ALL SELECT post_id, (-3.0)::float8 FROM post_hidden WHERE user_id = ? AND created_at > NOW() - INTERVAL '${TASTE_DAYS} days'
+       )
+       SELECT COALESCE(p.category, 'divers') AS category, p.user_id AS author_id, SUM(g.w) AS w
+       FROM signals g JOIN posts p ON p.id = g.post_id
+       WHERE p.user_id <> ?
+       GROUP BY 1, 2`
+    )
+    .all(userId, userId, userId, userId, userId, userId);
+  const catWeights = new Map();
+  const authorWeights = new Map();
+  for (const r of rows) {
+    const w = Number(r.w) || 0;
+    catWeights.set(r.category, (catWeights.get(r.category) || 0) + w);
+    authorWeights.set(r.author_id, (authorWeights.get(r.author_id) || 0) + w);
+  }
+  return { catWeights, authorWeights };
+}
+
+async function rankForYou(rows, userId) {
+  if (rows.length === 0) return rows;
+  const now = Date.now();
+  const windowStart = stableWindowStart(now);
+  const [taste, seenRows] = await Promise.all([
+    loadPostTaste(userId),
+    db.prepare("SELECT post_id, seen_at FROM post_seen WHERE user_id = ? AND seen_at > NOW() - INTERVAL '14 days'").all(userId),
+  ]);
+  // Une publication vue pendant la fenêtre en cours ne bouge pas encore : elle ne sera repoussée qu'à la fenêtre suivante
+  const seenBefore = new Set(seenRows.filter((s) => new Date(s.seen_at).getTime() < windowStart).map((s) => s.post_id));
+  const ctx = { userId, catWeights: taste.catWeights, authorWeights: taste.authorWeights, seenBefore, random: seededRandom(`${userId}:${windowStart}`) };
+  const scored = rows.map((r) => ({ ...r, ...scorePost(r, ctx, now) }));
+  // On retire les notes internes avant de répondre : le format de réponse reste celui du fil habituel
+  return composeFeed(scored, ctx, 100).map(({ personal, pop, ...post }) => post);
+}
+
+// Publications réellement vues dans le fil (envoyées par lots par l'application) : repoussées au prochain classement.
+router.post('/seen', async (req, res) => {
+  try {
+    const ids = Array.isArray(req.body?.ids) ? [...new Set(req.body.ids.filter((x) => typeof x === 'string' && x.length > 0 && x.length <= 64))].slice(0, 50) : [];
+    if (!ids.length) return res.json({ ok: true, marked: 0 });
+    const r = await db
+      .prepare('INSERT INTO post_seen (user_id, post_id) SELECT ?, p.id FROM posts p WHERE p.id = ANY(?) AND p.user_id <> ? ON CONFLICT DO NOTHING')
+      .run(req.user.id, ids, req.user.id);
+    res.json({ ok: true, marked: r.changes });
+  } catch (err) {
+    console.error('Publications vues :', err.message);
+    res.status(500).json({ error: 'Erreur du serveur' });
+  }
+});
+
+// Nettoyage : on ne garde que 30 jours d'historique de publications vues
+setInterval(() => {
+  db.prepare("DELETE FROM post_seen WHERE seen_at < NOW() - INTERVAL '30 days'").run().catch((err) => console.error('Nettoyage post_seen :', err.message));
+}, 6 * 60 * 60 * 1000).unref();
 router.get('/', listPosts);
 router.listPosts = listPosts; // réutilisé par le fil public (visiteurs non connectés)
 

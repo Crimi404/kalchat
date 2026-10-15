@@ -94,6 +94,11 @@ export async function fetchFeed(_uid?: string | null): Promise<FeedPost[]> {
   return (await api<RawPost[]>("/posts")).map(shape);
 }
 
+/** Fil « Pour vous » de l'accueil : classé selon les goûts du membre (le serveur garde cet ordre stable pendant 30 min). */
+export async function fetchForYouFeed(): Promise<FeedPost[]> {
+  return (await api<RawPost[]>("/posts?rank=foryou")).map(shape);
+}
+
 /** Fil public pour les visiteurs non connectés (lecture seule). */
 /** Onglet « Abonnements » : mes publications et celles des comptes que je suis. */
 export async function fetchFollowingFeed(): Promise<FeedPost[]> {

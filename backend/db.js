@@ -322,6 +322,15 @@ async function initSchema() {
     );
     CREATE INDEX IF NOT EXISTS idx_activity_day ON user_activity_daily(day);
 
+    -- Publications réellement vues dans le fil « Pour vous » (affichées au moins 1 s) : servent à repousser ce qu'on a déjà vu
+    CREATE TABLE IF NOT EXISTS post_seen (
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      post_id TEXT NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+      seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (user_id, post_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_post_seen_user ON post_seen(user_id, seen_at DESC);
+
     -- Annonces de l'équipe (page Administration) : bannière en haut du fil, fermable par chaque membre
     CREATE TABLE IF NOT EXISTS announcements (
       id TEXT PRIMARY KEY,

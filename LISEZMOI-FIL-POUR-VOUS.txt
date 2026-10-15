@@ -1,0 +1,24 @@
+KALCHAT - Fil « Pour vous » des publications (classement personnalisé)
+
+Copie ces fichiers dans ton repo (mêmes chemins), commit + push. Aucune variable Render, aucune migration (la table se crée au démarrage), pas de nouvelle APK.
+
+NOUVEAUX
+  backend/postsRanking.js                  calcul des notes et composition du fil (12 comptes suivis / 5 recommandées / 3 découverte par blocs de 20)
+  frontend/src/components/SeenWatch.tsx    signale au serveur les publications réellement vues (40 % visibles pendant 1 s)
+
+MODIFIÉS
+  backend/db.js              table post_seen (publications vues)
+  backend/routes/posts.js    GET /api/posts?rank=foryou (classé) + POST /api/posts/seen
+  frontend/src/lib/social.ts       fetchForYouFeed
+  frontend/src/routes/index.tsx    accueil : fil classé, suivi des vues, vidéos K-Short intercalées
+
+CE QUI NE CHANGE PAS (par date comme avant) : Explorer, profils, catégories, hashtags, communautés, onglet Abonnements, fil des visiteurs.
+
+COMMENT ÇA CLASSE
+  - Goûts sur 30 jours : j'aime, favoris, commentaires, repartages (positif), publications masquées (négatif), par catégorie et par auteur.
+  - Fraîcheur : une publication perd la moitié de son bonus tous les 2 jours. Popularité : j'aime, commentaires, repartages.
+  - Stable 30 min : l'ordre et le « hasard » ne changent qu'une fois toutes les 30 minutes.
+  - Déjà vues (session précédente) : repoussées plus bas, jamais supprimées.
+  - Ta publication de moins de 3 h reste en haut de TON fil.
+  - Blocages, publications masquées, sujets coupés dans Paramètres et communautés : respectés comme avant.
+  - Si le classement échoue, le fil s'affiche quand même par date.

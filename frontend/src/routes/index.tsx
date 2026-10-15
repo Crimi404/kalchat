@@ -7,7 +7,8 @@ import { StoriesRow } from "@/components/StoriesRow";
 import { PostCard } from "@/components/PostCard";
 import { BottomNav } from "@/components/BottomNav";
 import { useAuth } from "@/lib/auth";
-import { fetchFeed, fetchFollowingFeed, fetchPublicFeed } from "@/lib/social";
+import { fetchForYouFeed, fetchFollowingFeed, fetchPublicFeed } from "@/lib/social";
+import { SeenWatch } from "@/components/SeenWatch";
 import { CommunitiesTab } from "@/components/CommunitiesTab";
 import { FeedPrefsSheet } from "@/components/FeedPrefsSheet";
 import logo from "@/assets/kalchat-logo.png";
@@ -62,16 +63,19 @@ function readStartShort(): string | null {
 
 type FeedEntry = { kind: "post"; post: FeedPost } | { kind: "short"; short: ShortItem };
 
-/** Glisse les vidéos « aussi dans le fil » parmi les publications, sans changer l'ordre des publications. */
+/**
+ * Glisse les vidéos « aussi dans le fil » parmi les publications classées, sans changer l'ordre des publications :
+ * une vidéo après la 3e publication, puis une toutes les 4 publications (les plus récentes d'abord). Le reste vient à la fin.
+ * (Le fil « Pour vous » n'est plus par date : on ne peut plus placer les vidéos selon leur date.)
+ */
 function mixShorts(posts: FeedPost[], shorts: ShortItem[]): FeedEntry[] {
   const vids = [...shorts].sort((a, b) => Date.parse(b.published_at) - Date.parse(a.published_at));
   const out: FeedEntry[] = [];
   let vi = 0;
-  for (const post of posts) {
-    const t = Date.parse(post.created_at) || 0;
-    while (vi < vids.length && Date.parse(vids[vi].published_at) >= t) out.push({ kind: "short", short: vids[vi++] });
+  posts.forEach((post, i) => {
     out.push({ kind: "post", post });
-  }
+    if (vi < vids.length && i >= 2 && (i - 2) % 4 === 0) out.push({ kind: "short", short: vids[vi++] });
+  });
   while (vi < vids.length) out.push({ kind: "short", short: vids[vi++] });
   return out;
 }
@@ -117,8 +121,11 @@ function FeedPage() {
   useBackHandler(() => setTab("foryou"), activeTab === "shorts");
   const feed = useQuery({
     queryKey: ["feed", user?.id ?? "guest", activeTab],
-    queryFn: () => (!user ? fetchPublicFeed() : activeTab === "following" ? fetchFollowingFeed() : fetchFeed()),
+    queryFn: () => (!user ? fetchPublicFeed() : activeTab === "following" ? fetchFollowingFeed() : fetchForYouFeed()),
     enabled: !loading && activeTab !== "communities" && activeTab !== "shorts",
+    // Fil « Pour vous » classé : on ne le recharge pas à chaque retour sur la fenêtre, sinon les publications changeraient de place.
+    // Il se renouvelle en touchant « Accueil », après une publication, ou quand les données ont plus de 2 minutes à la prochaine ouverture.
+    ...(user && activeTab === "foryou" ? { staleTime: 2 * 60_000, refetchOnWindowFocus: false } : {}),
   });
   const inFeedShorts = useQuery({
     queryKey: ["shorts", "in-feed", user?.id],
@@ -197,7 +204,18 @@ function FeedPage() {
         ) : feed.error ? (
           <p className="py-16 text-center text-sm text-destructive">Impossible de charger le fil.</p>
         ) : mixed.length ? (
-          mixed.map((entry) => (entry.kind === "post" ? <PostCard key={entry.post.id} post={entry.post} /> : <ShortFeedCard key={`short-${entry.short.id}`} short={entry.short} />))
+          mixed.map((entry) =>
+            entry.kind === "post" ? (
+              // Fil « Pour vous » : chaque publication vue est signalée au serveur pour être repoussée au prochain classement
+              user && activeTab === "foryou" ? (
+                <SeenWatch key={entry.post.id} id={entry.post.id}><PostCard post={entry.post} /></SeenWatch>
+              ) : (
+                <PostCard key={entry.post.id} post={entry.post} />
+              )
+            ) : (
+              <ShortFeedCard key={`short-${entry.short.id}`} short={entry.short} />
+            ),
+          )
         ) : (
           <div className="px-6 py-16 text-center">
             <p className="font-semibold text-foreground">{activeTab === "following" ? "Ton fil Abonnements est vide" : "Aucune publication pour le moment"}</p>
