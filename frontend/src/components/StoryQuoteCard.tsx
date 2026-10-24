@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Image as ImageIcon, Play } from "lucide-react";
 import type { StoryRef } from "@/lib/chat";
 import { resolveFont, resolveTheme } from "@/lib/themes";
+import { openStoryById } from "@/lib/stories";
 
 /**
  * Carte « Réponse à une story » (comme sur WhatsApp) : nom de l'auteur, aperçu de la story et mini-image.
@@ -46,13 +47,20 @@ export function StoryQuoteCard({ story, mine, meId }: { story: StoryRef; mine: b
   const line =
     story.kind === "text" ? story.text || "Story" : `${story.kind === "video" ? "🎥 Vidéo" : "📷 Photo"}${story.text ? ` · ${story.text}` : ""}`;
 
+  // Story encore disponible : un appui l'ouvre. Expirée : la carte reste en souvenir mais n'est plus cliquable.
   return (
-    <div className={`mb-1.5 flex min-w-[13rem] max-w-full overflow-hidden rounded-lg border-l-4 text-xs ${mine ? "border-primary-foreground/70 bg-primary-foreground/15" : "border-primary bg-background/50"}`}>
+    <button
+      type="button"
+      disabled={expired}
+      aria-label={expired ? "Story expirée" : "Ouvrir la story"}
+      onClick={() => openStoryById(story.id)}
+      className={`mb-1.5 flex w-full min-w-[13rem] max-w-full overflow-hidden rounded-lg border-l-4 text-left text-xs ${expired ? "cursor-default" : "transition-opacity active:opacity-70"} ${mine ? "border-primary-foreground/70 bg-primary-foreground/15" : "border-primary bg-background/50"}`}
+    >
       <div className="min-w-0 flex-1 px-2 py-1.5">
         <span className="block truncate font-semibold">{title}</span>
         <span className={`block truncate opacity-90 transition-all duration-500 ${expired && story.kind === "text" ? "select-none blur-[4px]" : ""}`}>{line}</span>
       </div>
       <div className="h-14 w-14 shrink-0 overflow-hidden">{thumb}</div>
-    </div>
+    </button>
   );
 }

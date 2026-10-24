@@ -179,3 +179,9 @@ export async function replyToStory(story: Pick<StoryRow, "id" | "author_id" | "i
   const [convId, thumb] = await Promise.all([getOrCreateConversation(story.author_id), makeStoryThumb(story)]);
   await sendMessage(convId, clean, undefined, null, { id: story.id, thumb });
 }
+
+/** Demande d'ouverture d'une story précise (par exemple depuis la carte d'une réponse dans une discussion). */
+export const OPEN_STORY_EVENT = "kalchat:open-story";
+export function openStoryById(id: string) {
+  if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent<string>(OPEN_STORY_EVENT, { detail: id }));
+}

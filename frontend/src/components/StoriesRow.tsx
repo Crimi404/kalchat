@@ -20,11 +20,11 @@ function Avatar({ url, name, size = 56 }: { url: string | null; name: string; si
   );
 }
 
-function StoryViewer({ group, onClose }: { group: StoryGroup; onClose: () => void }) {
+export function StoryViewer({ group, onClose, startId }: { group: StoryGroup; onClose: () => void; startId?: string }) {
   useBackHandler(onClose);
   const { user } = useAuth();
   const qc = useQueryClient();
-  const [i, setI] = useState(0);
+  const [i, setI] = useState(() => Math.max(0, startId ? group.stories.findIndex((x) => x.id === startId) : 0));
   const [muted, setMuted] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const [videoSeconds, setVideoSeconds] = useState<number | null>(null);
