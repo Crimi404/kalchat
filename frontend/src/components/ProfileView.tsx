@@ -11,6 +11,7 @@ import { fetchSavedShorts, fetchShortsStatus, fetchUserShorts } from "@/lib/shor
 import { ReportSheet } from "@/components/ReportSheet";
 import { publicUrl, shareLink } from "@/lib/share";
 import { useAuth } from "@/lib/auth";
+import { withPreviewChoice } from "@/lib/previewChoice";
 import { uploadMedia } from "@/lib/media";
 import { useMediaViewer } from "@/components/MediaViewer";
 import { getOrCreateConversation } from "@/lib/chat";
@@ -57,7 +58,7 @@ function FollowList({ username, kind, onClose }: { username: string; kind: "foll
 
 export function ProfileView({ username }: { username: string }) {
   const mv = useMediaViewer();
-  const { user, refresh } = useAuth();
+  const { user, profile: myProfile, refresh } = useAuth();
   const qc = useQueryClient();
   const [editing, setEditing] = useState(false);
   const [list, setList] = useState<"followers" | "following" | null>(null);
@@ -125,7 +126,7 @@ export function ProfileView({ username }: { username: string }) {
   const stats = p.stats;
   // Menu "⋯" (partager / bloquer / signaler) affiché seulement sur le profil d'un autre compte non bloqué
   const showMenu = !!user && !isMe && !p.blockedByMe && !p.blockedMe;
-  const shareProfile = () => void shareLink({ url: publicUrl(`/u/${p.username}`), title: `${p.display_name} sur Kalchat`, text: `Retrouve @${p.username} sur Kalchat` });
+  const shareProfile = () => withPreviewChoice(isMe && !!myProfile && !myProfile.public_preview, () => void shareLink({ url: publicUrl(`/u/${p.username}`), title: `${p.display_name} sur Kalchat`, text: `Retrouve @${p.username} sur Kalchat` }));
 
   return (
     <div>

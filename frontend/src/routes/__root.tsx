@@ -9,6 +9,7 @@ import { GuestPrompt } from "@/components/GuestPrompt";
 import { BackButtonHandler } from "@/components/BackButtonHandler";
 import { AppLockGate } from "@/components/AppLockGate";
 import { DeepLinkHandler } from "@/components/DeepLinkHandler";
+import { PreviewChoiceHost } from "@/components/PreviewChoiceHost";
 import { UpdateGate } from "@/components/UpdateGate";
 import { ShareReceiver } from "@/components/ShareReceiver";
 import { OfflineBanner } from "@/components/OfflineBanner";
@@ -90,6 +91,7 @@ function RootComponent() {
             <GuestPrompt />
             <BackButtonHandler />
             <DeepLinkHandler />
+            <PreviewChoiceHost />
             <AppLockGate />
             <ShareReceiver />
             <OfflineBanner />

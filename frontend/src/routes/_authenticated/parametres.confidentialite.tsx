@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Ban, Eye, Timer, Wifi } from "lucide-react";
+import { Ban, Eye, Link2, Repeat2, Timer, Wifi } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { ChoiceSheet } from "@/components/ChoiceSheet";
@@ -44,6 +44,28 @@ function PrivacyPage() {
       <p className="px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Qui peut voir mes infos</p>
       <section className="rounded-2xl border border-border bg-card p-2">
         <SettingRow icon={Wifi} title="Présence en ligne" description={PRESENCE_LABELS[profile.privacy_online]} onClick={() => setSheet("presence")} />
+      </section>
+
+      <p className="px-1 pt-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Partage de liens</p>
+      <section className="rounded-2xl border border-border bg-card p-2">
+        <SettingRow
+          icon={Link2}
+          title="Aperçu public de mon profil et de mes publications"
+          description="Quand un lien vers ton profil ou l'une de tes publications est partagé (WhatsApp, etc.), la carte montre ton nom, ta photo et un extrait. Désactivé : carte neutre Kalchat."
+          onClick={() => save.mutate({ public_preview: !profile.public_preview })}
+          right={<Toggle on={profile.public_preview} />}
+        />
+      </section>
+
+      <p className="px-1 pt-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Stories</p>
+      <section className="rounded-2xl border border-border bg-card p-2">
+        <SettingRow
+          icon={Repeat2}
+          title="Autoriser le repartage de mes stories"
+          description="Si tu le désactives, personne ne pourra repartager tes stories. Tu peux aussi choisir story par story au moment de publier."
+          onClick={() => save.mutate({ allow_story_share: !profile.allow_story_share })}
+          right={<Toggle on={profile.allow_story_share} />}
+        />
       </section>
 
       <p className="px-1 pt-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Messagerie</p>

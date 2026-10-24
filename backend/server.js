@@ -21,6 +21,8 @@ const { setupShorts } = require('./shorts');
 const pushRoutes = require('./routes/push');
 const activityRoutes = require('./routes/activity');
 const announcementsRoutes = require('./routes/announcements');
+const linkPreviewRoutes = require('./routes/linkPreview');
+const ogPages = require('./ogPages');
 const db = require('./db');
 const storage = require('./storage');
 const { registerUpload } = require('./uploadGuard');
@@ -79,6 +81,7 @@ app.use('/api/email', emailRoutes);
 app.use('/api/push', pushRoutes);
 app.use('/api/activity', activityRoutes);
 app.use('/api/announcements', announcementsRoutes);
+app.use('/api/link-preview', linkPreviewRoutes);
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
@@ -114,6 +117,8 @@ app.get('/.well-known/assetlinks.json', (req, res) => {
   res.set('Cache-Control', 'public, max-age=300').type('application/json').send(JSON.stringify(body));
 });
 
+// Aperçus des liens partagés (WhatsApp…) : balises Open Graph injectées AVANT le service des fichiers du site
+app.use(ogPages(FRONT_DIST));
 app.use(express.static(FRONT_DIST));
 // Application monopage : toute adresse qui n'est pas /api ni /socket.io renvoie index.html
 app.get(/^\/(?!api\/|socket\.io\/).*/, (req, res, next) => {

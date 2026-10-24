@@ -16,6 +16,7 @@ import { hidePost, unhidePost, type ReportTarget } from "@/lib/reports";
 import { blockUser } from "@/lib/settings";
 import { categoryOf, DEFAULT_CATEGORY, muteCategory, unmuteCategory } from "@/lib/categories";
 import { useAuth } from "@/lib/auth";
+import { withPreviewChoice } from "@/lib/previewChoice";
 import {
   addComment,
   deleteComment,
@@ -164,7 +165,7 @@ function CommentItem({
  */
 export function PostCard({ post, detail = false, canModerate = false }: { post: FeedPost; detail?: boolean; canModerate?: boolean }) {
   const mv = useMediaViewer();
-  const { user, isStaff } = useAuth();
+  const { user, profile: myProfile, isStaff } = useAuth();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const showComments = detail;
@@ -400,7 +401,7 @@ export function PostCard({ post, detail = false, canModerate = false }: { post: 
                       <button
                         onClick={() => {
                           setMenuOpen(false);
-                          void shareLink({ url: publicUrl(`/post/${post.id}`), title: `Publication de @${author?.username ?? "kalchat"}`, text: post.content?.slice(0, 100) || undefined });
+                          withPreviewChoice(isMine && !!myProfile && !myProfile.public_preview, () => void shareLink({ url: publicUrl(`/post/${post.id}`), title: `Publication de @${author?.username ?? "kalchat"}`, text: post.content?.slice(0, 100) || undefined }));
                         }}
                         className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-foreground hover:bg-secondary"
                       >
@@ -409,7 +410,7 @@ export function PostCard({ post, detail = false, canModerate = false }: { post: 
                       <button
                         onClick={() => {
                           setMenuOpen(false);
-                          void copyLink(publicUrl(`/post/${post.id}`));
+                          withPreviewChoice(isMine && !!myProfile && !myProfile.public_preview, () => void copyLink(publicUrl(`/post/${post.id}`)));
                         }}
                         className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-foreground hover:bg-secondary"
                       >

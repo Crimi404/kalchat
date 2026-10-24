@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
 import { dayKey, dayLabel } from "@/lib/dateLabel";
 import { KORA_ID, LinkifiedText, Markdown } from "@/components/Markdown";
+import { LinkPreviewCard } from "@/components/LinkPreviewCard";
 import { useOnline } from "@/lib/presence";
 import { BadgeList } from "@/components/KalBadge";
 import { GroupInfoSheet } from "@/components/GroupInfoSheet";
@@ -474,6 +475,7 @@ function ChatPage() {
                       <img src={m.media_url} alt="" draggable={false} onClick={() => mv.open(m.media_url!, "image")} className="mb-1 max-h-64 cursor-zoom-in rounded-xl object-cover" />
                     ))}
                     {m.body && (m.sender_id === KORA_ID ? <Markdown text={m.body} /> : <p className="whitespace-pre-wrap break-words"><LinkifiedText text={m.body} own={mine} /></p>)}
+                    {m.body && m.sender_id !== KORA_ID && m.media_type !== "system" && <LinkPreviewCard text={m.body} />}
                     {isKora && m.sender_id === KORA_ID && m.body && m.media_type !== "system" && (m.id === lastKoraId || m.my_feedback) ? (
                       <div className="mt-1.5 flex items-center gap-1.5 text-[11px] text-muted-foreground">
                         {m.id === lastKoraId && !m.my_feedback && <span>Cette réponse t'a aidé ?</span>}

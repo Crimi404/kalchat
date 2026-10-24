@@ -270,6 +270,11 @@ async function initSchema() {
     );
     ALTER TABLE stories ADD COLUMN IF NOT EXISTS theme TEXT;
     ALTER TABLE stories ADD COLUMN IF NOT EXISTS font TEXT;
+    -- Repartage des stories : réglage général du membre (activé par défaut) + choix story par story (NULL = suit le réglage général)
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS allow_story_share INTEGER NOT NULL DEFAULT 1;
+    ALTER TABLE stories ADD COLUMN IF NOT EXISTS allow_share INTEGER;
+    -- Aperçu public (cartes WhatsApp, etc.) du profil et des publications : désactivé tant que le membre ne l'a pas choisi
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS public_preview INTEGER NOT NULL DEFAULT 0;
     ALTER TABLE conversations ADD COLUMN IF NOT EXISTS invite_token TEXT;
     -- Demandes de message : NULL = discussion normale ; 'pending' = en attente de réponse ; 'declined' = refusée
     ALTER TABLE conversations ADD COLUMN IF NOT EXISTS request_status TEXT;
