@@ -40,8 +40,37 @@ export interface MessageRow {
   pinned: boolean;
   /** Message auquel celui-ci répond (null si ce n'est pas une réponse). */
   reply: ReplyPreview | null;
+  /** Story à laquelle ce message répond (null si ce n'est pas une réponse à une story). */
+  storyRef: StoryRef | null;
   /** Ton retour sur une réponse de Kora : 1 = utile, -1 = pas utile, 0 = aucun. */
   my_feedback?: number;
+}
+
+/** Carte « réponse à une story » conservée dans le message (se floute quand la story expire). */
+export interface StoryRef {
+  id: string;
+  kind: "text" | "image" | "video";
+  text: string;
+  theme: string | null;
+  font: string | null;
+  /** Mini-image JPEG (data URL) prise au moment de la réponse. */
+  thumb: string | null;
+  expires_at: string;
+  author_id: string;
+  author_name: string;
+}
+
+function parseStoryRef(raw: string | null | undefined): StoryRef | null {
+  if (!raw) return null;
+  try {
+    const o = JSON.parse(raw) as Partial<StoryRef>;
+    if (!o || typeof o.id !== "string" || typeof o.expires_at !== "string" || typeof o.author_id !== "string") return null;
+    const kind = o.kind === "image" || o.kind === "video" ? o.kind : "text";
+    const thumb = typeof o.thumb === "string" && o.thumb.startsWith("data:image/jpeg;base64,") ? o.thumb : null;
+    return { id: o.id, kind, text: String(o.text ?? ""), theme: o.theme ?? null, font: o.font ?? null, thumb, expires_at: o.expires_at, author_id: o.author_id, author_name: String(o.author_name ?? "") };
+  } catch {
+    return null;
+  }
 }
 
 export interface ReplyPreview {
@@ -100,6 +129,7 @@ interface RawMessage {
   edited_at?: string | null;
   pinned_at?: string | null;
   reply_to_id?: string | null;
+  story_ref?: string | null;
   reply_exists?: string | null;
   reply_content?: string | null;
   reply_media_type?: string | null;
@@ -124,6 +154,7 @@ function shapeMessage(conversationId: string, m: RawMessage): MessageRow {
     edited: !!m.edited_at,
     pinned: !!m.pinned_at,
     my_feedback: m.my_feedback ?? 0,
+    storyRef: parseStoryRef(m.story_ref),
     reply: m.reply_to_id
       ? {
           id: m.reply_to_id,
@@ -310,7 +341,7 @@ export async function fetchMessages(conversationId: string): Promise<MessageRow[
   return rows.map((m) => shapeMessage(conversationId, m));
 }
 
-export async function sendMessage(conversationId: string, body: string, media?: { url: string; type: string; duration?: number }, replyToId?: string | null) {
+export async function sendMessage(conversationId: string, body: string, media?: { url: string; type: string; duration?: number }, replyToId?: string | null, story?: { id: string; thumb?: string | null }) {
   const text = body.trim().slice(0, 2000);
   if (!text && !media) return;
   await api(`/chat/conversations/${conversationId}/messages`, {
@@ -321,6 +352,7 @@ export async function sendMessage(conversationId: string, body: string, media?: 
       media_type: media?.type ?? null,
       ...(media?.duration ? { media_duration: media.duration } : {}),
       ...(replyToId ? { reply_to_id: replyToId } : {}),
+      ...(story ? { story_id: story.id, ...(story.thumb ? { story_thumb: story.thumb } : {}) } : {}),
     },
   });
 }

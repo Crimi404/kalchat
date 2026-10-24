@@ -7,6 +7,7 @@ import { useAuth } from "@/lib/auth";
 import { dayKey, dayLabel } from "@/lib/dateLabel";
 import { KORA_ID, LinkifiedText, Markdown } from "@/components/Markdown";
 import { LinkPreviewCard } from "@/components/LinkPreviewCard";
+import { StoryQuoteCard } from "@/components/StoryQuoteCard";
 import { useOnline } from "@/lib/presence";
 import { BadgeList } from "@/components/KalBadge";
 import { GroupInfoSheet } from "@/components/GroupInfoSheet";
@@ -454,6 +455,7 @@ function ChatPage() {
                 <div className={`flex ${mine ? "justify-end" : "justify-start"}`}>
                   <div style={mine ? chatTheme.bubbleStyle ?? undefined : undefined} className={`max-w-[75%] rounded-2xl px-3.5 py-2 text-sm ${mine ? (chatTheme.bubbleStyle ? "rounded-br-md" : "brand-gradient rounded-br-md text-primary-foreground") : "rounded-bl-md bg-secondary text-foreground"}`}>
                     {isGroup && !mine && <span className="mb-0.5 block text-[11px] font-semibold text-primary">{m.sender_name}</span>}
+                    {m.storyRef && <StoryQuoteCard story={m.storyRef} mine={mine} meId={uid} />}
                     {m.reply && (
                       <button
                         type="button"

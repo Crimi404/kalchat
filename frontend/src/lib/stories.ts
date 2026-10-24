@@ -124,13 +124,58 @@ export async function shareStory(id: string) {
   await api(`/stories/${id}/share`, { method: "POST", body: {} });
 }
 
-/** Répond à une story : le message part en privé à l'auteur, avec un rappel de la story concernée. */
-export async function replyToStory(story: Pick<StoryRow, "author_id" | "content" | "media_type" | "image_url">, text: string) {
+/** Mini-image (80×80) de la story pour la carte de réponse ; null si elle ne peut pas être lue (réseau, droits d'accès). */
+async function makeStoryThumb(story: Pick<StoryRow, "image_url" | "media_type">): Promise<string | null> {
+  const url = story.image_url;
+  if (!url) return null;
+  try {
+    const isVideo = story.media_type === "video";
+    const source = await new Promise<HTMLImageElement | HTMLVideoElement>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("délai dépassé")), 3500);
+      const done = (el: HTMLImageElement | HTMLVideoElement) => { clearTimeout(timer); resolve(el); };
+      const fail = () => { clearTimeout(timer); reject(new Error("lecture impossible")); };
+      if (isVideo) {
+        const v = document.createElement("video");
+        v.crossOrigin = "anonymous";
+        v.muted = true;
+        v.playsInline = true;
+        v.preload = "auto";
+        v.onloadeddata = () => done(v);
+        v.onerror = fail;
+        v.src = url;
+      } else {
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+        img.onload = () => done(img);
+        img.onerror = fail;
+        img.src = url;
+      }
+    });
+    const w = source instanceof HTMLVideoElement ? source.videoWidth : source.naturalWidth;
+    const h = source instanceof HTMLVideoElement ? source.videoHeight : source.naturalHeight;
+    if (!w || !h) return null;
+    const size = 80;
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    const k = Math.max(size / w, size / h);
+    ctx.drawImage(source, (size - w * k) / 2, (size - h * k) / 2, w * k, h * k);
+    for (const q of [0.6, 0.4]) {
+      const data = canvas.toDataURL("image/jpeg", q);
+      if (data.length <= 7500) return data;
+    }
+    return null;
+  } catch {
+    return null; // la réponse part quand même, avec une carte sans image
+  }
+}
+
+/** Répond à une story : le message part en privé à l'auteur, avec une carte qui rappelle la story (comme sur WhatsApp). */
+export async function replyToStory(story: Pick<StoryRow, "id" | "author_id" | "image_url" | "media_type">, text: string) {
   const clean = text.trim().slice(0, 1500);
   if (!clean) return;
-  const snippet = story.content?.trim()
-    ? `« ${story.content.trim().replace(/\s+/g, " ").slice(0, 60)}${story.content.trim().length > 60 ? "…" : ""} »`
-    : story.image_url ? (story.media_type === "video" ? "🎬 vidéo" : "📷 photo") : "";
-  const convId = await getOrCreateConversation(story.author_id);
-  await sendMessage(convId, `↩️ Réponse à ta story${snippet ? ` (${snippet})` : ""}\n\n${clean}`);
+  const [convId, thumb] = await Promise.all([getOrCreateConversation(story.author_id), makeStoryThumb(story)]);
+  await sendMessage(convId, clean, undefined, null, { id: story.id, thumb });
 }

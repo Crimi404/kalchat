@@ -8,6 +8,7 @@ const { isBlockedEitherWay } = require('../blocks');
 const ai = require('../ai');
 const { releaseMedia } = require('../mediaCleanup');
 const { mediaUrlOk, BAD_URL } = require('../mediaUrl');
+const { canSeeStory } = require('../storyAccess');
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -80,7 +81,7 @@ async function addSystemMessage(io, conversationId, actorId, text) {
     .prepare(
       `SELECT m.id, m.sender_id, u.username AS sender_username, u.first_name AS sender_first_name, u.last_name AS sender_last_name,
               u.avatar_url AS sender_avatar_url, u.badge AS sender_badge, u.role AS sender_role,
-              m.content, m.media_url, m.media_type, m.media_duration, m.created_at, m.edited_at, m.pinned_at, m.reply_to_id,
+              m.content, m.media_url, m.media_type, m.media_duration, m.created_at, m.edited_at, m.pinned_at, m.reply_to_id, m.story_ref,
               rm.id AS reply_exists, rm.content AS reply_content, rm.media_type AS reply_media_type, rm.sender_id AS reply_sender_id,
               COALESCE(NULLIF(rmu.first_name, ''), rmu.username) AS reply_sender_name
        FROM messages m JOIN users u ON u.id = m.sender_id
@@ -493,7 +494,7 @@ router.get('/conversations/:id/messages', async (req, res) => {
       `SELECT * FROM (
          SELECT m.id, m.sender_id, u.username AS sender_username, u.first_name AS sender_first_name, u.last_name AS sender_last_name,
                 u.avatar_url AS sender_avatar_url, u.badge AS sender_badge, u.role AS sender_role,
-              m.content, m.media_url, m.media_type, m.media_duration, m.created_at, m.edited_at, m.pinned_at, m.reply_to_id,
+              m.content, m.media_url, m.media_type, m.media_duration, m.created_at, m.edited_at, m.pinned_at, m.reply_to_id, m.story_ref,
               (SELECT f.rating FROM kora_feedback f WHERE f.message_id = m.id AND f.user_id = ?) AS my_feedback,
               rm.id AS reply_exists, rm.content AS reply_content, rm.media_type AS reply_media_type, rm.sender_id AS reply_sender_id,
               COALESCE(NULLIF(rmu.first_name, ''), rmu.username) AS reply_sender_name,
@@ -558,19 +559,47 @@ router.post('/conversations/:id/messages', async (req, res) => {
     if (!target) return res.status(400).json({ error: 'Le message auquel tu réponds est introuvable' });
     replyToId = target.id;
   }
+  // Réponse à une story : uniquement dans la discussion privée avec l'auteur, et seulement si la story t'est visible.
+  // Le serveur construit lui-même la carte (le client ne fournit que la mini-image, strictement contrôlée).
+  let storyRef = null;
+  if (req.body.story_id && convRow && !convRow.is_group) {
+    const peerRow = await db.prepare('SELECT user_id FROM conversation_members WHERE conversation_id = ? AND user_id != ?').get(req.params.id, req.user.id);
+    const st = await db
+      .prepare(
+        `SELECT s.id, s.user_id, s.media_url, s.media_type, s.caption, s.theme, s.font, s.expires_at,
+                COALESCE(NULLIF(u.first_name, ''), u.username) AS author_name
+         FROM stories s JOIN users u ON u.id = s.user_id WHERE s.id = ?`
+      )
+      .get(String(req.body.story_id));
+    if (peerRow && st && st.user_id === peerRow.user_id && (await canSeeStory(req.user.id, st))) {
+      const thumbIn = req.body.story_thumb;
+      const thumb = typeof thumbIn === 'string' && thumbIn.length <= 8000 && /^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(thumbIn) ? thumbIn : null;
+      storyRef = JSON.stringify({
+        id: st.id,
+        kind: !st.media_url ? 'text' : st.media_type === 'video' ? 'video' : 'image',
+        text: String(st.caption || '').replace(/\s+/g, ' ').trim().slice(0, 120),
+        theme: st.theme || null,
+        font: st.font || null,
+        thumb,
+        expires_at: new Date(st.expires_at).toISOString(),
+        author_id: st.user_id,
+        author_name: st.author_name,
+      });
+    }
+  }
   const eph = Number(convRow?.ephemeral_seconds) || 0;
   const expiresAt = eph > 0 ? new Date(Date.now() + eph * 1000).toISOString() : null;
 
   const id = uuid();
   await db
-    .prepare('INSERT INTO messages (id, conversation_id, sender_id, content, media_url, media_type, media_duration, expires_at, reply_to_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
-    .run(id, req.params.id, req.user.id, content || null, media_url || null, media_type || null, duration, expiresAt, replyToId);
+    .prepare('INSERT INTO messages (id, conversation_id, sender_id, content, media_url, media_type, media_duration, expires_at, reply_to_id, story_ref) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(id, req.params.id, req.user.id, content || null, media_url || null, media_type || null, duration, expiresAt, replyToId, storyRef);
 
   const message = await db
     .prepare(
       `SELECT m.id, m.sender_id, u.username AS sender_username, u.first_name AS sender_first_name, u.last_name AS sender_last_name,
               u.avatar_url AS sender_avatar_url, u.badge AS sender_badge, u.role AS sender_role,
-              m.content, m.media_url, m.media_type, m.media_duration, m.created_at, m.edited_at, m.pinned_at, m.reply_to_id,
+              m.content, m.media_url, m.media_type, m.media_duration, m.created_at, m.edited_at, m.pinned_at, m.reply_to_id, m.story_ref,
               rm.id AS reply_exists, rm.content AS reply_content, rm.media_type AS reply_media_type, rm.sender_id AS reply_sender_id,
               COALESCE(NULLIF(rmu.first_name, ''), rmu.username) AS reply_sender_name
        FROM messages m JOIN users u ON u.id = m.sender_id

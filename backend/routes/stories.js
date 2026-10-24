@@ -6,7 +6,7 @@ const { releaseMedia, cleanupExpiredStories } = require('../mediaCleanup');
 const { mediaUrlOk, BAD_URL } = require('../mediaUrl');
 const { normalizeTheme, normalizeFont } = require('../themes');
 const { notify } = require('../notify');
-const { isBlockedEitherWay } = require('../blocks');
+const { canSeeStory } = require('../storyAccess');
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -18,21 +18,6 @@ const ALLOWED_DURATIONS = [6, 12, 24];
 function storyHours(value) {
   const h = Number(value);
   return ALLOWED_DURATIONS.includes(h) ? Math.min(h, LIFETIME_HOURS) : LIFETIME_HOURS;
-}
-
-// Une story n'est visible que par son auteur et par les personnes abonnées à lui (ou qu'il suit), sans blocage.
-async function canSeeStory(viewerId, story) {
-  if (!story || new Date(story.expires_at) <= new Date()) return false;
-  if (story.user_id === viewerId) return true;
-  if (await isBlockedEitherWay(viewerId, story.user_id)) return false;
-  const friend = await db
-    .prepare(
-      `SELECT 1 FROM follows WHERE status = 'accepted' AND (
-         (follower_id = ? AND followed_id = ?) OR (follower_id = ? AND followed_id = ?)
-       )`
-    )
-    .get(viewerId, story.user_id, story.user_id, viewerId);
-  return !!friend;
 }
 
 // Le repartage est-il autorisé par l'auteur ? Choix de la story d'abord, sinon réglage général du membre (activé par défaut).
