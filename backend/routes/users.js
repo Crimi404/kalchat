@@ -58,7 +58,7 @@ router.patch('/me', async (req, res) => {
 
 // ---------- Paramètres : thème de l'application (clair / sombre) ----------
 router.patch('/me/settings', async (req, res) => {
-  const { theme, privacy_online, read_receipts, default_ephemeral, allow_story_share, public_preview } = req.body;
+  const { theme, privacy_online, read_receipts, default_ephemeral, allow_story_share } = req.body;
   const sets = [];
   const params = [];
 
@@ -86,16 +86,12 @@ router.patch('/me/settings', async (req, res) => {
     sets.push('allow_story_share = ?');
     params.push(allow_story_share ? 1 : 0);
   }
-  if (public_preview !== undefined) {
-    sets.push('public_preview = ?');
-    params.push(public_preview ? 1 : 0);
-  }
   if (!sets.length) return res.status(400).json({ error: 'Aucun réglage à modifier' });
 
   await db.prepare(`UPDATE users SET ${sets.join(', ')} WHERE id = ?`).run(...params, req.user.id);
   if (privacy_online !== undefined) void req.app.get('broadcastPresence')?.();
 
-  const row = await db.prepare('SELECT theme, privacy_online, read_receipts, default_ephemeral, allow_story_share, public_preview FROM users WHERE id = ?').get(req.user.id);
+  const row = await db.prepare('SELECT theme, privacy_online, read_receipts, default_ephemeral, allow_story_share FROM users WHERE id = ?').get(req.user.id);
   res.json(row);
 });
 

@@ -24,7 +24,7 @@ export const Route = createFileRoute("/_authenticated/story")({
 });
 
 function NewStory() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const nav = useNavigate();
   const qc = useQueryClient();
   const [text, setText] = useState("");
@@ -33,6 +33,8 @@ function NewStory() {
   const [theme, setTheme] = useState<string>("kalchat");
   const [font, setFont] = useState(DEFAULT_FONT);
   const [hours, setHours] = useState(24);
+  const [allowShare, setAllowShare] = useState<boolean | null>(null); // null = suit le réglage général de confidentialité
+  const shareOn = allowShare ?? profile?.allow_story_share ?? true;
   const themeStyle = resolveTheme(theme) ?? resolveTheme("kalchat")!;
 
   // Contenu reçu depuis le menu « Partager » d'Android
@@ -52,7 +54,7 @@ function NewStory() {
     setBusy(true);
     try {
       const media = file ? await uploadMedia(file) : null;
-      await createStory({ content: text.slice(0, 300), image_url: media?.url, media_type: media?.type, theme: media ? null : theme, font: media ? null : font, duration_hours: hours });
+      await createStory({ content: text.slice(0, 300), image_url: media?.url, media_type: media?.type, theme: media ? null : theme, font: media ? null : font, duration_hours: hours, allow_share: shareOn });
       await qc.invalidateQueries({ queryKey: ["stories"] });
       toast.success("Story publiée");
       nav({ to: "/" });
@@ -122,6 +124,21 @@ function NewStory() {
             ))}
           </div>
         </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={shareOn}
+          onClick={() => setAllowShare(!shareOn)}
+          className="flex w-full items-center justify-between gap-3 rounded-xl border border-border bg-secondary/40 px-4 py-3 text-left"
+        >
+          <span>
+            <span className="block text-sm font-semibold text-foreground">Autoriser le repartage</span>
+            <span className="block text-xs text-muted-foreground">Les personnes qui voient cette story pourront la repartager.</span>
+          </span>
+          <span className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${shareOn ? "bg-primary" : "bg-border"}`}>
+            <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all ${shareOn ? "left-[22px]" : "left-0.5"}`} />
+          </span>
+        </button>
         <button disabled={busy} onClick={submit} className="brand-gradient glow-primary flex w-full items-center justify-center gap-2 rounded-xl py-3 text-sm font-bold text-primary-foreground disabled:opacity-60">
           {busy && <Loader2 className="h-4 w-4 animate-spin" />} Publier la story
         </button>

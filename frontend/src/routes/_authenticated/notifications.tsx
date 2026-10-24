@@ -49,7 +49,7 @@ const TABS: { id: Tab; label: string; types: string[] }[] = [
   { id: "all", label: "Tout", types: [] },
   { id: "requests", label: "Demandes", types: ["follow_request", "community_request", "community_invite"] },
   { id: "mentions", label: "Mentions", types: ["mention"] },
-  { id: "likes", label: "J'aime", types: ["like", "comment_like"] },
+  { id: "likes", label: "J'aime", types: ["like", "comment_like", "story_like"] },
   { id: "comments", label: "Commentaires", types: ["comment", "reply"] },
 ];
 
@@ -68,6 +68,8 @@ function textFor(n: RawNotif): string {
     case "reply": return "a répondu à ton commentaire";
     case "comment_like": return "a aimé ton commentaire";
     case "share": return "a repartagé ta publication";
+    case "story_like": return "a aimé ta story";
+    case "story_share": return "a repartagé ta story";
     case "mention": return n.body === "comment" ? "t'a mentionné dans un commentaire" : "t'a mentionné dans une publication";
     case "follow_request": return "t'a envoyé une demande d'abonnement";
     case "follow_accept": return "a accepté ta demande d'abonnement";

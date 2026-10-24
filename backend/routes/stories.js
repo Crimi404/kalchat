@@ -5,6 +5,8 @@ const authMiddleware = require('../middleware/auth');
 const { releaseMedia, cleanupExpiredStories } = require('../mediaCleanup');
 const { mediaUrlOk, BAD_URL } = require('../mediaUrl');
 const { normalizeTheme, normalizeFont } = require('../themes');
+const { notify } = require('../notify');
+const { isBlockedEitherWay } = require('../blocks');
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -18,9 +20,32 @@ function storyHours(value) {
   return ALLOWED_DURATIONS.includes(h) ? Math.min(h, LIFETIME_HOURS) : LIFETIME_HOURS;
 }
 
-// ---------- Publier une story (ou repartager une story existante) ----------
+// Une story n'est visible que par son auteur et par les personnes abonnées à lui (ou qu'il suit), sans blocage.
+async function canSeeStory(viewerId, story) {
+  if (!story || new Date(story.expires_at) <= new Date()) return false;
+  if (story.user_id === viewerId) return true;
+  if (await isBlockedEitherWay(viewerId, story.user_id)) return false;
+  const friend = await db
+    .prepare(
+      `SELECT 1 FROM follows WHERE status = 'accepted' AND (
+         (follower_id = ? AND followed_id = ?) OR (follower_id = ? AND followed_id = ?)
+       )`
+    )
+    .get(viewerId, story.user_id, story.user_id, viewerId);
+  return !!friend;
+}
+
+// Le repartage est-il autorisé par l'auteur ? Choix de la story d'abord, sinon réglage général du membre (activé par défaut).
+async function shareAllowed(story) {
+  if (story.allow_share !== null && story.allow_share !== undefined) return Number(story.allow_share) === 1;
+  const author = await db.prepare('SELECT allow_story_share FROM users WHERE id = ?').get(story.user_id);
+  return Number(author?.allow_story_share ?? 1) === 1;
+}
+
+// ---------- Publier une story ----------
 router.post('/', async (req, res) => {
-  const { media_url, media_type, caption, shared_from_id } = req.body;
+  // Un repartage passe uniquement par POST /:id/share (le client ne peut pas se déclarer « repartage »)
+  const { media_url, media_type, caption } = req.body;
   if (!(await mediaUrlOk(media_url))) return res.status(400).json(BAD_URL);
   if (!media_url && !caption?.trim()) return res.status(400).json({ error: 'Une story doit contenir une photo, une vidéo ou du texte' });
 
@@ -28,30 +53,47 @@ router.post('/', async (req, res) => {
   const theme = media_url ? null : normalizeTheme(req.body.theme);
   const font = media_url ? null : normalizeFont(req.body.font);
 
+  // Repartage autorisé pour cette story : true / false, ou rien = on suit le réglage général
+  const allowShare = req.body.allow_share === undefined || req.body.allow_share === null ? null : req.body.allow_share ? 1 : 0;
+
   const id = uuid();
   await db
     .prepare(
-      `INSERT INTO stories (id, user_id, media_url, media_type, caption, shared_from_id, theme, font, expires_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW() + (? * INTERVAL '1 hour'))`
+      `INSERT INTO stories (id, user_id, media_url, media_type, caption, shared_from_id, theme, font, allow_share, expires_at)
+       VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, NOW() + (? * INTERVAL '1 hour'))`
     )
-    .run(id, req.user.id, media_url || '', media_type || null, caption?.trim() || null, shared_from_id || null, theme, font, storyHours(req.body.duration_hours));
+    .run(id, req.user.id, media_url || '', media_type || null, caption?.trim() || null, theme, font, allowShare, storyHours(req.body.duration_hours));
 
   const story = await db.prepare('SELECT * FROM stories WHERE id = ?').get(id);
   res.status(201).json(story);
 });
 
-// ---------- Repartager une story existante dans son propre fil ----------
+// ---------- Repartager la story de quelqu'un dans son propre fil (si l'auteur l'autorise) ----------
 router.post('/:id/share', async (req, res) => {
   const original = await db.prepare('SELECT * FROM stories WHERE id = ?').get(req.params.id);
-  if (!original) return res.status(404).json({ error: 'Story introuvable' });
+  if (!original || !(await canSeeStory(req.user.id, original))) return res.status(404).json({ error: 'Story introuvable' });
+  if (original.user_id === req.user.id) return res.status(400).json({ error: 'Tu ne peux pas repartager ta propre story' });
+  if (original.shared_from_id) return res.status(400).json({ error: 'Cette story est déjà un repartage' });
+  if (!(await shareAllowed(original))) return res.status(403).json({ error: "Cette personne n'autorise pas le repartage de ses stories" });
+
+  const already = await db
+    .prepare('SELECT 1 FROM stories WHERE user_id = ? AND shared_from_id = ? AND expires_at > NOW()')
+    .get(req.user.id, original.id);
+  if (already) return res.status(409).json({ error: 'Tu as déjà repartagé cette story' });
+
+  // Le repartage disparaît au plus tard en même temps que la story d'origine
+  const wanted = Date.now() + storyHours(req.body?.duration_hours) * 3600 * 1000;
+  const until = new Date(Math.min(wanted, new Date(original.expires_at).getTime())).toISOString();
 
   const id = uuid();
   await db
     .prepare(
-      `INSERT INTO stories (id, user_id, media_url, media_type, caption, shared_from_id, theme, font, expires_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW() + (? * INTERVAL '1 hour'))`
+      `INSERT INTO stories (id, user_id, media_url, media_type, caption, shared_from_id, theme, font, allow_share, expires_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`
     )
-    .run(id, req.user.id, original.media_url, original.media_type, original.caption, original.id, original.theme || null, original.font || null, storyHours(req.body?.duration_hours));
+    .run(id, req.user.id, original.media_url, original.media_type, original.caption, original.id, original.theme || null, original.font || null, until);
+
+  await notify(req.app.get('io'), { user_id: original.user_id, actor_id: req.user.id, type: 'story_share' });
 
   const story = await db.prepare('SELECT * FROM stories WHERE id = ?').get(id);
   res.status(201).json(story);
@@ -59,8 +101,8 @@ router.post('/:id/share', async (req, res) => {
 
 // ---------- Aimer / ne plus aimer une story ----------
 router.post('/:id/like', async (req, res) => {
-  const story = await db.prepare('SELECT id FROM stories WHERE id = ?').get(req.params.id);
-  if (!story) return res.status(404).json({ error: 'Story introuvable' });
+  const story = await db.prepare('SELECT id, user_id, expires_at FROM stories WHERE id = ?').get(req.params.id);
+  if (!story || !(await canSeeStory(req.user.id, story))) return res.status(404).json({ error: 'Story introuvable' });
 
   const already = await db
     .prepare('SELECT 1 FROM story_likes WHERE story_id = ? AND user_id = ?')
@@ -69,7 +111,12 @@ router.post('/:id/like', async (req, res) => {
   if (already) {
     await db.prepare('DELETE FROM story_likes WHERE story_id = ? AND user_id = ?').run(req.params.id, req.user.id);
   } else {
-    await db.prepare('INSERT INTO story_likes (story_id, user_id) VALUES (?, ?)').run(req.params.id, req.user.id);
+    await db.prepare('INSERT INTO story_likes (story_id, user_id) VALUES (?, ?) ON CONFLICT DO NOTHING').run(req.params.id, req.user.id);
+    // Une seule notification non lue par personne et par heure (évite le spam en cas de like / unlike répétés)
+    const recent = await db
+      .prepare("SELECT 1 FROM notifications WHERE user_id = ? AND actor_id = ? AND type = 'story_like' AND is_read = 0 AND created_at > NOW() - INTERVAL '1 hour'")
+      .get(story.user_id, req.user.id);
+    if (!recent) await notify(req.app.get('io'), { user_id: story.user_id, actor_id: req.user.id, type: 'story_like' });
   }
 
   const countRow = await db.prepare('SELECT COUNT(*) AS n FROM story_likes WHERE story_id = ?').get(req.params.id);
@@ -78,6 +125,8 @@ router.post('/:id/like', async (req, res) => {
 
 // ---------- Commentaires ----------
 router.get('/:id/comments', async (req, res) => {
+  const target = await db.prepare('SELECT id, user_id, expires_at FROM stories WHERE id = ?').get(req.params.id);
+  if (!target || !(await canSeeStory(req.user.id, target))) return res.status(404).json({ error: 'Story introuvable' });
   const comments = await db
     .prepare(
       `SELECT c.id, c.content, c.created_at, u.id AS user_id, u.username, u.avatar_url, u.badge, u.role, u.first_name, u.last_name
@@ -92,8 +141,8 @@ router.post('/:id/comments', async (req, res) => {
   const { content } = req.body;
   if (!content || !content.trim()) return res.status(400).json({ error: 'Commentaire vide' });
 
-  const story = await db.prepare('SELECT id FROM stories WHERE id = ?').get(req.params.id);
-  if (!story) return res.status(404).json({ error: 'Story introuvable' });
+  const story = await db.prepare('SELECT id, user_id, expires_at FROM stories WHERE id = ?').get(req.params.id);
+  if (!story || !(await canSeeStory(req.user.id, story))) return res.status(404).json({ error: 'Story introuvable' });
 
   const id = uuid();
   await db
@@ -120,6 +169,8 @@ router.get('/feed', async (req, res) => {
               EXISTS(SELECT 1 FROM story_views v WHERE v.story_id = s.id AND v.viewer_id = ?) AS viewed_by_me,
               (SELECT COUNT(*) FROM story_likes l WHERE l.story_id = s.id) AS like_count,
               EXISTS(SELECT 1 FROM story_likes l WHERE l.story_id = s.id AND l.user_id = ?) AS liked_by_me,
+              (s.shared_from_id IS NULL AND s.user_id != ? AND COALESCE(s.allow_share, u.allow_story_share, 1) = 1) AS can_share,
+              s.shared_from_id,
               (SELECT COUNT(*) FROM story_comments c WHERE c.story_id = s.id) AS comment_count,
               su.username AS shared_from_username
        FROM stories s
@@ -137,7 +188,7 @@ router.get('/feed', async (req, res) => {
          )
        ORDER BY s.created_at DESC`
     )
-    .all(req.user.id, req.user.id, req.user.id, req.user.id, req.user.id);
+    .all(req.user.id, req.user.id, req.user.id, req.user.id, req.user.id, req.user.id);
 
   // Regroupe par auteur
   const grouped = {};
@@ -152,6 +203,8 @@ router.get('/feed', async (req, res) => {
 
 // ---------- Marquer une story comme vue + voir qui l'a vue ----------
 router.post('/:id/view', async (req, res) => {
+  const target = await db.prepare('SELECT id, user_id, expires_at FROM stories WHERE id = ?').get(req.params.id);
+  if (!target || !(await canSeeStory(req.user.id, target))) return res.status(404).json({ error: 'Story introuvable' });
   await db
     .prepare('INSERT INTO story_views (story_id, viewer_id) VALUES (?, ?) ON CONFLICT DO NOTHING')
     .run(req.params.id, req.user.id);
@@ -165,7 +218,9 @@ router.get('/:id/viewers', async (req, res) => {
 
   const viewers = await db
     .prepare(
-      `SELECT u.id, u.username, u.avatar_url, v.viewed_at FROM story_views v
+      `SELECT u.id, u.username, u.avatar_url, v.viewed_at,
+              EXISTS(SELECT 1 FROM story_likes l WHERE l.story_id = v.story_id AND l.user_id = u.id) AS liked
+       FROM story_views v
        JOIN users u ON u.id = v.viewer_id WHERE v.story_id = ? ORDER BY v.viewed_at DESC`
     )
     .all(req.params.id);

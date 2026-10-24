@@ -1,5 +1,6 @@
 import { api, displayName, toBadges, type RawUser } from "@/lib/api";
 import type { MiniProfile } from "@/lib/social";
+import { getOrCreateConversation, sendMessage } from "@/lib/chat";
 
 export interface StoryRow {
   id: string;
@@ -12,6 +13,11 @@ export interface StoryRow {
   created_at: string;
   expires_at: string;
   seen: boolean;
+  like_count: number;
+  liked_by_me: boolean;
+  /** Je peux repartager cette story (l'auteur l'autorise, ce n'est pas la mienne ni un repartage). */
+  can_share: boolean;
+  shared_from_username: string | null;
 }
 
 export interface StoryGroup {
@@ -31,6 +37,10 @@ interface RawStory {
   created_at: string;
   expires_at: string;
   viewed_by_me: boolean;
+  like_count?: number | string | null;
+  liked_by_me?: boolean | null;
+  can_share?: boolean | null;
+  shared_from_username?: string | null;
 }
 
 interface RawGroup extends RawUser {
@@ -56,6 +66,10 @@ export async function fetchStoryGroups(uid: string): Promise<StoryGroup[]> {
         created_at: s.created_at,
         expires_at: s.expires_at,
         seen: s.user_id === uid || !!s.viewed_by_me,
+        like_count: Number(s.like_count) || 0,
+        liked_by_me: !!s.liked_by_me,
+        can_share: !!s.can_share,
+        shared_from_username: s.shared_from_username ?? null,
       }));
     return {
       author: { id: g.user_id, username: g.username, display_name: displayName(g), avatar_url: g.avatar_url, badges: toBadges(g.user_id, g.badge, g.role) },
@@ -67,10 +81,10 @@ export async function fetchStoryGroups(uid: string): Promise<StoryGroup[]> {
   return shaped.sort((a, b) => (a.author.id === uid ? -1 : b.author.id === uid ? 1 : 0) || Number(a.allSeen) - Number(b.allSeen));
 }
 
-export async function createStory(input: { content?: string; image_url?: string | undefined; media_type?: string | undefined; theme?: string | null; font?: string | null; duration_hours?: number }) {
+export async function createStory(input: { content?: string; image_url?: string | undefined; media_type?: string | undefined; theme?: string | null; font?: string | null; duration_hours?: number; allow_share?: boolean }) {
   await api("/stories", {
     method: "POST",
-    body: { caption: input.content?.trim() || null, media_url: input.image_url ?? null, media_type: input.media_type ?? null, theme: input.theme ?? null, font: input.font ?? null, duration_hours: input.duration_hours ?? 24 },
+    body: { caption: input.content?.trim() || null, media_url: input.image_url ?? null, media_type: input.media_type ?? null, theme: input.theme ?? null, font: input.font ?? null, duration_hours: input.duration_hours ?? 24, ...(input.allow_share === undefined ? {} : { allow_share: input.allow_share }) },
   });
 }
 
@@ -92,8 +106,31 @@ export interface StoryViewer {
   username: string;
   avatar_url: string | null;
   viewed_at: string;
+  liked?: boolean;
 }
 
 export async function fetchStoryViewers(id: string): Promise<StoryViewer[]> {
   return api<StoryViewer[]>(`/stories/${id}/viewers`);
+}
+
+/** ♥ : aime / n'aime plus une story. */
+export async function toggleStoryLike(id: string): Promise<{ liked: boolean; like_count: number }> {
+  const r = await api<{ liked: boolean; like_count: number | string }>(`/stories/${id}/like`, { method: "POST" });
+  return { liked: !!r.liked, like_count: Number(r.like_count) || 0 };
+}
+
+/** Repartage la story de quelqu'un dans ma propre story (refusé par le serveur si l'auteur ne l'autorise pas). */
+export async function shareStory(id: string) {
+  await api(`/stories/${id}/share`, { method: "POST", body: {} });
+}
+
+/** Répond à une story : le message part en privé à l'auteur, avec un rappel de la story concernée. */
+export async function replyToStory(story: Pick<StoryRow, "author_id" | "content" | "media_type" | "image_url">, text: string) {
+  const clean = text.trim().slice(0, 1500);
+  if (!clean) return;
+  const snippet = story.content?.trim()
+    ? `« ${story.content.trim().replace(/\s+/g, " ").slice(0, 60)}${story.content.trim().length > 60 ? "…" : ""} »`
+    : story.image_url ? (story.media_type === "video" ? "🎬 vidéo" : "📷 photo") : "";
+  const convId = await getOrCreateConversation(story.author_id);
+  await sendMessage(convId, `↩️ Réponse à ta story${snippet ? ` (${snippet})` : ""}\n\n${clean}`);
 }
