@@ -1,3 +1,4 @@
+import { AutoTextarea } from "@/components/AutoTextarea";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Link } from "@tanstack/react-router";
@@ -212,16 +213,14 @@ export function ShortComments({
             <button onClick={() => { setReplyTo(null); setText(""); }} aria-label="Annuler la réponse" className="p-1"><X className="h-3.5 w-3.5" /></button>
           </div>
         )}
-        <div className="flex items-center gap-2 border-t border-border px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-          <input
+        <div className="flex items-end gap-2 border-t border-border px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+          <AutoTextarea
             value={text}
             onChange={(e) => setText(e.target.value)}
             maxLength={500}
             placeholder={replyTo ? "Ta réponse…" : "Ajouter un commentaire…"}
-            className="min-w-0 flex-1 rounded-full border border-border bg-background px-4 py-2 text-sm text-foreground outline-none focus:border-primary"
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && text.trim() && !add.isPending) add.mutate();
-            }}
+            className="max-h-28 min-w-0 flex-1 rounded-3xl border border-border bg-background px-4 py-2 text-sm leading-5 text-foreground outline-none focus:border-primary"
+            onEnterSend={() => { if (text.trim() && !add.isPending) add.mutate(); }}
           />
           <button
             onClick={() => add.mutate()}

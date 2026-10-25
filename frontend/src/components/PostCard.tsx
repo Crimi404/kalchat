@@ -16,6 +16,7 @@ import { hidePost, unhidePost, type ReportTarget } from "@/lib/reports";
 import { blockUser } from "@/lib/settings";
 import { categoryOf, DEFAULT_CATEGORY, muteCategory, unmuteCategory } from "@/lib/categories";
 import { useAuth } from "@/lib/auth";
+import { AutoTextarea } from "@/components/AutoTextarea";
 import { withPreviewChoice } from "@/lib/previewChoice";
 import {
   addComment,
@@ -169,7 +170,7 @@ export function PostCard({ post, detail = false, canModerate = false }: { post: 
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const showComments = detail;
-  const commentInputRef = useRef<HTMLInputElement>(null);
+  const commentInputRef = useRef<HTMLTextAreaElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [reporting, setReporting] = useState<{ type: ReportTarget; id: string } | null>(null);
   useBackHandler(() => setMenuOpen(false), menuOpen);
@@ -691,14 +692,15 @@ export function PostCard({ post, detail = false, canModerate = false }: { post: 
                     e.preventDefault();
                     if (commentText.trim()) commentMutation.mutate();
                   }}
-                  className={`flex items-center gap-2 ${detail ? "sticky bottom-[4.25rem] -mx-4 border-t border-border bg-background/95 px-4 py-2.5 backdrop-blur-xl" : ""}`}
+                  className={`flex items-end gap-2 ${detail ? "sticky bottom-[4.25rem] -mx-4 border-t border-border bg-background/95 px-4 py-2.5 backdrop-blur-xl" : ""}`}
                 >
-                  <input
+                  <AutoTextarea
                     ref={commentInputRef}
                     value={commentText}
                     onChange={(e) => setCommentText(e.target.value)}
+                    onEnterSend={() => { if (commentText.trim() && !commentMutation.isPending) commentMutation.mutate(); }}
                     placeholder={replyTo ? "Écris ta réponse…" : "Poste ta réponse…"}
-                    className="flex-1 rounded-full border border-border bg-secondary/40 px-4 py-2 text-xs text-foreground outline-none focus:border-primary"
+                    className="max-h-28 flex-1 rounded-2xl border border-border bg-secondary/40 px-4 py-2 text-xs leading-5 text-foreground outline-none focus:border-primary"
                   />
                   <button
                     type="submit"

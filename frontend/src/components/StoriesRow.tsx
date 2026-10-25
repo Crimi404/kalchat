@@ -1,4 +1,5 @@
 import { Plus, Trash2, X, Eye, Volume2, VolumeX, Heart, Repeat2, Send } from "lucide-react";
+import { AutoTextarea } from "@/components/AutoTextarea";
 import { useEffect, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -214,16 +215,16 @@ export function StoryViewer({ group, onClose, startId }: { group: StoryGroup; on
           </div>
         )}
         {!mine && (
-          <div className="absolute inset-x-0 bottom-0 z-30 flex items-center gap-2 bg-gradient-to-t from-background/90 to-transparent px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-6">
-            <input
+          <div className="absolute inset-x-0 bottom-0 z-30 flex items-end gap-2 bg-gradient-to-t from-background/90 to-transparent px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-6">
+            <AutoTextarea
               value={reply}
               onChange={(e) => setReply(e.target.value)}
               onFocus={() => setTyping(true)}
               onBlur={() => setTyping(false)}
-              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void sendReply(); } }}
+              onEnterSend={() => void sendReply()}
               maxLength={1500}
               placeholder={`Répondre à ${group.author.display_name}…`}
-              className="min-w-0 flex-1 rounded-full border border-border bg-background/80 px-4 py-2.5 text-sm text-foreground outline-none backdrop-blur focus:border-primary"
+              className="max-h-24 min-w-0 flex-1 rounded-3xl border border-border bg-background/80 px-4 py-2.5 text-sm leading-5 text-foreground outline-none backdrop-blur focus:border-primary"
             />
             {reply.trim() ? (
               <button aria-label="Envoyer la réponse" disabled={sending} onClick={() => void sendReply()} className="brand-gradient flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-primary-foreground disabled:opacity-60">

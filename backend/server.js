@@ -23,6 +23,7 @@ const activityRoutes = require('./routes/activity');
 const announcementsRoutes = require('./routes/announcements');
 const linkPreviewRoutes = require('./routes/linkPreview');
 const gifsRoutes = require('./routes/gifs');
+const stickersRoutes = require('./routes/stickers');
 const ogPages = require('./ogPages');
 const db = require('./db');
 const storage = require('./storage');
@@ -84,6 +85,7 @@ app.use('/api/activity', activityRoutes);
 app.use('/api/announcements', announcementsRoutes);
 app.use('/api/link-preview', linkPreviewRoutes);
 app.use('/api/gifs', gifsRoutes);
+app.use('/api/stickers', stickersRoutes);
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 

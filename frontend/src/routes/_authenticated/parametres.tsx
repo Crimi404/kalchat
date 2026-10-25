@@ -8,7 +8,6 @@ import { SettingRow } from "@/components/SettingsShell";
 import { useTheme, type Theme } from "@/lib/theme";
 import { SUPPORT_EMAIL } from "@/lib/legal";
 import { lockSupported } from "@/lib/applock";
-import { chatThemeSupported } from "@/lib/chatTheme";
 
 export const Route = createFileRoute("/_authenticated/parametres")({
   head: () => ({
@@ -90,7 +89,7 @@ function ParametresPage() {
           <SettingRow icon={EyeOff} title="Sujets masqués" description="Catégories de publications que tu ne veux plus voir dans ton fil" onClick={() => navigate({ to: "/parametres/sujets" })} />
           <SettingRow icon={Wifi} title="Données et lecture automatique" description="Lecture automatique des vidéos du fil (Wi-Fi seulement, jamais, toujours) et défilement K-Short" onClick={() => navigate({ to: "/parametres/donnees" })} />
           <SettingRow icon={Lock} title="Changer de mot de passe" description="Change de mot de passe à tout moment" onClick={() => navigate({ to: "/parametres/mot-de-passe" })} />
-          {chatThemeSupported() && <SettingRow icon={Palette} title="Fond des discussions" description="Thème, photo de ton téléphone en fond et couleur de tes messages" onClick={() => navigate({ to: "/parametres/discussions" })} />}
+          <SettingRow icon={Palette} title="Discussions" description="Touche Entrée, fond et couleur de tes messages" onClick={() => navigate({ to: "/parametres/discussions" })} />
           {lockSupported() && <SettingRow icon={Fingerprint} title="Verrouillage" description="Code PIN et empreinte pour protéger l'application ou seulement la messagerie" onClick={() => navigate({ to: "/parametres/verrouillage" })} />}
           <SettingRow icon={ShieldCheck} title="Confidentialité" description="Présence en ligne, accusés de lecture, messages éphémères et comptes bloqués" onClick={() => navigate({ to: "/parametres/confidentialite" })} />
         </section>

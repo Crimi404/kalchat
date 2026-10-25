@@ -11,6 +11,7 @@ const URL_COLUMNS = [
   ['users', 'cover_url'],
   ['conversations', 'avatar_url'],
   ['communities', 'avatar_url'],
+  ['user_stickers', 'url'],
 ];
 
 async function isStillUsed(url) {

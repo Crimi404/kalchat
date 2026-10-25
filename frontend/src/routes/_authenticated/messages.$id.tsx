@@ -8,7 +8,9 @@ import { dayKey, dayLabel } from "@/lib/dateLabel";
 import { KORA_ID, LinkifiedText, Markdown } from "@/components/Markdown";
 import { LinkPreviewCard } from "@/components/LinkPreviewCard";
 import { StoryQuoteCard } from "@/components/StoryQuoteCard";
-import { GifPicker } from "@/components/GifPicker";
+import { GifPicker, type PickerTab } from "@/components/GifPicker";
+import { AutoTextarea } from "@/components/AutoTextarea";
+import { deleteBefore } from "@/lib/emojis";
 import { GifMessage } from "@/components/GifMessage";
 import type { GifItem, GifKind } from "@/lib/gifs";
 import { useOnline } from "@/lib/presence";
@@ -67,7 +69,7 @@ function ChatPage() {
   const [reporting, setReporting] = useState<{ type: ReportTarget; id: string } | null>(null);
   const [highlightId, setHighlightId] = useState<string | null>(null);
   const [pinIdx, setPinIdx] = useState(0);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const lastMsgRef = useRef<string | null>(null);
   const mainRef = useRef<HTMLElement>(null);
   const pinned = useRef(true); // reste collé en bas tant qu'on n'a pas fait défiler vers le haut
@@ -188,7 +190,23 @@ function ChatPage() {
   const [sendingFile, setSendingFile] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const [trayOpen, setTrayOpen] = useState(false);
-  const [pickerKind, setPickerKind] = useState<GifKind | null>(null);
+  const [pickerKind, setPickerKind] = useState<PickerTab | null>(null);
+
+  // Emoji choisi dans le sélecteur : on l'insère à l'endroit du curseur (le sélecteur reste ouvert)
+  function insertEmoji(emoji: string) {
+    const el = inputRef.current;
+    const start = el?.selectionStart ?? text.length;
+    const end = el?.selectionEnd ?? start;
+    setText((t) => t.slice(0, start) + emoji + t.slice(end));
+    requestAnimationFrame(() => el?.setSelectionRange(start + emoji.length, start + emoji.length));
+  }
+  function backspaceEmoji() {
+    const el = inputRef.current;
+    const pos = el?.selectionStart ?? text.length;
+    const r = deleteBefore(text, pos);
+    setText(r.text);
+    requestAnimationFrame(() => el?.setSelectionRange(r.pos, r.pos));
+  }
 
   // GIF ou sticker : seul le lien est enregistré dans le message
   async function sendGif(item: GifItem, kind: GifKind) {
@@ -613,7 +631,7 @@ function ChatPage() {
             <button type="button" aria-label="Annuler" onClick={cancelCompose} className="rounded-full p-1.5 text-muted-foreground hover:bg-secondary"><X className="h-4 w-4" /></button>
           </div>
         )}
-        <form onSubmit={(e) => { e.preventDefault(); submitText(); }} className="relative flex items-center gap-2 p-2.5 pb-[max(0.625rem,env(safe-area-inset-bottom))]">
+        <form onSubmit={(e) => { e.preventDefault(); submitText(); }} className="relative flex items-end gap-2 p-2.5 pb-[max(0.625rem,env(safe-area-inset-bottom))]">
           <input ref={fileRef} type="file" accept="image/*,video/*" hidden onChange={(e) => void sendFile(e.target.files?.[0])} />
           {trayOpen && !editing && (
             <>
@@ -642,10 +660,10 @@ function ChatPage() {
               <Palette className="h-5 w-5" />
             </button>
           )}
-          <div className="flex min-w-0 flex-1 items-center rounded-full border border-border bg-card pl-4 pr-1 transition-colors focus-within:border-primary">
-            <input ref={inputRef} value={text} onChange={(e) => setText(e.target.value)} maxLength={imageMode ? 400 : 2000} placeholder={editing ? "Modifie ton message…" : imageMode ? "Décris l'image à créer… 🎨" : "Écris un message…"} className="min-w-0 flex-1 bg-transparent py-2.5 text-sm text-foreground outline-none" />
+          <div className="flex min-w-0 flex-1 items-end rounded-3xl border border-border bg-card pl-4 pr-1 transition-colors focus-within:border-primary">
+            <AutoTextarea ref={inputRef} onEnterSend={submitText} value={text} onChange={(e) => setText(e.target.value)} maxLength={imageMode ? 400 : 2000} placeholder={editing ? "Modifie ton message…" : imageMode ? "Décris l'image à créer… 🎨" : "Écris un message…"} className="max-h-32 min-w-0 flex-1 bg-transparent py-2.5 text-sm leading-5 text-foreground outline-none" />
             {!editing && !imageMode && (
-              <button type="button" onClick={() => setPickerKind("sticker")} aria-label="Stickers et GIF" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-primary">
+              <button type="button" onClick={() => setPickerKind("emoji")} aria-label="Emojis, GIFs et stickers" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-primary">
                 <Smile className="h-5 w-5" />
               </button>
             )}
@@ -656,7 +674,7 @@ function ChatPage() {
             <button type="button" disabled={sendingFile} onClick={() => void startVoice()} aria-label="Enregistrer un message vocal" className="brand-gradient flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-primary-foreground disabled:opacity-50"><Mic className="h-5 w-5" /></button>
           )}
         </form>
-        {pickerKind && <GifPicker initialKind={pickerKind} onPick={(item, kind) => void sendGif(item, kind)} onClose={() => setPickerKind(null)} />}
+        {pickerKind && <GifPicker initialKind={pickerKind} onPick={(item, kind) => void sendGif(item, kind)} onEmoji={insertEmoji} onBackspace={backspaceEmoji} onClose={() => setPickerKind(null)} />}
         </div>
       )}
     </div>

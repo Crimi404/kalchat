@@ -7,7 +7,7 @@ const { notify } = require('../notify');
 const { isBlockedEitherWay } = require('../blocks');
 const ai = require('../ai');
 const { releaseMedia } = require('../mediaCleanup');
-const { mediaUrlOk, BAD_URL } = require('../mediaUrl');
+const { mediaUrlOk, BAD_URL, isOwnMediaUrl } = require('../mediaUrl');
 const { canSeeStory } = require('../storyAccess');
 const { isProviderMediaUrl } = require('../gifProvider');
 
@@ -520,7 +520,9 @@ router.post('/conversations/:id/messages', async (req, res) => {
   if (!isMember) return res.status(403).json({ error: 'Accès refusé' });
   // GIF / sticker : l'adresse doit venir du fournisseur (rien n'est stocké chez nous) ; les autres médias, de notre stockage
   if (media_type === 'gif' || media_type === 'sticker') {
-    if (!media_url || !isProviderMediaUrl(media_url)) return res.status(400).json({ error: 'GIF ou sticker invalide' });
+    // GIF : fournisseur uniquement. Sticker : fournisseur, ou sticker créé par un membre (fichier dans notre stockage)
+    const ok = media_url && (isProviderMediaUrl(media_url) || (media_type === 'sticker' && isOwnMediaUrl(media_url)));
+    if (!ok) return res.status(400).json({ error: 'GIF ou sticker invalide' });
   } else if (!(await mediaUrlOk(media_url))) {
     return res.status(400).json(BAD_URL);
   }

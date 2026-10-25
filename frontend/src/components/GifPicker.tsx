@@ -1,16 +1,24 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { Clock, Loader2, Search, Sparkles, X } from "lucide-react";
+import { Clock, Loader2, Search, Smile, Sparkles, X } from "lucide-react";
 import { useBackHandler } from "@/lib/back";
 import { addRecent, fetchGifs, getRecents, GIF_CATEGORIES, type GifItem, type GifKind } from "@/lib/gifs";
+import { EmojiPanel } from "@/components/EmojiPanel";
+import { MyStickersPanel } from "@/components/MyStickersPanel";
 
-/** Sélecteur de GIFs et de stickers (fournisseur : KLIPY). Un appui sur un élément l'envoie. */
-export function GifPicker({ initialKind, onPick, onClose }: { initialKind: GifKind; onPick: (item: GifItem, kind: GifKind) => void; onClose: () => void }) {
+export type PickerTab = "emoji" | GifKind;
+
+/**
+ * Sélecteur Emoji / GIF / Stickers (GIFs et stickers : fournisseur KLIPY).
+ * Emoji : s'ajoute au message. GIF ou sticker : un appui l'envoie.
+ */
+export function GifPicker({ initialKind, onPick, onEmoji, onBackspace, onClose }: { initialKind: PickerTab; onPick: (item: GifItem, kind: GifKind) => void; onEmoji: (emoji: string) => void; onBackspace: () => void; onClose: () => void }) {
   useBackHandler(onClose);
-  const [kind, setKind] = useState<GifKind>(initialKind);
+  const [tab, setTab] = useState<PickerTab>(initialKind);
+  const kind: GifKind = tab === "gif" ? "gif" : "sticker";
   const [search, setSearch] = useState("");
   const [q, setQ] = useState("");
-  const [cat, setCat] = useState<string>("trending"); // "trending" | "recent" | libellé de catégorie
+  const [cat, setCat] = useState<string>("trending"); // "trending" | "recent" | "mine" (stickers) | libellé de catégorie
   const scrollRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
 
@@ -23,9 +31,12 @@ export function GifPicker({ initialKind, onPick, onClose }: { initialKind: GifKi
   const catQuery = GIF_CATEGORIES.find((c) => c.label === cat)?.q ?? "";
   const effectiveQ = q || catQuery;
   const showRecent = cat === "recent" && !q;
+  const showMine = tab === "sticker" && cat === "mine" && !q;
+  const onlineOff = tab === "emoji" || showMine;
 
   const query = useInfiniteQuery({
     queryKey: ["gifs", kind, effectiveQ],
+    enabled: !onlineOff && !showRecent,
     queryFn: ({ pageParam }) => fetchGifs(kind, effectiveQ, pageParam),
     initialPageParam: 1,
     getNextPageParam: (last) => last.next ?? undefined,
@@ -40,13 +51,13 @@ export function GifPicker({ initialKind, onPick, onClose }: { initialKind: GifKi
   // Chargement automatique de la suite quand on arrive en bas
   useEffect(() => {
     const el = sentinelRef.current;
-    if (!el || showRecent) return;
+    if (!el || showRecent || onlineOff) return;
     const obs = new IntersectionObserver((e) => {
       if (e[0].isIntersecting && query.hasNextPage && !query.isFetchingNextPage) void query.fetchNextPage();
     }, { root: scrollRef.current, rootMargin: "200px" });
     obs.observe(el);
     return () => obs.disconnect();
-  }, [query, showRecent]);
+  }, [query, showRecent, onlineOff]);
 
   function pick(item: GifItem) {
     addRecent(kind, item);
@@ -75,21 +86,26 @@ export function GifPicker({ initialKind, onPick, onClose }: { initialKind: GifKi
 
         <div className="flex items-center gap-2 px-3 pb-2 pt-2.5">
           <div className="flex flex-1 rounded-full bg-secondary p-1" role="tablist">
-            {(["gif", "sticker"] as const).map((k) => (
+            {(["emoji", "gif", "sticker"] as const).map((k) => (
               <button
                 key={k}
                 role="tab"
-                aria-selected={kind === k}
-                onClick={() => { setKind(k); scrollRef.current?.scrollTo({ top: 0 }); }}
-                className={`flex-1 rounded-full py-1.5 text-sm font-bold transition-colors ${kind === k ? "brand-gradient text-primary-foreground shadow" : "text-muted-foreground"}`}
+                aria-selected={tab === k}
+                aria-label={k === "emoji" ? "Emoji" : undefined}
+                onClick={() => { setTab(k); setCat("trending"); setSearch(""); setQ(""); scrollRef.current?.scrollTo({ top: 0 }); }}
+                className={`flex flex-1 items-center justify-center rounded-full py-1.5 text-sm font-bold transition-colors ${tab === k ? "brand-gradient text-primary-foreground shadow" : "text-muted-foreground"}`}
               >
-                {k === "gif" ? "GIF" : "Stickers"}
+                {k === "emoji" ? <Smile className="h-5 w-5" /> : k === "gif" ? "GIF" : "Stickers"}
               </button>
             ))}
           </div>
           <button type="button" aria-label="Fermer" onClick={onClose} className="rounded-full p-2 text-muted-foreground hover:bg-secondary"><X className="h-5 w-5" /></button>
         </div>
 
+        {tab === "emoji" ? (
+          <EmojiPanel onEmoji={onEmoji} onBackspace={onBackspace} />
+        ) : (
+          <>
         <div className="px-3">
           <label className="flex items-center gap-2 rounded-full border border-border bg-background px-3.5 focus-within:border-primary">
             <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
@@ -105,7 +121,7 @@ export function GifPicker({ initialKind, onPick, onClose }: { initialKind: GifKi
         </div>
 
         <div className="flex gap-2 overflow-x-auto px-3 py-2.5 [scrollbar-width:none]">
-          {[{ id: "trending", label: "Tendance", icon: <Sparkles className="h-3.5 w-3.5" /> }, { id: "recent", label: "Récents", icon: <Clock className="h-3.5 w-3.5" /> }, ...GIF_CATEGORIES.map((c) => ({ id: c.label, label: c.label, icon: null }))].map((c) => (
+          {[{ id: "trending", label: "Tendance", icon: <Sparkles className="h-3.5 w-3.5" /> }, { id: "recent", label: "Récents", icon: <Clock className="h-3.5 w-3.5" /> }, ...(tab === "sticker" ? [{ id: "mine", label: "Mes stickers", icon: <Sparkles className="h-3.5 w-3.5" /> }] : []), ...GIF_CATEGORIES.map((c) => ({ id: c.label, label: c.label, icon: null }))].map((c) => (
             <button
               key={c.id}
               type="button"
@@ -117,6 +133,10 @@ export function GifPicker({ initialKind, onPick, onClose }: { initialKind: GifKi
           ))}
         </div>
 
+            {showMine ? (
+              <MyStickersPanel onPick={(item) => pick(item)} />
+            ) : (
+              <>
         <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
           {notConfigured ? (
             <p className="px-6 py-12 text-center text-sm text-muted-foreground">Les GIFs et les stickers arrivent bientôt sur Kalchat ✨</p>
@@ -153,7 +173,14 @@ export function GifPicker({ initialKind, onPick, onClose }: { initialKind: GifKi
           {query.isFetchingNextPage && <div className="flex justify-center py-2"><Loader2 className="h-5 w-5 animate-spin text-primary" /></div>}
         </div>
 
+              </>
+            )}
+          </>
+        )}
+
+        {tab !== "emoji" && !showMine && (
         <p className="border-t border-border py-1.5 pb-[max(0.375rem,env(safe-area-inset-bottom))] text-center text-[10px] font-semibold tracking-wide text-muted-foreground">Powered by KLIPY</p>
+        )}
       </div>
     </div>
   );

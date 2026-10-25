@@ -99,6 +99,15 @@ async function initSchema() {
       PRIMARY KEY (story_id, viewer_id)
     );
 
+    -- Stickers créés par les membres (le fichier est dans notre stockage ; 40 maximum par membre)
+    CREATE TABLE IF NOT EXISTS user_stickers (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      url TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_user_stickers_user ON user_stickers(user_id, created_at DESC);
+
     CREATE TABLE IF NOT EXISTS story_likes (
       story_id TEXT NOT NULL REFERENCES stories(id) ON DELETE CASCADE,
       user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
