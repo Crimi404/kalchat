@@ -12,6 +12,7 @@ const path = require('path');
 const db = require('./db');
 const { isOwnMediaUrl } = require('./mediaUrl');
 const { USERNAME_RE } = require('./usernamePolicy');
+const profileCard = require('./profileCard');
 
 const SITE = (process.env.PUBLIC_URL || 'https://kalchat.site').replace(/\/+$/, '');
 const DEFAULT_IMAGE = `${SITE}/og-default.png`;
@@ -41,7 +42,7 @@ function card(partial) {
 }
 
 function render(template, c) {
-  const large = c.image === DEFAULT_IMAGE;
+  const large = c.large ?? c.image === DEFAULT_IMAGE;
   const tags = [
     `<title>${esc(c.title)}</title>`,
     `<meta name="description" content="${esc(c.description)}" />`,
@@ -113,12 +114,15 @@ module.exports = function ogPages(frontDist) {
     const username = String(req.params.username || '').toLowerCase();
     const neutral = card({ title: 'Un profil sur Kalchat', description: "Ouvre ce profil sur Kalchat, l'application de messagerie sociale.", pagePath: '/' });
     if (!USERNAME_RE.test(username) || !allowed(req.ip)) return neutral;
-    const u = await db.prepare('SELECT username, first_name, last_name, avatar_url, bio, is_blocked, public_preview FROM users WHERE username = ?').get(username);
+    const u = await db.prepare('SELECT username, first_name, last_name, avatar_url, cover_url, bio, is_blocked, public_preview, public_preview_stats FROM users WHERE username = ?').get(username);
     if (!u || u.is_blocked || Number(u.public_preview) !== 1) return neutral;
+    // Carte de profil complète (couverture, photo, nom, bio) si le convertisseur d'images est installé ; sinon, simple photo
+    const cardOk = profileCard.isAvailable();
     return card({
       title: `${fullName(u)} (@${u.username}) sur Kalchat`,
       description: cut(u.bio, 160) || `Retrouve @${u.username} sur Kalchat.`,
-      image: imageOrDefault(u.avatar_url),
+      image: cardOk ? `${SITE}/og/u/${u.username}.png?v=${profileCard.cardVersion(u, Number(u.public_preview_stats) === 1)}` : imageOrDefault(u.avatar_url),
+      large: cardOk,
       type: 'profile',
       pagePath: `/u/${u.username}`,
     });
@@ -143,6 +147,53 @@ module.exports = function ogPages(frontDist) {
       pagePath: `/post/${id}`,
     });
   }));
+
+  // Image de la carte de profil (1200×630). Même règle de vie privée que la page : sans « Aperçu public », image neutre.
+  const defaultImage = () => {
+    try { return fs.readFileSync(path.join(frontDist, 'og-default.png')); } catch { return null; }
+  };
+  const cardCache = new Map(); // clé : pseudo + empreinte du profil
+  router.get(/^\/og\/u\/([A-Za-z0-9_.-]{1,40})\.png$/, async (req, res, next) => {
+    const sendDefault = () => {
+      const buf = defaultImage();
+      if (!buf) return next();
+      res.set('Content-Type', 'image/png');
+      res.set('Cache-Control', 'public, max-age=300');
+      res.send(buf);
+    };
+    try {
+      const username = String(req.params[0] || '').toLowerCase();
+      if (!USERNAME_RE.test(username) || !profileCard.isAvailable() || !allowed(req.ip)) return sendDefault();
+      const u = await db
+        .prepare('SELECT id, username, first_name, last_name, avatar_url, cover_url, bio, is_blocked, public_preview, public_preview_stats FROM users WHERE username = ?')
+        .get(username);
+      if (!u || u.is_blocked || Number(u.public_preview) !== 1) return sendDefault();
+
+      const withStats = Number(u.public_preview_stats) === 1;
+      const key = `${u.username}|${profileCard.cardVersion(u, withStats)}`;
+      let png = cardCache.get(key);
+      if (!png) {
+        let stats = null;
+        if (withStats) {
+          const n = async (sql) => Number((await db.prepare(sql).get(u.id))?.n) || 0;
+          stats = {
+            posts: await n('SELECT COUNT(*) AS n FROM posts WHERE user_id = ? AND community_id IS NULL'),
+            followers: await n("SELECT COUNT(*) AS n FROM follows WHERE followed_id = ? AND status = 'accepted'"),
+            following: await n("SELECT COUNT(*) AS n FROM follows WHERE follower_id = ? AND status = 'accepted'"),
+          };
+        }
+        png = await profileCard.renderProfileCard(u, stats);
+        if (cardCache.size >= 100) cardCache.delete(cardCache.keys().next().value);
+        cardCache.set(key, png);
+      }
+      res.set('Content-Type', 'image/png');
+      res.set('Cache-Control', 'public, max-age=3600');
+      res.send(png);
+    } catch (err) {
+      console.error('Carte de profil :', err.message);
+      sendDefault();
+    }
+  });
 
   // Vidéo K-Short : /?k=identifiant (la page d'accueil sans ?k= reste servie normalement)
   router.get('/', route(async (req) => {

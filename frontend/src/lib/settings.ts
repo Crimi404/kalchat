@@ -26,10 +26,12 @@ export interface SettingsPatch {
   read_receipts?: boolean;
   default_ephemeral?: number;
   allow_story_share?: boolean;
+  public_preview?: boolean;
+  public_preview_stats?: boolean;
 }
 
 export async function updateSettings(patch: SettingsPatch) {
-  return api<{ privacy_online: PresenceMode; read_receipts: number; default_ephemeral: number; allow_story_share: number }>("/users/me/settings", { method: "PATCH", body: patch });
+  return api<{ privacy_online: PresenceMode; read_receipts: number; default_ephemeral: number; allow_story_share: number; public_preview: number; public_preview_stats: number }>("/users/me/settings", { method: "PATCH", body: patch });
 }
 
 export async function changePassword(currentPassword: string, newPassword: string) {

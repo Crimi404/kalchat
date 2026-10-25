@@ -272,7 +272,7 @@ router.post('/login', async (req, res) => {
 // ---------- Profil courant ----------
 router.get('/me', authMiddleware, async (req, res) => {
   const user = await db
-    .prepare('SELECT id, username, avatar_url, cover_url, location, status_text, bio, badge, role, is_admin, is_blocked, first_name, last_name, created_at, theme, username_changed_at, privacy_online, read_receipts, default_ephemeral, allow_story_share FROM users WHERE id = ?')
+    .prepare('SELECT id, username, avatar_url, cover_url, location, status_text, bio, badge, role, is_admin, is_blocked, first_name, last_name, created_at, theme, username_changed_at, privacy_online, read_receipts, default_ephemeral, allow_story_share, public_preview, public_preview_stats FROM users WHERE id = ?')
     .get(req.user.id);
   res.json({
     ...user,

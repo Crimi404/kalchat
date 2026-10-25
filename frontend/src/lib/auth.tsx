@@ -32,6 +32,10 @@ export interface Profile {
   default_ephemeral: number;
   /** Les autres membres peuvent repartager mes stories (réglage général). */
   allow_story_share: boolean;
+  /** Aperçu public (WhatsApp, etc.) du profil et des publications : désactivé tant que le membre ne l'a pas choisi. */
+  public_preview: boolean;
+  /** Posts, abonnés et abonnements affichés sur la carte d'aperçu (désactivé par défaut). */
+  public_preview_stats: boolean;
 }
 
 interface RawMe {
@@ -55,6 +59,8 @@ interface RawMe {
   read_receipts?: number | boolean | null;
   default_ephemeral?: number | null;
   allow_story_share?: number | boolean | null;
+  public_preview?: number | boolean | null;
+  public_preview_stats?: number | boolean | null;
 }
 
 export interface SignUpInput {
@@ -103,6 +109,8 @@ function toProfile(m: RawMe): Profile {
     read_receipts: m.read_receipts === undefined || m.read_receipts === null ? true : !!Number(m.read_receipts),
     default_ephemeral: Number(m.default_ephemeral) || 0,
     allow_story_share: m.allow_story_share === undefined || m.allow_story_share === null ? true : !!Number(m.allow_story_share),
+    public_preview: !!Number(m.public_preview),
+    public_preview_stats: !!Number(m.public_preview_stats),
   };
 }
 

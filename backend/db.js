@@ -284,6 +284,8 @@ async function initSchema() {
     ALTER TABLE stories ADD COLUMN IF NOT EXISTS allow_share INTEGER;
     -- Aperçu public (cartes WhatsApp, etc.) du profil et des publications : désactivé tant que le membre ne l'a pas choisi
     ALTER TABLE users ADD COLUMN IF NOT EXISTS public_preview INTEGER NOT NULL DEFAULT 0;
+    -- Statistiques (posts, abonnés, abonnements) sur la carte d'aperçu : désactivées tant que le membre ne l'a pas choisi
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS public_preview_stats INTEGER NOT NULL DEFAULT 0;
     -- Réponse à une story : petite carte conservée dans le message (JSON), qui se floute quand la story expire
     ALTER TABLE messages ADD COLUMN IF NOT EXISTS story_ref TEXT;
     ALTER TABLE conversations ADD COLUMN IF NOT EXISTS invite_token TEXT;

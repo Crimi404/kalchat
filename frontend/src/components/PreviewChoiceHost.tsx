@@ -29,9 +29,9 @@ export function PreviewChoiceHost() {
   return (
     <ChoiceSheet<"yes" | "no">
       title="Aperçu du lien"
-      description="Quand ce lien est partagé (WhatsApp, etc.), veux-tu afficher ton nom, ta photo et un extrait ? Tu pourras changer ce choix à tout moment dans Confidentialité."
+      description="Quand ce lien est partagé (WhatsApp, etc.), veux-tu afficher ta couverture, ta photo, ton nom et ta bio ? Tu pourras changer ce choix à tout moment dans Confidentialité."
       options={[
-        { value: "yes", label: "Oui, afficher un aperçu", hint: "Photo, nom et extrait visibles pour toute personne qui reçoit le lien" },
+        { value: "yes", label: "Oui, afficher un aperçu", hint: "Couverture, photo, nom et bio visibles pour toute personne qui reçoit le lien" },
         { value: "no", label: "Non, carte neutre Kalchat", hint: "Aucune information personnelle dans l'aperçu" },
       ]}
       value="no"
