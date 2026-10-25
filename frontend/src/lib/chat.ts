@@ -92,6 +92,9 @@ export function messageSnippet(text: string | null | undefined, mediaType: strin
     video_expired: "🎥 Vidéo indisponible",
     audio_expired: "🎤 Message vocal expiré",
     image_expired: "🖼️ Image supprimée",
+    gif: "🎞️ GIF",
+    sticker: "✨ Sticker",
+    sticker_expired: "✨ Sticker expiré",
   };
   return labels[mediaType ?? ""] ?? "📷 Photo";
 }
@@ -206,6 +209,9 @@ export function previewText(c: ConversationItem, myId?: string | null): string {
       audio: "🎤 Message vocal",
       video_expired: "🎥 Vidéo indisponible",
       audio_expired: "🎤 Message vocal expiré",
+      gif: "🎞️ GIF",
+      sticker: "✨ Sticker",
+      sticker_expired: "✨ Sticker expiré",
     };
     body = labels[c.lastMediaType ?? ""] ?? "📷 Photo";
   }

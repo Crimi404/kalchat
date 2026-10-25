@@ -9,6 +9,7 @@ const ai = require('../ai');
 const { releaseMedia } = require('../mediaCleanup');
 const { mediaUrlOk, BAD_URL } = require('../mediaUrl');
 const { canSeeStory } = require('../storyAccess');
+const { isProviderMediaUrl } = require('../gifProvider');
 
 const router = express.Router();
 router.use(authMiddleware);
@@ -517,7 +518,12 @@ router.post('/conversations/:id/messages', async (req, res) => {
     .prepare('SELECT 1 FROM conversation_members WHERE conversation_id = ? AND user_id = ?')
     .get(req.params.id, req.user.id);
   if (!isMember) return res.status(403).json({ error: 'Accès refusé' });
-  if (!(await mediaUrlOk(media_url))) return res.status(400).json(BAD_URL);
+  // GIF / sticker : l'adresse doit venir du fournisseur (rien n'est stocké chez nous) ; les autres médias, de notre stockage
+  if (media_type === 'gif' || media_type === 'sticker') {
+    if (!media_url || !isProviderMediaUrl(media_url)) return res.status(400).json({ error: 'GIF ou sticker invalide' });
+  } else if (!(await mediaUrlOk(media_url))) {
+    return res.status(400).json(BAD_URL);
+  }
   // « system » est réservé aux messages automatiques du serveur
   if (media_type === 'system' || (media_type && String(media_type).endsWith('_expired'))) {
     return res.status(400).json({ error: 'Type de média invalide' });

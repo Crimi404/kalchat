@@ -1,13 +1,16 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { Fragment, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Check, CheckCheck, ImagePlus, Loader2, Mic, Ban, Flag, MoreVertical, Palette, Pencil, Pin, Reply, Send, Star, ThumbsDown, ThumbsUp, Timer, Trash2, Users, X } from "lucide-react";
+import { ArrowLeft, Check, CheckCheck, Film, ImagePlus, Loader2, Mic, Ban, Flag, MoreVertical, Palette, Pencil, Pin, Plus, Reply, Send, Smile, Star, Sticker, ThumbsDown, ThumbsUp, Timer, Trash2, Users, X } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
 import { dayKey, dayLabel } from "@/lib/dateLabel";
 import { KORA_ID, LinkifiedText, Markdown } from "@/components/Markdown";
 import { LinkPreviewCard } from "@/components/LinkPreviewCard";
 import { StoryQuoteCard } from "@/components/StoryQuoteCard";
+import { GifPicker } from "@/components/GifPicker";
+import { GifMessage } from "@/components/GifMessage";
+import type { GifItem, GifKind } from "@/lib/gifs";
 import { useOnline } from "@/lib/presence";
 import { BadgeList } from "@/components/KalBadge";
 import { GroupInfoSheet } from "@/components/GroupInfoSheet";
@@ -184,6 +187,24 @@ function ChatPage() {
 
   const [sendingFile, setSendingFile] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const [trayOpen, setTrayOpen] = useState(false);
+  const [pickerKind, setPickerKind] = useState<GifKind | null>(null);
+
+  // GIF ou sticker : seul le lien est enregistré dans le message
+  async function sendGif(item: GifItem, kind: GifKind) {
+    setPickerKind(null);
+    setSendingFile(true);
+    try {
+      await sendMessage(id, "", { url: item.url, type: kind }, replyTo?.id);
+      setReplyTo(null);
+      await qc.invalidateQueries({ queryKey: ["messages", id] });
+      void qc.invalidateQueries({ queryKey: ["conversations"] });
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setSendingFile(false);
+    }
+  }
 
   async function sendFile(f: File | undefined) {
     if (!f) return;
@@ -305,7 +326,7 @@ function ChatPage() {
       });
     }
     list.push({ id: "pin", label: m.pinned ? "Désépingler" : "Épingler", icon: m.pinned ? ActionIcons.unpin : ActionIcons.pin, onSelect: () => pin.mutate(m.id) });
-    const editable = mine && m.media_type !== "audio" && !m.media_type?.endsWith("_expired") && Date.now() - new Date(m.created_at).getTime() <= EDIT_WINDOW_MS;
+    const editable = mine && m.media_type !== "audio" && m.media_type !== "gif" && m.media_type !== "sticker" && !m.media_type?.endsWith("_expired") && Date.now() - new Date(m.created_at).getTime() <= EDIT_WINDOW_MS;
     if (editable) list.push({ id: "edit", label: "Modifier", icon: ActionIcons.edit, onSelect: () => startEdit(m) });
     if (!mine) {
       list.push({ id: "report", label: "Signaler le message", icon: ActionIcons.report, danger: true, onSelect: () => setReporting({ type: "message", id: m.id }) });
@@ -449,11 +470,13 @@ function ChatPage() {
             );
           }
           const mine = m.sender_id === uid;
+          // Un sticker seul est affiché sans bulle (fond transparent)
+          const bare = m.media_type === "sticker" && !!m.media_url && !m.body && !m.reply && !m.storyRef;
           return (
             <div key={m.id} id={`msg-${m.id}`} className={`rounded-2xl transition-colors duration-500 ${highlightId === m.id ? "bg-primary/20" : ""}`}>
               <SwipeableMessage onReply={() => startReply(m)} onLongPress={() => setActionMsg(m)}>
                 <div className={`flex ${mine ? "justify-end" : "justify-start"}`}>
-                  <div style={mine ? chatTheme.bubbleStyle ?? undefined : undefined} className={`max-w-[75%] rounded-2xl px-3.5 py-2 text-sm ${mine ? (chatTheme.bubbleStyle ? "rounded-br-md" : "brand-gradient rounded-br-md text-primary-foreground") : "rounded-bl-md bg-secondary text-foreground"}`}>
+                  <div style={mine && !bare ? chatTheme.bubbleStyle ?? undefined : undefined} className={`max-w-[75%] rounded-2xl text-sm ${bare ? "bg-transparent" : `px-3.5 py-2 ${mine ? (chatTheme.bubbleStyle ? "rounded-br-md" : "brand-gradient rounded-br-md text-primary-foreground") : "rounded-bl-md bg-secondary text-foreground"}`}`}>
                     {isGroup && !mine && <span className="mb-0.5 block text-[11px] font-semibold text-primary">{m.sender_name}</span>}
                     {m.storyRef && <StoryQuoteCard story={m.storyRef} mine={mine} meId={uid} />}
                     {m.reply && (
@@ -469,7 +492,9 @@ function ChatPage() {
                     {m.media_type === "audio_expired" && <p className="mb-1 text-xs italic opacity-80">🎤 Message vocal expiré (supprimé après 60 jours)</p>}
                     {m.media_type === "image_expired" && <p className="mb-1 text-xs italic opacity-80">🖼️ Image supprimée (après 60 jours)</p>}
                     {m.media_type === "video_expired" && <p className="mb-1 text-xs italic opacity-80">🎥 Vidéo indisponible (supprimée après 60 jours)</p>}
-                    {m.media_url && (m.media_type === "video" ? (
+                    {m.media_type === "sticker_expired" && <p className="mb-1 text-xs italic opacity-80">✨ Sticker expiré (masqué après 90 jours)</p>}
+                    {m.media_url && (m.media_type === "gif" || m.media_type === "sticker") && <GifMessage url={m.media_url} kind={m.media_type as GifKind} createdAt={m.created_at} />}
+                    {m.media_url && m.media_type !== "gif" && m.media_type !== "sticker" && (m.media_type === "video" ? (
                       <div className="mb-1 w-64 max-w-full"><VideoPlayer src={m.media_url} downloadable className="max-h-64 rounded-xl" videoClassName="max-h-64" /></div>
                     ) : m.media_type === "audio" ? (
                       <VoiceBubble src={m.media_url} duration={m.duration} mine={mine} />
@@ -485,7 +510,7 @@ function ChatPage() {
                         <button type="button" aria-label="Réponse pas utile" onClick={() => void rateKora(m, -1)} className={`rounded-full p-1 ${m.my_feedback === -1 ? "bg-destructive/20 text-destructive" : "hover:bg-background/60"}`}><ThumbsDown className="h-3.5 w-3.5" /></button>
                       </div>
                     ) : null}
-                    <span className={`mt-0.5 flex items-center justify-end gap-1 text-[10px] ${mine ? "text-primary-foreground/70" : "text-muted-foreground"}`}>
+                    <span className={`mt-0.5 flex items-center justify-end gap-1 text-[10px] ${mine && !bare ? "text-primary-foreground/70" : "text-muted-foreground"}`}>
                       {m.pinned && <Pin className="h-3 w-3" />}
                       {m.edited && <span className="italic">modifié</span>}
                       {new Date(m.created_at).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}
@@ -588,23 +613,50 @@ function ChatPage() {
             <button type="button" aria-label="Annuler" onClick={cancelCompose} className="rounded-full p-1.5 text-muted-foreground hover:bg-secondary"><X className="h-4 w-4" /></button>
           </div>
         )}
-        <form onSubmit={(e) => { e.preventDefault(); submitText(); }} className="flex items-center gap-1.5 p-2.5 pb-[max(0.625rem,env(safe-area-inset-bottom))]">
+        <form onSubmit={(e) => { e.preventDefault(); submitText(); }} className="relative flex items-center gap-2 p-2.5 pb-[max(0.625rem,env(safe-area-inset-bottom))]">
           <input ref={fileRef} type="file" accept="image/*,video/*" hidden onChange={(e) => void sendFile(e.target.files?.[0])} />
-          <button type="button" disabled={sendingFile} onClick={() => fileRef.current?.click()} aria-label="Envoyer une photo ou une vidéo" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-border bg-card text-muted-foreground hover:bg-secondary disabled:opacity-60">
-            {sendingFile ? <Loader2 className="h-5 w-5 animate-spin" /> : <ImagePlus className="h-5 w-5" />}
-          </button>
+          {trayOpen && !editing && (
+            <>
+              <button type="button" aria-label="Fermer le menu" tabIndex={-1} onClick={() => setTrayOpen(false)} className="fixed inset-0 z-10 cursor-default" />
+              <div className="animate-fade-in absolute bottom-full left-2.5 z-20 mb-2 flex gap-1.5 rounded-3xl border border-border bg-card p-2 shadow-xl">
+                {[
+                  { label: "Galerie", Icon: ImagePlus, tone: "from-violet-500 to-fuchsia-500", run: () => fileRef.current?.click() },
+                  { label: "GIF", Icon: Film, tone: "from-sky-500 to-indigo-500", run: () => setPickerKind("gif") },
+                  { label: "Stickers", Icon: Sticker, tone: "from-amber-400 to-pink-500", run: () => setPickerKind("sticker") },
+                ].map(({ label, Icon, tone, run }) => (
+                  <button key={label} type="button" onClick={() => { setTrayOpen(false); run(); }} className="flex w-[4.25rem] flex-col items-center gap-1.5 rounded-2xl p-1.5 text-[11px] font-semibold text-foreground active:scale-95">
+                    <span className={`flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br ${tone} text-white shadow-md`}><Icon className="h-6 w-6" /></span>
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+          {!editing && (
+            <button type="button" disabled={sendingFile} onClick={() => setTrayOpen((v) => !v)} aria-expanded={trayOpen} aria-label="Ajouter une photo, un GIF ou un sticker" className="relative z-20 flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-primary/40 bg-primary/10 text-primary disabled:opacity-60">
+              {sendingFile ? <Loader2 className="h-5 w-5 animate-spin" /> : <Plus className={`h-5 w-5 transition-transform duration-200 ${trayOpen ? "rotate-45" : ""}`} />}
+            </button>
+          )}
           {isKora && !editing && (
             <button type="button" onClick={() => { setImageMode((v) => !v); inputRef.current?.focus(); }} aria-pressed={imageMode} aria-label="Demander une image à Kora" className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full border ${imageMode ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card text-muted-foreground hover:bg-secondary"}`}>
               <Palette className="h-5 w-5" />
             </button>
           )}
-          <input ref={inputRef} value={text} onChange={(e) => setText(e.target.value)} maxLength={imageMode ? 400 : 2000} placeholder={editing ? "Modifie ton message…" : imageMode ? "Décris l'image à créer… 🎨" : "Écris un message…"} className="min-w-0 flex-1 rounded-full border border-border bg-card px-3.5 py-2.5 text-sm text-foreground outline-none focus:border-primary" />
+          <div className="flex min-w-0 flex-1 items-center rounded-full border border-border bg-card pl-4 pr-1 transition-colors focus-within:border-primary">
+            <input ref={inputRef} value={text} onChange={(e) => setText(e.target.value)} maxLength={imageMode ? 400 : 2000} placeholder={editing ? "Modifie ton message…" : imageMode ? "Décris l'image à créer… 🎨" : "Écris un message…"} className="min-w-0 flex-1 bg-transparent py-2.5 text-sm text-foreground outline-none" />
+            {!editing && !imageMode && (
+              <button type="button" onClick={() => setPickerKind("sticker")} aria-label="Stickers et GIF" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-primary">
+                <Smile className="h-5 w-5" />
+              </button>
+            )}
+          </div>
           {text.trim() ? (
             <button disabled={send.isPending || edit.isPending} aria-label={editing ? "Enregistrer la modification" : "Envoyer"} className="brand-gradient flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-primary-foreground disabled:opacity-50"><Send className="h-4 w-4" /></button>
           ) : (
             <button type="button" disabled={sendingFile} onClick={() => void startVoice()} aria-label="Enregistrer un message vocal" className="brand-gradient flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-primary-foreground disabled:opacity-50"><Mic className="h-5 w-5" /></button>
           )}
         </form>
+        {pickerKind && <GifPicker initialKind={pickerKind} onPick={(item, kind) => void sendGif(item, kind)} onClose={() => setPickerKind(null)} />}
         </div>
       )}
     </div>

@@ -6,6 +6,8 @@ const { BOT_ID } = require('./ai');
 const VIDEO_RETENTION_DAYS = 60;
 const AUDIO_RETENTION_DAYS = 60;
 const KORA_IMAGE_RETENTION_DAYS = 60;
+// Les GIFs restent sans limite (seul le lien est gardé) ; les stickers sont masqués au bout de 90 jours
+const STICKER_RETENTION_DAYS = 90;
 
 // ---------- Supprime les fichiers trop anciens du stockage ----------
 // Le message ou la publication reste (texte, likes, commentaires...), seul le fichier média
@@ -49,6 +51,7 @@ async function cleanupKoraImages() {
 async function cleanupOldMedia() {
   await cleanupTable('messages', 'video', VIDEO_RETENTION_DAYS);
   await cleanupTable('messages', 'audio', AUDIO_RETENTION_DAYS);
+  await cleanupTable('messages', 'sticker', STICKER_RETENTION_DAYS);
   await cleanupTable('posts', 'video', VIDEO_RETENTION_DAYS);
   await cleanupKoraImages();
 }

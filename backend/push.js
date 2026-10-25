@@ -243,7 +243,7 @@ async function pushForNotification(full, userId) {
       const msg = full.message_id ? await db.prepare('SELECT content, media_type FROM messages WHERE id = ?').get(full.message_id) : null;
       const label = msg?.content
         ? cut(msg.content, 120)
-        : { image: '📷 Photo', video: '🎬 Vidéo', audio: '🎤 Message vocal' }[msg?.media_type] || 'Nouveau message';
+        : { image: '📷 Photo', video: '🎬 Vidéo', audio: '🎤 Message vocal', gif: '🎞️ GIF', sticker: '✨ Sticker' }[msg?.media_type] || 'Nouveau message';
       if (conv?.request_status && conv.created_by === full.actor_id) {
         body = "t'a envoyé une demande de message"; // pas d'aperçu du contenu pour un inconnu
       } else if (conv?.is_group) {

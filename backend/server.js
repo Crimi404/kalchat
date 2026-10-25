@@ -22,6 +22,7 @@ const pushRoutes = require('./routes/push');
 const activityRoutes = require('./routes/activity');
 const announcementsRoutes = require('./routes/announcements');
 const linkPreviewRoutes = require('./routes/linkPreview');
+const gifsRoutes = require('./routes/gifs');
 const ogPages = require('./ogPages');
 const db = require('./db');
 const storage = require('./storage');
@@ -82,6 +83,7 @@ app.use('/api/push', pushRoutes);
 app.use('/api/activity', activityRoutes);
 app.use('/api/announcements', announcementsRoutes);
 app.use('/api/link-preview', linkPreviewRoutes);
+app.use('/api/gifs', gifsRoutes);
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 

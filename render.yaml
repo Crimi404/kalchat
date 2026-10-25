@@ -27,6 +27,9 @@ services:
         sync: false
       - key: IMAGE_DAILY_LIMIT
         value: 5
+      # GIFs et stickers (clé gratuite sur https://partner.klipy.com) — sans clé, le bouton GIF/stickers affiche « bientôt disponible »
+      - key: KLIPY_API_KEY
+        sync: false
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY
