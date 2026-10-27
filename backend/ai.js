@@ -33,6 +33,10 @@ const RATE_WINDOW_MS = 60 * 60 * 1000; // fenêtre d'une heure pour les quotas (
 const VISION_MAX_BYTES = 5 * 1024 * 1024; // image analysée : 5 Mo maximum
 const VISION_MODELS = [...new Set([process.env.GEMINI_VISION_MODEL, 'gemini-2.5-flash', 'gemini-2.5-flash-lite'].filter(Boolean))];
 const GROQ_VISION_MODEL = process.env.GROQ_VISION_MODEL || 'meta-llama/llama-4-scout-17b-16e-instruct';
+// Cloudflare Workers AI (vision) : l'ID de compte est celui déjà utilisé pour R2 (R2_ACCOUNT_ID) ; le jeton est CLOUDFLARE_API_TOKEN (modèle « Workers AI »)
+const CF_VISION_MODEL = process.env.CLOUDFLARE_VISION_MODEL || '@cf/meta/llama-3.2-11b-vision-instruct';
+const cfAccountId = () => process.env.CLOUDFLARE_ACCOUNT_ID || process.env.R2_ACCOUNT_ID || '';
+const cfConfigured = () => !!(process.env.CLOUDFLARE_API_TOKEN && cfAccountId());
 const IMAGE_MAX_PROMPT = 400; // longueur max de la description
 const REPLY_DELAY_MS = 1200; // si le membre envoie plusieurs messages d'affilée, on répond une seule fois
 
@@ -469,7 +473,7 @@ async function imageReply(io, conversationId, userId, rawPrompt) {
 }
 
 // =====================================================================================
-// Vision : Kora regarde les images envoyées en discussion privée (Gemini)
+// Vision : Kora regarde les images envoyées en discussion privée (Cloudflare, puis Gemini, puis Groq)
 // =====================================================================================
 const VISION_SYSTEM = `${SYSTEM_PROMPT}
 
@@ -598,9 +602,74 @@ async function callGroqVision(model, system, history, caption, img) {
   }
 }
 
-/** Essaie Gemini (plusieurs modèles) puis Groq : le premier qui répond gagne. Chaque échec est écrit dans les logs Render. */
+/** Vision via Cloudflare Workers AI (API compatible OpenAI). Le modèle Llama 3.2 Vision demande d'accepter sa licence une fois : on le fait automatiquement. */
+let cfLicenseAccepted = false;
+async function cfAcceptLicense(model) {
+  const res = await fetch(`https://api.cloudflare.com/client/v4/accounts/${cfAccountId()}/ai/run/${model}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.CLOUDFLARE_API_TOKEN}` },
+    body: JSON.stringify({ prompt: 'agree' }),
+  });
+  const detail = (await res.text().catch(() => '')).slice(0, 200);
+  console.log(`Kora (vision) : licence du modèle Cloudflare acceptée (${res.status}) ${res.ok ? '' : detail}`);
+  cfLicenseAccepted = res.ok;
+  return res.ok;
+}
+
+async function callCloudflareVision(model, system, history, caption, img, retried = false, mergeSystem = false) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 40000);
+  try {
+    const sys = `${system}\n\nDate du jour : ${new Date().toLocaleDateString('fr-FR', { dateStyle: 'full' })}.`;
+    const textCaption = mergeSystem ? `${sys}\n\n---\n${caption}` : caption;
+    const messages = [
+      ...(mergeSystem ? [] : [{ role: 'system', content: sys }]),
+      ...history.map((h) => ({ role: h.role === 'model' ? 'assistant' : 'user', content: h.text })),
+      { role: 'user', content: [{ type: 'text', text: textCaption }, { type: 'image_url', image_url: { url: `data:${img.mime};base64,${img.data}` } }] },
+    ];
+    const res = await fetch(`https://api.cloudflare.com/client/v4/accounts/${cfAccountId()}/ai/v1/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.CLOUDFLARE_API_TOKEN}` },
+      body: JSON.stringify({ model, messages, max_tokens: 800, temperature: 0.8 }),
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      const detail = (await res.text().catch(() => '')).slice(0, 400);
+      // Licence Meta pas encore acceptée : on l'accepte une fois, puis on réessaie
+      if (!retried && !cfLicenseAccepted && /agree/i.test(detail)) {
+        clearTimeout(timer);
+        if (await cfAcceptLicense(model)) return callCloudflareVision(model, system, history, caption, img, true, mergeSystem);
+      }
+      // Certains modèles refusent un message « système » avec une image : on le fusionne dans le message du membre
+      if (!mergeSystem && res.status === 400) {
+        clearTimeout(timer);
+        return callCloudflareVision(model, system, history, caption, img, retried, true);
+      }
+      const err = new Error(`Cloudflare vision ${res.status} (${model}) : ${detail}`);
+      err.status = res.status;
+      throw err;
+    }
+    const data = await res.json();
+    const raw = data?.choices?.[0]?.message?.content ?? data?.result?.response ?? data?.response;
+    const text = sanitizeVisionText(raw);
+    if (!text) throw new Error(`Cloudflare vision (${model}) : réponse vide`);
+    return text;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Essaie Cloudflare, puis Gemini (plusieurs modèles), puis Groq : le premier qui répond gagne. Chaque échec est écrit dans les logs Render. */
 async function askVision({ system, history = [], caption, img }) {
   let lastErr = new Error('Aucun fournisseur de vision configuré');
+  if (cfConfigured() && img.mime !== 'image/heic' && img.mime !== 'image/heif') {
+    try {
+      return await callCloudflareVision(CF_VISION_MODEL, system, history, caption, img);
+    } catch (err) {
+      lastErr = err;
+      console.error('Kora (vision) :', err.message);
+    }
+  }
   if (process.env.GEMINI_API_KEY) {
     for (const model of VISION_MODELS) {
       try {
@@ -640,7 +709,7 @@ async function visionReply(io, conversationId, userId, { media_url, content }) {
       await say(io, conversationId, userId, "Tu m'as envoyé beaucoup d'images, je dois reposer mes yeux 😅 Reviens dans quelques minutes !");
       return;
     }
-    if (!process.env.GEMINI_API_KEY && !process.env.AI_API_KEY) {
+    if (!cfConfigured() && !process.env.GEMINI_API_KEY && !process.env.AI_API_KEY) {
       await say(io, conversationId, userId, "Je ne peux pas encore regarder les images, l'équipe de Kalchat finalise ça. Écris-moi en texte en attendant 😊");
       return;
     }

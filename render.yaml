@@ -25,6 +25,9 @@ services:
         sync: false
       - key: GEMINI_API_KEY
         sync: false
+      # Vision de Kora (elle regarde les images) via Cloudflare Workers AI — l'ID de compte est lu dans R2_ACCOUNT_ID
+      - key: CLOUDFLARE_API_TOKEN
+        sync: false
       - key: IMAGE_DAILY_LIMIT
         value: 5
       # GIFs et stickers (clé gratuite sur https://partner.klipy.com) — sans clé, le bouton GIF/stickers affiche « bientôt disponible »
